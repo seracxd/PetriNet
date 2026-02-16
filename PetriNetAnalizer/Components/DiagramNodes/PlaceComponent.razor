@@ -1,0 +1,102 @@
+﻿@using Blazor.Diagrams.Components.Renderers
+@using PetriNetAnalyzer.DiagramModels
+@implements IDisposable
+@inject DiagramStateService StateService
+
+<div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
+	 style="width: @(Node.Size.Width)px;
+            height: @(Node.Size.Height)px;
+            position: relative;
+            box-sizing: content-box;">
+
+	<svg width="@(Node.Size?.Width ?? 60)" height="@(Node.Size?.Height ?? 60)"
+		 style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+
+		<circle cx="@((Node.Size?.Width ?? 60) / 2)"
+				cy="@((Node.Size?.Height ?? 60) / 2)"
+				r="@(((Node.Size?.Width ?? 60) / 2) - 2)"
+				stroke="@(Node.Selected ? "#007bff" : "black")"
+				stroke-width="@(Node.Selected ? 3 : 2)"
+				fill="@(Node.Selected ? "#e3f2fd" : "white")"
+				style="@(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;" : "transition: all 0.2s;")" />
+
+		@if (PlaceModel?.Data?.Tokens > 0)
+		{
+			<g>
+				<text x="@((Node.Size?.Width ?? 60) / 2)"
+					  y="@((Node.Size?.Height ?? 60) / 2)"
+					  text-anchor="middle"
+					  dominant-baseline="central"
+					  font-weight="bold"
+					  style="user-select: none;">
+					@PlaceModel.Data.Tokens
+				</text>
+			</g>
+		}
+	</svg>
+
+	@foreach (var port in Node.Ports)
+	{
+		<div style="@GetPortStyle(port)" class="port-anchor">
+			<PortRenderer Port="port" />
+		</div>
+	}
+
+	<div class="node-title">
+		@Node.Title
+	</div>
+</div>
+
+@code {
+	[Parameter] 
+	public NodeModel Node { get; set; } = null!;
+	private PlaceNode? PlaceModel => Node as PlaceNode;
+
+	protected override void OnInitialized()
+	{
+		StateService.OnToolChanged += StateHasChanged;
+	}
+
+	public void Dispose()
+	{
+		StateService.OnToolChanged -= StateHasChanged;
+	}
+
+
+	private string GetPortStyle(PortModel port)
+	{
+		var index = Node.Ports.ToList().IndexOf(port);
+
+		string x = "50%";
+		string y = "50%";
+
+		switch (index)
+		{
+			case 0: x = "50%"; y = "3%"; break;   // 1. port Top
+			case 1: x = "82%"; y = "17%"; break;  // 2. port 45
+			case 2: x = "97%"; y = "50%"; break; // 3. port Right
+			case 3: x = "82%"; y = "82%"; break;  // 4. port 135 
+			case 4: x = "50%"; y = "97%"; break; // 5. port Bottom
+			case 5: x = "17%"; y = "83%"; break;  // 6. port 225
+			case 6: x = "3%"; y = "50%"; break;   // 7. port Left
+			case 7: x = "17%"; y = "17%"; break;  // 8. port 315
+
+			default:
+				x = port.Alignment switch
+				{
+					PortAlignment.Left => "0%",
+					PortAlignment.Right => "100%",
+					_ => "50%"
+				};
+				y = port.Alignment switch
+				{
+					PortAlignment.Top => "0%",
+					PortAlignment.Bottom => "100%",
+					_ => "50%"
+				};
+				break;
+		}
+
+		return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
+	}
+}

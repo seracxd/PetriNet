@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Analysis/Analysis.csproj" />
+  <Project Path="Core/Core.csproj" />
+  <Project Path="Infrastructure/Infrastructure.csproj" />
+  <Project Path="PetriNetAnalizer/PetriNetAnalyzer.csproj" />
+</Solution>

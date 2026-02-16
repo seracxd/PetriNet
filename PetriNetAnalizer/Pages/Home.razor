@@ -1,0 +1,69 @@
+﻿@page "/"
+@using Blazor.Diagrams.Core.Geometry
+@using Blazor.Diagrams.Core.Models.Base
+@using PetriNetAnalyzer.Services
+@implements IDisposable
+@inject DiagramStateService StateService
+
+<div class="editor-container">
+    <div class="toolbar">
+        <button class="btn @(ActiveTool == "place" ? "btn-primary" : "btn-outline-primary")" @onclick='() => SetTool("place")'>⚪ Add Place</button>
+        <button class="btn @(ActiveTool == "transition" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => SetTool("transition")'>🟦 Add Transition</button>
+        <button class="btn @(ActiveTool == "arc" ? "btn-warning" : "btn-outline-warning")" @onclick='() => SetTool("arc")'>↗️ Add Arc</button>
+    </div>
+
+    <div id="diagram-container" tabindex="0">
+        <CascadingValue Value="Manager.Diagram" IsFixed="true">
+            <DiagramCanvas />
+        </CascadingValue>
+    </div>
+</div>
+
+@code {
+    private PetriNetManager Manager { get; set; } = new();
+    private string ActiveTool = "";
+
+    protected override void OnInitialized()
+    {
+        Manager.Diagram.PointerDown += OnPointerDown;
+        Manager.Diagram.PointerDoubleClick += OnDoubleClick;
+        Manager.Diagram.KeyDown += OnKeyDown;
+    }
+
+    private void SetTool(string tool)
+    {
+        ActiveTool = ActiveTool == tool ? "" : tool;
+        var state = ActiveTool == "arc" ? DiagramStateService.ToolType.Arc : DiagramStateService.ToolType.Select;
+        StateService.SelectTool(state);
+    }
+
+    private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (model != null || string.IsNullOrEmpty(ActiveTool) || ActiveTool == "arc") return;
+
+        Manager.AddNodeAt(ActiveTool, new Point(e.ClientX, e.ClientY));
+        StateHasChanged();
+    }
+
+    private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        Manager.HandleDoubleClick(model, new Point(e.ClientX, e.ClientY));
+        StateHasChanged();
+    }
+
+    private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
+    {
+        if (e.Key == "Delete" || e.Key == "Backspace")
+        {
+            Manager.DeleteSelected();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        Manager.Diagram.PointerDown -= OnPointerDown;
+        Manager.Diagram.PointerDoubleClick -= OnDoubleClick;
+        Manager.Diagram.KeyDown -= OnKeyDown;
+    }
+}

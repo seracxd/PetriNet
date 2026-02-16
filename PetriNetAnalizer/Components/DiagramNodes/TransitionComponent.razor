@@ -1,0 +1,80 @@
+﻿@using Blazor.Diagrams.Components.Renderers
+@using Blazor.Diagrams.Core.Models
+@using PetriNetAnalyzer.DiagramModels
+@implements IDisposable
+@inject DiagramStateService StateService
+
+<div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
+     style="@($"width: {Node.Size.Width}px; height: {Node.Size.Height}px; position: relative;")">
+
+    <svg width="@Node.Size.Width" height="@Node.Size.Height"
+         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+        <rect x="0" y="0"
+              width="@Node.Size.Width"
+              height="@Node.Size.Height"
+              fill="@(Node.Selected ? "#e3f2fd" : "white")"
+              stroke="@(Node.Selected ? "#007bff" : "black")"
+              stroke-width="@(Node.Selected ? 3 : 2)"
+              style="@(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;" : "transition: all 0.2s;")" />
+    </svg>
+
+    @foreach (var port in Node.Ports)
+    {
+        <div style="@GetPortStyle(port)" class="port-anchor">
+            <PortRenderer Port="port" />
+        </div>
+    }
+
+    <div class="node-title">
+        @Node.Title
+    </div>
+</div>
+
+@code {
+    [Parameter] public NodeModel Node { get; set; } = null!;
+    private TransitionNode? TransitionModel => Node as TransitionNode;
+
+    protected override void OnInitialized()
+    {
+        StateService.OnToolChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        StateService.OnToolChanged -= StateHasChanged;
+    }
+
+    private string GetPortStyle(PortModel port)
+    {
+        var allPorts = Node.Ports.ToList();
+        var indexInAlignment = allPorts.Where(p => p.Alignment == port.Alignment).ToList().IndexOf(port);
+
+        string x = "50%";
+        string y = "50%";
+
+        switch (port.Alignment)
+        {
+            case PortAlignment.Left:
+                x = "0%";
+                y = indexInAlignment == 0 ? "25%" : indexInAlignment == 1 ? "50%" : "75%";
+                break;
+
+            case PortAlignment.Right:
+                x = "100%";
+                y = indexInAlignment == 0 ? "25%" : indexInAlignment == 1 ? "50%" : "75%";
+                break;
+
+            case PortAlignment.Top:
+                x = "50%";
+                y = "0%";
+                break;
+
+            case PortAlignment.Bottom:
+                x = "50%";
+                y = "100%";
+                break;
+        }
+
+        return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
+    }
+}

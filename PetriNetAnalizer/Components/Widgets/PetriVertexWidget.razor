@@ -1,0 +1,17 @@
+﻿@using Blazor.Diagrams.Components.Renderers
+@using Blazor.Diagrams.Core.Models
+
+<g class="petri-vertex">
+    <rect x="@(Vertex.Position.X - 4)"
+          y="@(Vertex.Position.Y - 4)"
+          width="8"
+          height="8"
+          fill="#ff8c00"
+          transform="rotate(45, @Vertex.Position.X, @Vertex.Position.Y)" />
+
+</g>
+
+@code {
+    [Parameter] public LinkVertexModel Vertex { get; set; } = null!;
+    [Parameter] public string Color { get; set; } = null!;
+}

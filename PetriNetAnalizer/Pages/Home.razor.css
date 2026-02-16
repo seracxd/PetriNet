@@ -1,0 +1,25 @@
+﻿.editor-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 10px;
+}
+
+.toolbar {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    gap: 15px;
+}
+
+#diagram-container {
+    flex: 1;
+    position: relative;
+    background-color: #ffffff;
+    min-height: 500px;
+    border: 1px solid #eee;
+}
