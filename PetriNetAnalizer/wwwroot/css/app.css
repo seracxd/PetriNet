@@ -114,18 +114,9 @@ code {
     text-align: start;
 }
 
-.diagram-link .diagram-link-vertex {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-}
 
-.diagram-link:hover .diagram-link-vertex {
-    opacity: 1;
-    pointer-events: all;
-}
 
-.ArrowHeadControl path {
+.PetriArrowControl path {
     fill: #ff8c00 !important;
     stroke: #ff8c00 !important;
 }

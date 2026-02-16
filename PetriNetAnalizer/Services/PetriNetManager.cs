@@ -41,6 +41,19 @@ public class PetriNetManager : IDisposable
 
         Diagram.Links.Added += OnLinkAdded;
 
+        Diagram.PointerDown += (model, args) =>
+        {
+            if (model is LinkModel link)
+            {
+                Diagram.SelectModel(link, true);
+                link.Refresh();
+            }
+            else if (model is LinkVertexModel vertex && vertex.Parent is LinkModel parentLink)
+            {
+                Diagram.SelectModel(parentLink, true);
+                parentLink.Refresh();
+            }
+        };     
     }
 
     private void OnLinkAdded(BaseLinkModel baseLink)
@@ -54,8 +67,8 @@ public class PetriNetManager : IDisposable
 
         var diamondMarker = new LinkMarker("M 7.6569 -5.6569 L 13.3137 0 L 7.6569 5.6569 L 2 0 Z", 11.31370000001);
         Diagram.Controls.AddFor(link)
-        .Add(new ArrowHeadControl(source: true, marker: diamondMarker))
-        .Add(new ArrowHeadControl(source: false, marker: diamondMarker));
+        .Add(new PetriArrowControl(source: true, marker: diamondMarker))
+        .Add(new PetriArrowControl(source: false, marker: diamondMarker));
     }
 
     private void CheckPetriRule(LinkModel link)
@@ -101,12 +114,13 @@ public class PetriNetManager : IDisposable
             return null!;
         }
 
-        var link =  new LinkModel(sourceAnchor, targetAnchor)
+        var link = new LinkModel(sourceAnchor, targetAnchor)
         {
             Segmentable = false,
             TargetMarker = LinkMarker.Arrow,
             Color = "black",
             SelectedColor = "#007bff",
+             
         };
 
         return link;

@@ -1,17 +1,47 @@
 ﻿@using Blazor.Diagrams.Components.Renderers
 @using Blazor.Diagrams.Core.Models
+@implements IDisposable
 
-<g class="petri-vertex">
-    <rect x="@(Vertex.Position.X - 4)"
-          y="@(Vertex.Position.Y - 4)"
-          width="8"
-          height="8"
-          fill="#ff8c00"
-          transform="rotate(45, @Vertex.Position.X, @Vertex.Position.Y)" />
 
-</g>
+@if (Vertex.Parent.Selected || Vertex.Selected)
+{
+    <g class="petri-vertex">
+        <rect x="@(Vertex.Position.X - 4)"
+        y="@(Vertex.Position.Y - 4)"
+        width="8"
+        height="8"
+        fill="#ff8c00"
+        transform="rotate(45, @Vertex.Position.X, @Vertex.Position.Y)" />
+
+    </g>
+}
 
 @code {
     [Parameter] public LinkVertexModel Vertex { get; set; } = null!;
     [Parameter] public string Color { get; set; } = null!;
+
+    protected override void OnInitialized()
+    {
+        Vertex.Parent.Changed += OnParentChanged;
+        Vertex.Changed += OnParentChanged;
+
+        if (Vertex.Parent.Selected || Vertex.Selected)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private void OnParentChanged(Blazor.Diagrams.Core.Models.Base.Model model)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        if (Vertex?.Parent != null)
+        {
+            if (Vertex.Parent != null) Vertex.Parent.Changed -= OnParentChanged;
+            Vertex.Changed -= OnParentChanged;
+        }
+    }
 }
