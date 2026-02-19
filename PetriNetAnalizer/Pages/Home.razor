@@ -1,69 +1,233 @@
 ﻿@page "/"
 @using Blazor.Diagrams.Core.Geometry
 @using Blazor.Diagrams.Core.Models.Base
+@using PetriNetAnalyzer.DiagramModels
 @using PetriNetAnalyzer.Services
 @implements IDisposable
 @inject DiagramStateService StateService
 
-<div class="editor-container">
-    <div class="toolbar">
-        <button class="btn @(ActiveTool == "place" ? "btn-primary" : "btn-outline-primary")" @onclick='() => SetTool("place")'>⚪ Add Place</button>
-        <button class="btn @(ActiveTool == "transition" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => SetTool("transition")'>🟦 Add Transition</button>
-        <button class="btn @(ActiveTool == "arc" ? "btn-warning" : "btn-outline-warning")" @onclick='() => SetTool("arc")'>↗️ Add Arc</button>
-    </div>
+<div class="app-frame">
 
-    <div id="diagram-container" tabindex="0">
-        <CascadingValue Value="Manager.Diagram" IsFixed="true">
-            <DiagramCanvas />
-        </CascadingValue>
-    </div>
+	<div class="app-container">
+
+		<!-- Top bar -->
+		<div class="topbar">
+			<div class="topbar-title">Net Model</div>
+		</div>
+
+		<!-- Main content area -->
+		<div class="content-wrapper">
+
+			<!-- Sidebar -->
+			<div class="sidebar">
+				<div class="sidebar-title">Tools</div>
+				<div class="sidebar-divider"></div>
+
+				<button class="tool-btn @(ActiveTool == "select" ? "active" : "")"
+						@onclick='() => SetTool("select")'>
+					🖱
+				</button>
+
+				<button class="tool-btn @(ActiveTool == "place" ? "active" : "")"
+						@onclick='() => SetTool("place")'>
+					⚪
+				</button>
+
+				<button class="tool-btn @(ActiveTool == "transition" ? "active" : "")"
+						@onclick='() => SetTool("transition")'>
+					▮
+				</button>
+
+				<button class="tool-btn @(ActiveTool == "arc" ? "active" : "")"
+						@onclick='() => SetTool("arc")'>
+					↗
+				</button>
+
+				<!-- Properties panel -->
+				<div class="sidebar-section-title">Properties</div>
+				<div class="sidebar-divider"></div>
+
+				<div class="properties-panel">
+					@if (SelectedModel is PlaceNode p)
+					{
+						<!-- Place properties -->
+						<div class="prop-field">
+							<div class="prop-label">Name *</div>
+							<input class="prop-input"
+								   @bind-value="p.Data.Name"
+								   @bind-value:event="oninput"
+								   @bind-value:after="() => UpdateDiagram(p)" />
+
+						</div>
+
+						<div class="prop-field">
+							<div class="prop-label">Tokens *</div>
+							<input class="prop-input"
+								   type="number"
+								   @bind-value="p.Data.Tokens"
+								   @bind-value:event="oninput"
+								   @bind-value:after="() => UpdateDiagram(p)" />
+
+						</div>
+					}
+					else if (SelectedModel is TransitionNode t)
+					{
+						<!-- Transition properties -->
+						<div class="prop-field">
+							<div class="prop-label">Name *</div>
+							<input class="prop-input"
+								   @bind-value="t.Data.Name"
+								   @bind-value:event="oninput"
+								   @bind-value:after="() => UpdateDiagram(t)" />
+
+						</div>
+					}
+					else if (SelectedModel is PetriLinkModel a)
+					{
+						<!-- Arc properties -->
+						<div class="prop-field">
+							<div class="prop-label">Weight *</div>
+							<input class="prop-input"
+								   type="number"
+								   @bind-value="a.Weight"
+								   @bind-value:event="oninput"
+								   @bind-value:after="() => UpdateDiagram(a)" />
+
+						</div>
+					}
+
+					else
+					{
+						<div class="prop-empty">
+							<!-- Unknown selection type -->
+							No editable properties for this element.
+						</div>
+					}
+				</div>
+
+			</div>
+
+			<!-- Diagram -->
+			<div id="diagram-container" tabindex="0">
+				<CascadingValue Value="Manager.Diagram" IsFixed="true">
+					<DiagramCanvas />
+				</CascadingValue>
+			</div>
+
+		</div>
+
+	</div>
+
 </div>
 
+
+
 @code {
-    private PetriNetManager Manager { get; set; } = new();
-    private string ActiveTool = "";
+	private PetriNetManager Manager { get; set; } = new();
+	private string ActiveTool = "";
+	private Model? SelectedModel { get; set; }
 
-    protected override void OnInitialized()
-    {
-        Manager.Diagram.PointerDown += OnPointerDown;
-        Manager.Diagram.PointerDoubleClick += OnDoubleClick;
-        Manager.Diagram.KeyDown += OnKeyDown;
-    }
+	protected override void OnInitialized()
+	{
+		Manager.Diagram.PointerDown += OnPointerDown;
+		Manager.Diagram.PointerDoubleClick += OnDoubleClick;
+		Manager.Diagram.KeyDown += OnKeyDown;
+		Manager.Diagram.SelectionChanged += OnSelectionChanged;
+	}
 
-    private void SetTool(string tool)
-    {
-        ActiveTool = ActiveTool == tool ? "" : tool;
-        var state = ActiveTool == "arc" ? DiagramStateService.ToolType.Arc : DiagramStateService.ToolType.Select;
-        StateService.SelectTool(state);
-    }
+	private void OnSelectionChanged(SelectableModel _)
+	{
+		SelectedModel = Manager.Diagram.GetSelectedModels().FirstOrDefault();
+		InvokeAsync(StateHasChanged);
+	}
 
-    private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
-    {
-        if (model != null || string.IsNullOrEmpty(ActiveTool) || ActiveTool == "arc") return;
+	private void SetTool(string tool)
+	{
+		ActiveTool = ActiveTool == tool ? "" : tool;
+		var state = ActiveTool == "arc" ? DiagramStateService.ToolType.Arc : DiagramStateService.ToolType.Select;
+		StateService.SelectTool(state);
+	}
 
-        Manager.AddNodeAt(ActiveTool, new Point(e.ClientX, e.ClientY));
-        StateHasChanged();
-    }
+	private void UpdateDiagram(Model? model = null)
+	{
+		// Keep rendered text in sync with edited data
+		SyncRenderedText(model);
 
-    private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
-    {
-        Manager.HandleDoubleClick(model, new Point(e.ClientX, e.ClientY));
-        StateHasChanged();
-    }
+		// Notify Blazor.Diagrams that the specific model changed
+		if (model is NodeModel node)
+			node.Refresh();
+		else if (model is LinkModel link)
+			link.Refresh();
 
-    private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
-    {
-        if (e.Key == "Delete" || e.Key == "Backspace")
-        {
-            Manager.DeleteSelected();
-            InvokeAsync(StateHasChanged);
-        }
-    }
+		// Fallback refresh (optional, but harmless)
+		Manager.Diagram.Refresh();
 
-    public void Dispose()
-    {
-        Manager.Diagram.PointerDown -= OnPointerDown;
-        Manager.Diagram.PointerDoubleClick -= OnDoubleClick;
-        Manager.Diagram.KeyDown -= OnKeyDown;
-    }
+		InvokeAsync(StateHasChanged);
+	}
+
+
+	private void SyncRenderedText(Model? model)
+	{
+		// If your node renderer uses Label/Title instead of Data.Name, keep it in sync here.
+		if (model is PlaceNode p)
+		{
+			// Example: if your node widget shows p.Title or p.Label, update it here
+			 p.Title = p.Data.Name;
+		}
+		else if (model is TransitionNode t)
+		{
+			 t.Title = t.Data.Name;
+		}
+	}
+
+	private void Update(Action apply)
+	{
+		apply();
+
+		// Keep diagram visuals in sync (labels, badges, etc.)
+		Manager.Diagram.Refresh();
+		StateHasChanged();
+	}
+	private int ParseInt(object? raw, int fallback)
+	{
+		var s = raw?.ToString();
+		return int.TryParse(s, out var v) ? v : fallback;
+	}
+
+	private void SaveChanges()
+	{
+		// TODO: Persist changes to your store/service if needed
+		// Example: StateService.Save(Manager.Export());
+	}
+
+	private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+	{
+		if (model != null || string.IsNullOrEmpty(ActiveTool) || ActiveTool == "arc") return;
+
+		Manager.AddNodeAt(ActiveTool, new Point(e.ClientX, e.ClientY));
+		StateHasChanged();
+	}
+
+	private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+	{
+		Manager.HandleDoubleClick(model, new Point(e.ClientX, e.ClientY));
+		StateHasChanged();
+	}
+
+	private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
+	{
+		if (e.Key == "Delete" || e.Key == "Backspace")
+		{
+			Manager.DeleteSelected();
+			InvokeAsync(StateHasChanged);
+		}
+	}
+
+	public void Dispose()
+	{
+		Manager.Diagram.PointerDown -= OnPointerDown;
+		Manager.Diagram.PointerDoubleClick -= OnDoubleClick;
+		Manager.Diagram.KeyDown -= OnKeyDown;
+		Manager.Diagram.SelectionChanged -= OnSelectionChanged;
+	}
 }

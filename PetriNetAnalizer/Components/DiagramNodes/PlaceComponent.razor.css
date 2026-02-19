@@ -1,12 +1,16 @@
 ﻿.node-title {
     position: absolute;
     bottom: -25px;
-    width: 100%;
+    left: 50%;
+    transform: translateX(-50%);
     text-align: center;
     white-space: nowrap;
     user-select: none;
+    font-size: 15px !important;
+    pointer-events: none; /* prevents the label from blocking clicks */
 }
 
+/* Base port styling */
 ::deep .diagram-port {
     position: absolute !important;
     top: 0 !important;
@@ -19,7 +23,8 @@
     transform: translate(-50%, -50%);
     cursor: crosshair;
     opacity: 0;
-    transition: opacity 0.2s ease-in-out; 
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out, transform 0.15s ease-in-out;
 }
 
 .port-anchor {
@@ -30,27 +35,14 @@
 }
 
 
-.petri-node ::deep .diagram-port {
-    opacity: 0;
-    transition: opacity 0.15s ease-in-out;
-    pointer-events: none; 
-}
-
+/* Show ports only when arc tool is active and node is hovered */
 .petri-node.arc-tool-active:hover ::deep .diagram-port {
     opacity: 1;
     pointer-events: all;
 }
 
+/* Hover styling */
 ::deep .diagram-port:hover {
     background-color: #f38600 !important;
     transform: translate(-50%, -50%) scale(1.6) !important;
-}
-
-.node-title {
-    position: absolute;
-    bottom: -20px;
-    width: 100%;
-    text-align: center;
-    font-size: 12px;
-    user-select: none;
 }

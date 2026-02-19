@@ -4,7 +4,6 @@ using Blazor.Diagrams.Core.Controls.Default;
 using Blazor.Diagrams.Core.Events;
 using Blazor.Diagrams.Core.Models;
 using Blazor.Diagrams.Core.Models.Base;
-using Blazor.Diagrams.Core.Geometry;
 
 namespace PetriNetAnalyzer.DiagramModels
 {
@@ -19,21 +18,25 @@ namespace PetriNetAnalyzer.DiagramModels
 
         public override async ValueTask OnPointerDown(Diagram diagram, Model model, PointerEventArgs e)
         {
-            if (model is not LinkModel link) return;
+            if (model is not PetriLinkModel link) return;
 
-            if (Source && link.Vertices.Count > 0)
+            if (Source)
             {
-                var reversedVertices = link.Vertices.AsEnumerable().Reverse().ToList();
+                link.IsAdjustingSource = true;
 
-                link.Vertices.Clear();
-                foreach (var v in reversedVertices)
+                if (link.Vertices.Count > 0)
                 {
-                    link.Vertices.Add(v);
+                    var reversed = link.Vertices.AsEnumerable().Reverse().ToList();
+                    link.Vertices.Clear();
+                    foreach (var v in reversed) link.Vertices.Add(v);
                 }
+            }
+            else
+            {
+                link.IsAdjustingSource = false;
             }
 
             await base.OnPointerDown(diagram, model, e);
-            link.Refresh();
         }
     }
 }

@@ -22,16 +22,32 @@
 
 		@if (PlaceModel?.Data?.Tokens > 0)
 		{
-			<g>
-				<text x="@((Node.Size?.Width ?? 60) / 2)"
-					  y="@((Node.Size?.Height ?? 60) / 2)"
-					  text-anchor="middle"
-					  dominant-baseline="central"
-					  font-weight="bold"
-					  style="user-select: none;">
-					@PlaceModel.Data.Tokens
-				</text>
-			</g>
+			var tokens = PlaceModel.Data.Tokens;
+			var centerX = (Node.Size?.Width ?? 60) / 2;
+			var centerY = (Node.Size?.Height ?? 60) / 2;
+
+			@if (tokens <= 5)
+			{
+				<g fill="black">
+					@foreach (var pos in GetTokenPositions(tokens, centerX, centerY))
+					{
+						<circle cx="@pos.X" cy="@pos.Y" r="6" />
+					}
+				</g>
+			}
+			else
+			{
+				<g>
+					<text x="@centerX"
+						  y="@centerY"
+						  text-anchor="middle"
+						  dominant-baseline="central"
+						  font-weight="bolder"
+						  style="user-select: none; font-size: 15px;">
+						@tokens
+					</text>
+				</g>
+			}
 		}
 	</svg>
 
@@ -98,5 +114,32 @@
 		}
 
 		return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
+	}
+
+	private IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
+	{
+		double offset = 12;
+		double orbitRadius = 12;
+		double startAngle = -Math.PI / 2; 
+
+		switch (count)
+		{
+			case 1:
+				return new[] { (cx, cy) };
+
+			case 2:
+				return new[] { (cx - offset, cy), (cx + offset, cy) };
+
+			default:
+				var positions = new List<(double, double)>();
+				for (int i = 0; i < count; i++)
+				{
+					double angle = startAngle + (i * 2 * Math.PI / count);
+					double x = cx + orbitRadius * Math.Cos(angle);
+					double y = cy + orbitRadius * Math.Sin(angle);
+					positions.Add((x, y));
+				}
+				return positions;
+		}
 	}
 }

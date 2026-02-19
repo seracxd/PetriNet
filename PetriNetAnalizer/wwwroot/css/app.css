@@ -114,9 +114,11 @@ code {
     text-align: start;
 }
 
-
-
 .PetriArrowControl path {
     fill: #ff8c00 !important;
     stroke: #ff8c00 !important;
+}
+
+.diagram-link {
+    z-index: 10000;
 }

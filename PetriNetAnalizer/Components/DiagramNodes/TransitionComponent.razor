@@ -8,15 +8,17 @@
      style="@($"width: {Node.Size.Width}px; height: {Node.Size.Height}px; position: relative;")">
 
     <svg width="@Node.Size.Width" height="@Node.Size.Height"
-         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
+            @(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" : "")">
         <rect x="0" y="0"
               width="@Node.Size.Width"
               height="@Node.Size.Height"
               fill="@(Node.Selected ? "#e3f2fd" : "white")"
               stroke="@(Node.Selected ? "#007bff" : "black")"
               stroke-width="@(Node.Selected ? 3 : 2)"
-              style="@(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;" : "transition: all 0.2s;")" />
+              style="transition: all 0.2s;" />
     </svg>
+
 
     @foreach (var port in Node.Ports)
     {

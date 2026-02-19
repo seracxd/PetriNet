@@ -19,6 +19,9 @@ public class PetriNetManager : IDisposable
 {
     public BlazorDiagram Diagram { get; private set; }
 
+    private int _placeCounter = 1;
+    private int _transitionCounter = 1;
+
     public PetriNetManager()
     {
         var options = new BlazorDiagramOptions
@@ -29,8 +32,7 @@ public class PetriNetManager : IDisposable
                 DefaultRouter = new NormalRouter(),
                 DefaultPathGenerator = new StraightPathGenerator(radius: 20),
                 Factory = LinkFactory,
-                SnappingRadius = 3,
-                
+                SnappingRadius = 3,            
             }
         };
 
@@ -43,6 +45,7 @@ public class PetriNetManager : IDisposable
 
         Diagram.PointerDown += (model, args) =>
         {
+
             if (model is LinkModel link)
             {
                 Diagram.SelectModel(link, true);
@@ -53,7 +56,7 @@ public class PetriNetManager : IDisposable
                 Diagram.SelectModel(parentLink, true);
                 parentLink.Refresh();
             }
-        };     
+        };
     }
 
     private void OnLinkAdded(BaseLinkModel baseLink)
@@ -69,8 +72,46 @@ public class PetriNetManager : IDisposable
         Diagram.Controls.AddFor(link)
         .Add(new PetriArrowControl(source: true, marker: diamondMarker))
         .Add(new PetriArrowControl(source: false, marker: diamondMarker));
+
+        link.TargetAttached += async (m) =>
+        {
+            await Task.Yield();
+            NormalizePetriLink(link);
+        };
+
+    }
+    private void NormalizePetriLink(LinkModel link)
+    {
+        if (link is not PetriLinkModel petriLink) return;
+
+        if (link.Source is SinglePortAnchor s && link.Target is SinglePortAnchor t)
+        {
+            if (petriLink.IsAdjustingSource)
+            {
+                ReverseLinkCompletely(petriLink);
+
+                petriLink.IsAdjustingSource = false;
+            }
+        }
     }
 
+    private void ReverseLinkCompletely(LinkModel link)
+    {
+        var s = link.Source;
+        var t = link.Target;
+
+        link.SetSource(t);
+        link.SetTarget(s);
+
+        if (link.Vertices.Count > 0)
+        {
+            var rev = link.Vertices.AsEnumerable().Reverse().ToList();
+            link.Vertices.Clear();
+            foreach (var v in rev) link.Vertices.Add(v);
+        }
+
+        link.Refresh();
+    }
     private void CheckPetriRule(LinkModel link)
     {
         if (link.Target.Model == null) return;
@@ -81,6 +122,27 @@ public class PetriNetManager : IDisposable
         if (sourceNode == null || targetNode == null) return;
 
         if (sourceNode.GetType() == targetNode.GetType())
+        {
+            Diagram.Links.Remove(link);
+        }
+
+        if (sourceNode.GetType() == targetNode.GetType())
+        {
+            Diagram.Links.Remove(link);
+            return; 
+        }
+
+        var duplicateExists = Diagram.Links
+            .OfType<LinkModel>()
+            .Any(otherLink =>
+                otherLink != link && 
+                GetParentNode(otherLink.Source) == sourceNode &&
+                GetParentNode(otherLink.Target) == targetNode);
+
+
+        if (link is not PetriLinkModel petriLink) return;
+
+        if (duplicateExists && !petriLink.IsAdjustingSource)
         {
             Diagram.Links.Remove(link);
         }
@@ -114,13 +176,13 @@ public class PetriNetManager : IDisposable
             return null!;
         }
 
-        var link = new LinkModel(sourceAnchor, targetAnchor)
+        var link = new PetriLinkModel(sourceAnchor, targetAnchor)
         {
             Segmentable = false,
             TargetMarker = LinkMarker.Arrow,
             Color = "black",
             SelectedColor = "#007bff",
-             
+
         };
 
         return link;
@@ -131,8 +193,8 @@ public class PetriNetManager : IDisposable
         var point = Diagram.GetRelativeMousePoint(clientPoint.X, clientPoint.Y);
         NodeModel? newNode = type switch
         {
-            "place" => new PlaceNode(new Place { Name = $"P{Diagram.Nodes.Count + 1}" }),
-            "transition" => new TransitionNode(new Transition { Name = $"T{Diagram.Nodes.Count + 1}" }),
+            "place" => new PlaceNode(new Place { Name = $"P{_placeCounter++}" }),
+            "transition" => new TransitionNode(new Transition { Name = $"T{_transitionCounter++}" }),
             _ => null
         };
 

@@ -1,25 +1,184 @@
-﻿.editor-container {
+﻿/* =========================
+   Page + App Frame
+   ========================= */
+
+/* Page background (outer color) */
+body {
+    margin: 0;
+    background-color: #009688;
+}
+
+/* Thin white frame around the whole app */
+.app-frame {
+    padding: 6px; /* frame thickness */
+    background: #ffffff;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+/* Main vertical layout (topbar + content) */
+.app-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 120px);
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    overflow: hidden;
-    margin: 10px;
+    height: calc(100vh - 12px); /* 2 * app-frame padding */
+    background: #f4f4f4;
+    box-sizing: border-box;
 }
 
-.toolbar {
-    background-color: #f8f9fa;
-    padding: 15px;
-    border-bottom: 1px solid #dee2e6;
+/* =========================
+   Top Bar
+   ========================= */
+
+.topbar {
+    height: 60px;
+    background-color: #009688;
+    color: #ffffff;
     display: flex;
-    gap: 15px;
+    align-items: center;
+    padding: 0 24px;
+    box-sizing: border-box;
 }
 
+.topbar-title {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+/* =========================
+   Main Content Layout
+   ========================= */
+
+/* Horizontal layout under topbar */
+.content-wrapper {
+    flex: 1;
+    display: flex;
+    gap: 12px; /* gap between sidebar and diagram */
+    padding-top: 8px; /* gap between topbar and sidebar */
+    box-sizing: border-box;
+}
+
+/* Diagram surface */
 #diagram-container {
     flex: 1;
     position: relative;
-    background-color: #ffffff;
-    min-height: 500px;
-    border: 1px solid #eee;
+    background: #ffffff;
+    box-sizing: border-box;
+}
+
+/* =========================
+   Sidebar
+   ========================= */
+
+.sidebar {
+    width: 260px;
+    background: #ffffff;
+    border-right: 2px solid #cfcfcf;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px; /* spacing between tool buttons */
+    padding: 20px;
+    align-content: start;
+    box-sizing: border-box;
+}
+
+.sidebar-title,
+.sidebar-section-title {
+    font-size: 22px; 
+    font-weight: 600;
+    color: #666;
+}
+
+/* Horizontal divider */
+.sidebar-divider {
+    grid-column: span 2;
+    height: 1px;
+    background-color: #e5e5e5;
+}
+
+/* =========================
+   Tool Buttons
+   ========================= */
+
+.tool-btn {
+    aspect-ratio: 1 / 1; /* square buttons */
+    width: 80%;
+    margin: auto;
+    border: none;
+    background: #ffffff;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 22px;
+    /* Soft shadow around the button */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08), 0 6px 18px rgba(0,0,0,0.10);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+    .tool-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.10), 0 10px 24px rgba(0,0,0,0.12);
+    }
+
+    .tool-btn.active {
+        background-color: #ff4081;
+        color: #ffffff;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.14), 0 16px 32px rgba(0,0,0,0.16);
+    }
+
+/* =========================
+   Properties Panel
+   ========================= */
+
+.properties-panel {
+    grid-column: span 2;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-top: 8px;
+    box-sizing: border-box;
+}
+
+.prop-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+
+/* Properties label */
+.prop-label {
+    font-size: 12px;
+    color: #777;
+}
+
+/* Large value input style like the screenshot */
+.prop-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 18px;
+    padding: 6px 0;
+    border-bottom: 2px solid #e0e0e0;
+    box-sizing: border-box;
+}
+
+.prop-empty {
+    color: #888;
+    font-size: 14px;
+    line-height: 1.4;
+    padding: 6px 0;
+}
+
+/* Save action */
+.save-btn {
+    grid-column: span 2;
+    margin-top: 22px;
+    border: none;
+    background: transparent;
+    color: #009688;
+    font-weight: 600;
+    font-size: 20px;
+    cursor: pointer;
+    text-align: left;
+    padding: 10px 0;
 }
