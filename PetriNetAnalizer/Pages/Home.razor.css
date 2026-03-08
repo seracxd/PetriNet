@@ -11,7 +11,7 @@ body {
 /* Thin white frame around the whole app */
 .app-frame {
     padding: 6px; /* frame thickness */
-    background: #ffffff;
+    background: #f4f4f4;
     min-height: 100vh;
     box-sizing: border-box;
 }
@@ -99,20 +99,28 @@ body {
 /* =========================
    Tool Buttons
    ========================= */
-
 .tool-btn {
-    aspect-ratio: 1 / 1; /* square buttons */
-    width: 80%;
+    /* Fixed, consistent size (smaller) */
+    width: 76px;
+    height: 76px;
+    /* Keep it centered inside the grid cell */
     margin: auto;
+    /* Square fallback (optional) */
+    aspect-ratio: 1 / 1;
     border: none;
     background: #ffffff;
-    border-radius: 10px;
+    border-radius: 12px;
     cursor: pointer;
     font-size: 22px;
     /* Soft shadow around the button */
     box-shadow: 0 2px 4px rgba(0,0,0,0.08), 0 6px 18px rgba(0,0,0,0.10);
     transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    /* Ensure icon is centered */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
+
 
     .tool-btn:hover {
         transform: translateY(-2px);

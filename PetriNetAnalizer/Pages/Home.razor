@@ -95,7 +95,6 @@
 
 						</div>
 					}
-
 					else
 					{
 						<div class="prop-empty">
@@ -156,10 +155,12 @@
 		// Notify Blazor.Diagrams that the specific model changed
 		if (model is NodeModel node)
 			node.Refresh();
-		else if (model is LinkModel link)
+		else if (model is PetriLinkModel link)
+		{
 			link.Refresh();
+		}
+		
 
-		// Fallback refresh (optional, but harmless)
 		Manager.Diagram.Refresh();
 
 		InvokeAsync(StateHasChanged);

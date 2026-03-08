@@ -122,3 +122,14 @@ code {
 .diagram-link {
     z-index: 10000;
 }
+
+.petri-weight {
+    font-size: 18px;
+    user-select: none;
+    cursor: grab;
+    pointer-events: all;   
+}
+
+    .petri-weight:active {
+        cursor: grabbing;
+    }

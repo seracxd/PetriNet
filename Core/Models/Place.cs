@@ -6,7 +6,7 @@ namespace Core.Models
 {
     public class Place : PetriNetNode
     {
-        public int Tokens { get; set; } = 1;
+        public int Tokens { get; set; } = 0;
 
         public Place()
         {

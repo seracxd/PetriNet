@@ -21,9 +21,6 @@
 
   <ItemGroup>
     <None Include="wwwroot\css\app.css" />
-    <None Include="wwwroot\favicon.png" />
-    <None Include="wwwroot\icon-192.png" />
-    <None Include="wwwroot\icon-512.png" />
     <None Include="wwwroot\index.html" />
     <None Include="wwwroot\lib\bootstrap\dist\css\bootstrap-grid.css" />
     <None Include="wwwroot\lib\bootstrap\dist\css\bootstrap-grid.css.map" />

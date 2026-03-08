@@ -2,6 +2,7 @@
 using Blazor.Diagrams.Core;
 using Blazor.Diagrams.Core.Anchors;
 using Blazor.Diagrams.Core.Controls.Default;
+using Blazor.Diagrams.Core.Events;
 using Blazor.Diagrams.Core.Geometry;
 using Blazor.Diagrams.Core.Models;
 using Blazor.Diagrams.Core.Models.Base;
@@ -32,7 +33,7 @@ public class PetriNetManager : IDisposable
                 DefaultRouter = new NormalRouter(),
                 DefaultPathGenerator = new StraightPathGenerator(radius: 20),
                 Factory = LinkFactory,
-                SnappingRadius = 3,            
+                SnappingRadius = 3,
             }
         };
 
@@ -40,30 +41,17 @@ public class PetriNetManager : IDisposable
         Diagram.RegisterComponent<PlaceNode, PlaceComponent>();
         Diagram.RegisterComponent<TransitionNode, TransitionComponent>();
         Diagram.RegisterComponent<PetriVertexModel, PetriVertexWidget>();
+        Diagram.RegisterComponent<PetriWeightControl, PetriWeightControlWidget>();
 
         Diagram.Links.Added += OnLinkAdded;
 
-        Diagram.PointerDown += (model, args) =>
-        {
-
-            if (model is LinkModel link)
-            {
-                Diagram.SelectModel(link, true);
-                link.Refresh();
-            }
-            else if (model is LinkVertexModel vertex && vertex.Parent is LinkModel parentLink)
-            {
-                Diagram.SelectModel(parentLink, true);
-                parentLink.Refresh();
-            }
-        };
     }
 
     private void OnLinkAdded(BaseLinkModel baseLink)
     {
-        if (baseLink is not LinkModel link) return;
+        if (baseLink is not PetriLinkModel link) return;
 
-        link.TargetChanged += (l, oldAnchor, newAnchor) =>
+        link.TargetChanged += (l, _, _) =>
         {
             CheckPetriRule((LinkModel)l);
         };
@@ -71,10 +59,11 @@ public class PetriNetManager : IDisposable
         var diamondMarker = new LinkMarker("M 7.6569 -5.6569 L 13.3137 0 L 7.6569 5.6569 L 2 0 Z", 11.31370000001);
         Diagram.Controls.AddFor(link)
         .Add(new PetriArrowControl(source: true, marker: diamondMarker))
-        .Add(new PetriArrowControl(source: false, marker: diamondMarker));
+        .Add(new PetriArrowControl(source: false, marker: diamondMarker))
+        .Add(new PetriWeightControl());
 
         link.TargetAttached += async (m) =>
-        {
+    {
             await Task.Yield();
             NormalizePetriLink(link);
         };
@@ -91,27 +80,27 @@ public class PetriNetManager : IDisposable
                 ReverseLinkCompletely(petriLink);
 
                 petriLink.IsAdjustingSource = false;
-            }
+    }
         }
     }
 
     private void ReverseLinkCompletely(LinkModel link)
-    {
-        var s = link.Source;
-        var t = link.Target;
-
-        link.SetSource(t);
-        link.SetTarget(s);
-
-        if (link.Vertices.Count > 0)
         {
-            var rev = link.Vertices.AsEnumerable().Reverse().ToList();
-            link.Vertices.Clear();
-            foreach (var v in rev) link.Vertices.Add(v);
-        }
+            var s = link.Source;
+            var t = link.Target;
 
-        link.Refresh();
-    }
+            link.SetSource(t);
+            link.SetTarget(s);
+
+            if (link.Vertices.Count > 0)
+            {
+            var rev = link.Vertices.AsEnumerable().Reverse().ToList();
+                link.Vertices.Clear();
+            foreach (var v in rev) link.Vertices.Add(v);
+            }
+
+            link.Refresh();
+        }
     private void CheckPetriRule(LinkModel link)
     {
         if (link.Target.Model == null) return;
@@ -129,13 +118,13 @@ public class PetriNetManager : IDisposable
         if (sourceNode.GetType() == targetNode.GetType())
         {
             Diagram.Links.Remove(link);
-            return; 
+            return;
         }
 
         var duplicateExists = Diagram.Links
             .OfType<LinkModel>()
             .Any(otherLink =>
-                otherLink != link && 
+                otherLink != link &&
                 GetParentNode(otherLink.Source) == sourceNode &&
                 GetParentNode(otherLink.Target) == targetNode);
 
@@ -182,6 +171,7 @@ public class PetriNetManager : IDisposable
             TargetMarker = LinkMarker.Arrow,
             Color = "black",
             SelectedColor = "#007bff",
+            
 
         };
 
@@ -225,7 +215,7 @@ public class PetriNetManager : IDisposable
 
     public void HandleDoubleClick(Model? model, Point clientPoint)
     {
-        if (model is LinkModel link)
+        if (model is PetriLinkModel link)
         {
             var relPoint = Diagram.GetRelativeMousePoint(clientPoint.X, clientPoint.Y);
             var points = GetFullLinkPoints(link, relPoint);
@@ -248,8 +238,8 @@ public class PetriNetManager : IDisposable
         var first = link.Vertices.Count > 0 ? link.Vertices[0].Position : fallback;
         var last = link.Vertices.Count > 0 ? link.Vertices[^1].Position : fallback;
 
-        var sourcePos = link.Source.GetPosition(link, new[] { first, first });
-        var targetPos = link.Target.GetPosition(link, new[] { last, last });
+        var sourcePos = link.Source.GetPosition(link, [first, first]);
+        var targetPos = link.Target.GetPosition(link, [last, last]);
 
         var points = new List<Point>();
         if (sourcePos != null) points.Add(sourcePos);
