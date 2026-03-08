@@ -1,192 +1,620 @@
-﻿/* =========================
-   Page + App Frame
-   ========================= */
-
-/* Page background (outer color) */
-body {
-    margin: 0;
-    background-color: #009688;
-}
-
-/* Thin white frame around the whole app */
-.app-frame {
-    padding: 6px; /* frame thickness */
-    background: #f4f4f4;
-    min-height: 100vh;
+﻿/* ── Reset & root ──────────────────────────────────────────────────────── */
+*, *::before, *::after {
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
-/* Main vertical layout (topbar + content) */
-.app-container {
+html, body {
+    height: 100%;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    background: #1a1a2e;
+}
+
+.app-root {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 12px); /* 2 * app-frame padding */
-    background: #f4f4f4;
-    box-sizing: border-box;
+    height: 100vh;
+    overflow: hidden;
 }
 
-/* =========================
-   Top Bar
-   ========================= */
-
+/* ── Top bar ────────────────────────────────────────────────────────────── */
 .topbar {
-    height: 60px;
-    background-color: #009688;
-    color: #ffffff;
+    flex-shrink: 0;
+    height: 58px;
+    background: #00897b;
     display: flex;
     align-items: center;
     padding: 0 24px;
-    box-sizing: border-box;
 }
 
 .topbar-title {
+    color: #fff;
     font-size: 20px;
     font-weight: 600;
     letter-spacing: 0.3px;
 }
 
-/* =========================
-   Main Content Layout
-   ========================= */
-
-/* Horizontal layout under topbar */
-.content-wrapper {
+/* ── Body row ───────────────────────────────────────────────────────────── */
+.body-row {
     flex: 1;
     display: flex;
-    gap: 12px; /* gap between sidebar and diagram */
-    padding-top: 8px; /* gap between topbar and sidebar */
-    box-sizing: border-box;
+    overflow: hidden;
 }
 
-/* Diagram surface */
-#diagram-container {
-    flex: 1;
-    position: relative;
-    background: #ffffff;
-    box-sizing: border-box;
-}
-
-/* =========================
-   Sidebar
-   ========================= */
-
+/* ── Sidebar — 22vw, min 200px, max 300px ──────────────────────────────── */
 .sidebar {
-    width: 260px;
+    width: clamp(200px, 22vw, 300px);
+    flex-shrink: 0;
     background: #ffffff;
-    border-right: 2px solid #cfcfcf;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 24px; /* spacing between tool buttons */
-    padding: 20px;
-    align-content: start;
-    box-sizing: border-box;
+    border-right: 1px solid #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
-.sidebar-title,
-.sidebar-section-title {
-    font-size: 22px; 
-    font-weight: 600;
-    color: #666;
+.sidebar-section {
+    padding: 18px 16px 14px;
 }
 
-/* Horizontal divider */
 .sidebar-divider {
-    grid-column: span 2;
     height: 1px;
-    background-color: #e5e5e5;
+    background: #eeeeee;
+    margin: 0 16px;
 }
 
-/* =========================
-   Tool Buttons
-   ========================= */
+.section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: #aaa;
+    margin-bottom: 12px;
+}
+
+/* ── Tool buttons ───────────────────────────────────────────────────────── */
+.tool-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
 .tool-btn {
-    /* Fixed, consistent size (smaller) */
-    width: 76px;
-    height: 76px;
-    /* Keep it centered inside the grid cell */
-    margin: auto;
-    /* Square fallback (optional) */
-    aspect-ratio: 1 / 1;
-    border: none;
-    background: #ffffff;
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1.5px solid #e8e8e8;
+    background: #fafafa;
     border-radius: 12px;
     cursor: pointer;
-    font-size: 22px;
-    /* Soft shadow around the button */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.08), 0 6px 18px rgba(0,0,0,0.10);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
-    /* Ensure icon is centered */
     display: flex;
     align-items: center;
     justify-content: center;
+    color: #555;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+    padding: 8px;
 }
 
+    .tool-btn svg {
+        width: 34px;
+        height: 34px;
+    }
 
     .tool-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.10), 0 10px 24px rgba(0,0,0,0.12);
+        background: #f0faf9;
+        border-color: #00897b;
+        color: #00897b;
+        box-shadow: 0 2px 8px rgba(0,137,123,0.15);
     }
 
     .tool-btn.active {
-        background-color: #ff4081;
-        color: #ffffff;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.14), 0 16px 32px rgba(0,0,0,0.16);
+        background: #00897b;
+        border-color: #00897b;
+        color: #fff;
+        box-shadow: 0 2px 12px rgba(0,137,123,0.35);
     }
 
-/* =========================
-   Properties Panel
-   ========================= */
+    .tool-btn.pending {
+        animation: pulse-pending 1s ease-in-out infinite;
+    }
 
-.properties-panel {
-    grid-column: span 2;
+@keyframes pulse-pending {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(0,137,123,0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 0 8px rgba(0,137,123,0);
+    }
+}
+
+/* ── Properties panel ───────────────────────────────────────────────────── */
+.sidebar-spacer {
+    flex: 1;
+    min-height: 16px;
+    max-height: 12vh;
+}
+
+.props-section {
+    flex-shrink: 0;
+}
+
+.prop-group {
     display: flex;
     flex-direction: column;
     gap: 18px;
-    padding-top: 8px;
-    box-sizing: border-box;
 }
 
 .prop-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
 }
 
-
-/* Properties label */
 .prop-label {
-    font-size: 12px;
-    color: #777;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #999;
 }
 
-/* Large value input style like the screenshot */
 .prop-input {
     border: none;
+    border-bottom: 1.5px solid #e0e0e0;
     outline: none;
     background: transparent;
-    font-size: 18px;
-    padding: 6px 0;
-    border-bottom: 2px solid #e0e0e0;
-    box-sizing: border-box;
+    font-size: 16px;
+    color: #222;
+    padding: 5px 0;
+    width: 100%;
+    transition: border-color 0.15s;
 }
+
+    .prop-input:focus {
+        border-bottom-color: #00897b;
+    }
 
 .prop-empty {
-    color: #888;
-    font-size: 14px;
-    line-height: 1.4;
-    padding: 6px 0;
+    font-size: 13px;
+    color: #bbb;
+    line-height: 1.5;
 }
 
-/* Save action */
-.save-btn {
-    grid-column: span 2;
-    margin-top: 22px;
+/* Arc type segmented control */
+.arc-type-btns {
+    display: flex;
+    gap: 5px;
+}
+
+.arc-type-btn {
+    flex: 1;
+    padding: 6px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 7px;
+    background: #fafafa;
+    color: #666;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+    .arc-type-btn:hover {
+        border-color: #00897b;
+        color: #00897b;
+    }
+
+    .arc-type-btn.active {
+        background: #00897b;
+        border-color: #00897b;
+        color: #fff;
+    }
+
+    .arc-type-btn-disabled,
+    .arc-type-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+.arc-type-hint {
+    font-size: 11px;
+    color: #aaa;
+    line-height: 1.45;
+    margin-top: 6px;
+}
+
+/* ── Canvas wrap (relative, holds overlays) ─────────────────────────────── */
+.canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Diagram — grid scales via --grid-size CSS var set from Blazor ──────── */
+#diagram-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background-color: #f9f9f9;
+    background-image: radial-gradient(circle, #d4d4d4 1px, transparent 1px);
+    background-size: var(--grid-size, 20px) var(--grid-size, 20px);
+    background-position: var(--grid-offset-x, 0px) var(--grid-offset-y, 0px);
+}
+
+/* ── Selection capture layer ─────────────────────────────────────────────── */
+/* Always pointer-events:none — clicks fall through to diagram nodes/links.
+   The rect is armed via Diagram.PointerDown(model==null) instead.           */
+.sel-capture-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 48;
+    pointer-events: none;
+}
+
+/* ── Selection rectangle overlay ────────────────────────────────────────── */
+.sel-rect-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 50;
+    overflow: visible;
+}
+
+.sel-rect {
+    fill: rgba(0, 137, 123, 0.08);
+    stroke: #00897b;
+    stroke-width: 1.5px;
+    stroke-dasharray: 5 3;
+}
+
+/* ── Navigator panel ────────────────────────────────────────────────────── */
+.navigator-toggle {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1.5px solid #e0e0e0;
+    background: #ffffffee;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    z-index: 100;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+    padding: 0;
+}
+
+    .navigator-toggle svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .navigator-toggle:hover {
+        background: #fff;
+        border-color: #00897b;
+        color: #00897b;
+        box-shadow: 0 2px 12px rgba(0,137,123,0.20);
+    }
+
+    .navigator-toggle.active {
+        background: #00897b;
+        border-color: #00897b;
+        color: #fff;
+        box-shadow: 0 2px 12px rgba(0,137,123,0.35);
+    }
+
+.navigator-panel {
+    position: absolute;
+    bottom: 64px;
+    left: 16px;
+    width: 230px;
+    max-height: calc(100% - 96px);
+    background: #fffffff2;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 14px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    backdrop-filter: blur(8px);
+    z-index: 99;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0 0 6px 0;
+    /* Hidden state */
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(10px) scale(0.97);
+    transform-origin: bottom left;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+    .navigator-panel.open {
+        opacity: 1;
+        pointer-events: all;
+        transform: translateY(0) scale(1);
+    }
+
+.navigator-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid #eeeeee;
+    flex-shrink: 0;
+}
+
+.navigator-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #aaa;
+}
+
+.navigator-counts {
+    font-size: 11px;
+    font-weight: 600;
+    color: #bbb;
+    letter-spacing: 0.3px;
+}
+
+.nav-group-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #bbb;
+    padding: 10px 14px 4px;
+}
+
+    .nav-group-label svg {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+    }
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 14px;
     border: none;
     background: transparent;
-    color: #009688;
-    font-weight: 600;
-    font-size: 20px;
     cursor: pointer;
     text-align: left;
-    padding: 10px 0;
+    border-radius: 0;
+    transition: background 0.1s;
 }
+
+    .nav-item:hover {
+        background: #f0faf9;
+    }
+
+    .nav-item.nav-item-selected {
+        background: #e0f5f3;
+    }
+
+.nav-item-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.nav-icon-place {
+    color: #444;
+}
+
+.nav-icon-transition {
+    color: #333;
+}
+
+.nav-icon-arc {
+    color: #888;
+}
+
+.nav-item-name {
+    flex: 1;
+    font-size: 13px;
+    color: #333;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-item-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    background: #e8e8e8;
+    color: #666;
+    flex-shrink: 0;
+}
+
+.nav-badge-priority {
+    background: #fce4ec;
+    color: #c2185b;
+}
+
+.nav-badge-arctype {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.nav-empty {
+    font-size: 12px;
+    color: #bbb;
+    line-height: 1.6;
+    text-align: center;
+    padding: 18px 14px;
+}
+
+.analysis-bar {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+    align-items: center;
+}
+
+.analysis-bar-divider {
+    width: 1px;
+    height: 22px;
+    background: #e0e0e0;
+    margin: 0 2px;
+}
+
+.undo-redo-btn {
+    min-width: 0;
+    padding: 7px 10px !important;
+}
+
+    .undo-redo-btn.disabled,
+    .undo-redo-btn:disabled {
+        opacity: 0.38;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+
+.analysis-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    background: #ffffffee;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+    .analysis-btn svg {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+
+    .analysis-btn:hover {
+        background: #fff;
+        border-color: #00897b;
+        color: #00897b;
+        box-shadow: 0 2px 10px rgba(0,137,123,0.18);
+    }
+
+/* ── Zoom controls — bottom right overlay ───────────────────────────────── */
+.zoom-controls {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #ffffffee;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 22px;
+    padding: 4px 8px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+    z-index: 100;
+}
+
+.zoom-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    color: #555;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+}
+
+    .zoom-btn:hover {
+        background: #f0faf9;
+        color: #00897b;
+    }
+
+.zoom-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #666;
+    min-width: 40px;
+    text-align: center;
+    user-select: none;
+}
+
+.zoom-reset {
+    font-size: 15px;
+}
+
+/* ── Analysis toast ─────────────────────────────────────────────────────── */
+.analysis-toast {
+    position: absolute;
+    bottom: 64px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    z-index: 200;
+    max-width: 360px;
+}
+
+.toast-ok {
+    background: #e8f5e9ee;
+    border: 1.5px solid #66bb6a;
+    color: #2e7d32;
+}
+
+.toast-warn {
+    background: #fff3e0ee;
+    border: 1.5px solid #ffa726;
+    color: #e65100;
+}
+
+.toast-close {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: inherit;
+    opacity: 0.6;
+    padding: 0;
+    line-height: 1;
+}
+
+    .toast-close:hover {
+        opacity: 1;
+    }

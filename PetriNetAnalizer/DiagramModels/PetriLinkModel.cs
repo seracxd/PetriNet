@@ -1,6 +1,7 @@
 ﻿using Blazor.Diagrams.Core.Anchors;
 using Blazor.Diagrams.Core.Geometry;
 using Blazor.Diagrams.Core.Models;
+using Core.Models;
 
 namespace PetriNetAnalyzer.DiagramModels
 {
@@ -24,7 +25,15 @@ namespace PetriNetAnalyzer.DiagramModels
         public Anchor? SnapshotTarget { get; set; }
 
         public int Weight { get; set; } = 1;
+
+        /// <summary>
+        /// Offset from the arc midpoint for the weight label.
+        /// Moves with the arc. Default is 14px perpendicular (above the line).
+        /// </summary>
         public Point WeightLabelOffset { get; set; } = new(0, -14);
+
+        /// <summary>Arc type: Normal, Inhibitor, or Cancellation.</summary>
+        public ArcType ArcType { get; set; } = ArcType.Normal;
 
         public PetriLinkModel(Anchor sourceAnchor, Anchor? targetAnchor = null)
             : base(sourceAnchor, targetAnchor) { }

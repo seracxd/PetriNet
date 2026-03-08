@@ -1,183 +1,834 @@
 ﻿@page "/"
 @using Blazor.Diagrams.Core.Geometry
 @using Blazor.Diagrams.Core.Models.Base
+@using Core.Models
 @using PetriNetAnalyzer.DiagramModels
 @using PetriNetAnalyzer.Services
+@using Microsoft.JSInterop
 @implements IDisposable
 @inject DiagramStateService StateService
 @inject PetriNetManager Manager
+@inject IJSRuntime JS
 
-<div class="app-frame">
-	<div class="app-container">
+<div class="app-root">
 
-		<div class="topbar">
-			<div class="topbar-title">Net Model</div>
-		</div>
+    <header class="topbar">
+        <span class="topbar-title">Net Model</span>
+    </header>
 
-		<div class="content-wrapper">
+    <div class="body-row">
 
-			<div class="sidebar">
-				<div class="sidebar-title">Tools</div>
-				<div class="sidebar-divider"></div>
+        <!-- ── Sidebar ── -->
+        <aside class="sidebar">
 
-				<button class="tool-btn @(ActiveTool == "select" ? "active" : "")"
-						@onclick='() => SetTool("select")'>
-					🖱
-				</button>
-				<button class="tool-btn @(ActiveTool == "place" ? "active" : "")"
-						@onclick='() => SetTool("place")'>
-					⚪
-				</button>
-				<button class="tool-btn @(ActiveTool == "transition" ? "active" : "")"
-						@onclick='() => SetTool("transition")'>
-					▮
-				</button>
-				<button class="tool-btn @(ActiveTool == "arc" ? "active" : "") @(Manager.HasPendingLink ? "pending" : "")"
-						@onclick='() => SetTool("arc")'>
-					↗
-				</button>
+            <section class="sidebar-section">
+                <div class="section-label">Tools</div>
+                <div class="tool-list">
 
-				<div class="sidebar-section-title">Properties</div>
-				<div class="sidebar-divider"></div>
+                    <button class="tool-btn @(ActiveTool == "select" ? "active" : "")"
+                            title="Select" @onclick='() => SetTool("select")'>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                            <path d="M5 3l14 9-7 1-4 7z" />
+                        </svg>
+                    </button>
 
-				<div class="properties-panel">
-					@if (SelectedModel is PlaceNode p)
-					{
-						<div class="prop-field">
-							<div class="prop-label">Name</div>
-							<input class="prop-input" @bind-value="p.Data.Name" @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
-						</div>
-						<div class="prop-field">
-							<div class="prop-label">Tokens</div>
-							<input class="prop-input" type="number" @bind-value="p.Data.Tokens" @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
-						</div>
-					}
-					else if (SelectedModel is TransitionNode t)
-					{
-						<div class="prop-field">
-							<div class="prop-label">Name</div>
-							<input class="prop-input" @bind-value="t.Data.Name" @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
-						</div>
-					}
-					else if (SelectedModel is PetriLinkModel a)
-					{
-						<div class="prop-field">
-							<div class="prop-label">Weight</div>
-							<input class="prop-input" type="number" @bind-value="a.Weight" @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(a)" />
-						</div>
-					}
-					else
-					{
-						<div class="prop-empty">No element selected.</div>
-					}
-				</div>
-			</div>
+                    <button class="tool-btn @(ActiveTool == "place" ? "active" : "")"
+                            title="Place" @onclick='() => SetTool("place")'>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="8" />
+                        </svg>
+                    </button>
 
-			<div id="diagram-container" tabindex="0">
-				<CascadingValue Value="Manager.Diagram" IsFixed="true">
-					<DiagramCanvas />
-				</CascadingValue>
-			</div>
+                    <button class="tool-btn @(ActiveTool == "transition" ? "active" : "")"
+                            title="Transition" @onclick='() => SetTool("transition")'>
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="8" y="3" width="8" height="18" rx="1.5" />
+                        </svg>
+                    </button>
 
-		</div>
-	</div>
+                    <button class="tool-btn @(ActiveTool == "arc" ? "active" : "") @(Manager.HasPendingLink ? "pending" : "")"
+                            title="Arc" @onclick='() => SetTool("arc")'>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="19" x2="17" y2="7" />
+                            <polyline points="11,7 17,7 17,13" />
+                        </svg>
+                    </button>
+
+                </div>
+            </section>
+
+            <div class="sidebar-spacer"></div>
+
+            <div class="sidebar-divider"></div>
+
+            <section class="sidebar-section props-section">
+                <div class="section-label">Properties</div>
+
+                @if (SelectedModel is PlaceNode p)
+                {
+                    <div class="prop-group">
+                        <div class="prop-field">
+                            <label class="prop-label">Name</label>
+                            <input class="prop-input" @bind-value="p.Data.Name"
+                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
+                        </div>
+                        <div class="prop-field">
+                            <label class="prop-label">Tokens</label>
+                            <input class="prop-input" type="number" min="0"
+                                   @bind-value="p.Data.Tokens"
+                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
+                        </div>
+                    </div>
+                }
+                else if (SelectedModel is TransitionNode t)
+                {
+                    <div class="prop-group">
+                        <div class="prop-field">
+                            <label class="prop-label">Name</label>
+                            <input class="prop-input" @bind-value="t.Data.Name"
+                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
+                        </div>
+                        <div class="prop-field">
+                            <label class="prop-label">Priority</label>
+                            <input class="prop-input" type="number" min="0"
+                                   @bind-value="t.Data.Priority"
+                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
+                        </div>
+                    </div>
+                }
+                else if (SelectedModel is PetriLinkModel arcSel)
+                {
+                    var arcOnlyNormal = IsArcOnlyNormal(arcSel);
+                    <div class="prop-group">
+                        <div class="prop-field">
+                            <label class="prop-label">Weight</label>
+                            <input class="prop-input" type="number" min="1"
+                                   @bind-value="arcSel.Weight"
+                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(arcSel)" />
+                        </div>
+                        <div class="prop-field">
+                            <label class="prop-label">Arc type</label>
+                            <div class="arc-type-btns">
+                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Normal ? "active" : "")"
+                                        @onclick="() => SetArcType(arcSel, ArcType.Normal)">
+                                    Normal
+                                </button>
+                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Inhibitor ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
+                                        disabled="@arcOnlyNormal"
+                                        title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
+                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Inhibitor); }">
+                                    Inhibit
+                                </button>
+                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Cancellation ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
+                                        disabled="@arcOnlyNormal"
+                                        title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
+                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Cancellation); }">
+                                    Cancel
+                                </button>
+                            </div>
+                            @if (arcOnlyNormal)
+                            {
+                                <p class="arc-type-hint">Inhibitor and Cancellation arcs require a Place → Transition direction.</p>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="prop-empty">No element selected.</p>
+                }
+
+            </section>
+
+        </aside>
+
+        <!-- ── Canvas area ── -->
+        <div class="canvas-wrap">
+
+            <!-- Analysis buttons — top right -->
+            <div class="analysis-bar">
+                <button class="analysis-btn undo-redo-btn @(!Manager.History.CanUndo ? "disabled" : "")"
+                        title="Undo (Ctrl+Z)" @onclick="Undo" disabled="@(!Manager.History.CanUndo)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 14 4 9 9 4" />
+                        <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                    </svg>
+                    Undo
+                </button>
+                <button class="analysis-btn undo-redo-btn @(!Manager.History.CanRedo ? "disabled" : "")"
+                        title="Redo (Ctrl+Y)" @onclick="Redo" disabled="@(!Manager.History.CanRedo)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 14 20 9 15 4" />
+                        <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
+                    </svg>
+                    Redo
+                </button>
+                <div class="analysis-bar-divider"></div>
+                <button class="analysis-btn" title="Check reachability" @onclick="RunReachability">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                    </svg>
+                    Reachability
+                </button>
+                <button class="analysis-btn" title="Check liveness" @onclick="RunLiveness">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    Liveness
+                </button>
+                <button class="analysis-btn" title="Check boundedness" @onclick="RunBoundedness">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <rect x="3" y="3" width="18" height="18" rx="3" />
+                        <line x1="3" y1="9" x2="21" y2="9" />
+                        <line x1="9" y1="21" x2="9" y2="9" />
+                    </svg>
+                    Boundedness
+                </button>
+                <button class="analysis-btn" title="Fire transition" @onclick="RunFire">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    Fire step
+                </button>
+            </div>
+
+            <!-- Diagram -->
+            <div id="diagram-container" tabindex="0"
+                 style="--grid-size: @(GridSize)px; --grid-offset-x: @(GridOffsetX)px; --grid-offset-y: @(GridOffsetY)px">
+                <CascadingValue Value="Manager.Diagram" IsFixed="true">
+                    <DiagramCanvas />
+                </CascadingValue>
+
+                @* Selection capture layer — pointer-events:none always so all
+                   clicks fall through to diagram nodes/links normally.
+                   The rect is armed from OnPointerDown(model==null) instead. *@
+                @if (ActiveTool == "select")
+                {
+                    <div class="sel-capture-layer"></div>
+                }
+
+                @if (_selRectActive)
+                {
+                    var rx = Math.Min(_selStart.X, _selCurrent.X);
+                    var ry = Math.Min(_selStart.Y, _selCurrent.Y);
+                    var rw = Math.Abs(_selCurrent.X - _selStart.X);
+                    var rh = Math.Abs(_selCurrent.Y - _selStart.Y);
+                    <svg class="sel-rect-overlay">
+                        <rect x="@rx" y="@ry" width="@rw" height="@rh" class="sel-rect" />
+                    </svg>
+                }
+            </div>
+
+            <!-- Navigator panel -->
+            <div class="navigator-panel @(_navigatorOpen ? "open" : "")">
+                <div class="navigator-header">
+                    <span class="navigator-title">Elements</span>
+                    <span class="navigator-counts">@_navPlaces.Count P &nbsp; @_navTransitions.Count T &nbsp; @_navArcs.Count A</span>
+                </div>
+
+                @if (_navPlaces.Any())
+                {
+                    <div class="nav-group-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8" /></svg>
+                        Places
+                    </div>
+                    @foreach (var place in _navPlaces)
+                    {
+                        var placeSelected = Manager.Diagram.GetSelectedModels().Contains(place);
+                        <button class="nav-item @(placeSelected ? "nav-item-selected" : "")"
+                                @onclick="() => FocusElement(place)">
+                            <svg class="nav-item-icon nav-icon-place" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <circle cx="8" cy="8" r="6" />
+                            </svg>
+                            <span class="nav-item-name">@place.Data.Name</span>
+                            @if (place.Data.Tokens > 0)
+                            {
+                                <span class="nav-item-badge">@place.Data.Tokens</span>
+                            }
+                        </button>
+                    }
+                }
+
+                @if (_navTransitions.Any())
+                {
+                    <div class="nav-group-label">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="8" y="3" width="8" height="18" rx="1.5" /></svg>
+                        Transitions
+                    </div>
+                    @foreach (var trans in _navTransitions)
+                    {
+                        var transSelected = Manager.Diagram.GetSelectedModels().Contains(trans);
+                        <button class="nav-item @(transSelected ? "nav-item-selected" : "")"
+                                @onclick="() => FocusElement(trans)">
+                            <svg class="nav-item-icon nav-icon-transition" viewBox="0 0 16 16" fill="currentColor">
+                                <rect x="5" y="1" width="6" height="14" rx="1" />
+                            </svg>
+                            <span class="nav-item-name">@trans.Data.Name</span>
+                            @if (trans.Data.Priority > 0)
+                            {
+                                <span class="nav-item-badge nav-badge-priority">P@(trans.Data.Priority)</span>
+                            }
+                        </button>
+                    }
+                }
+
+                @if (_navArcs.Any())
+                {
+                    <div class="nav-group-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="19" x2="17" y2="7" />
+                            <polyline points="11,7 17,7 17,13" />
+                        </svg>
+                        Arcs
+                    </div>
+                    @foreach (var navArc in _navArcs)
+                    {
+                        var arcSelected = Manager.Diagram.GetSelectedModels().Contains(navArc);
+                        var arcLabel = GetArcLabel(navArc);
+                        <button class="nav-item @(arcSelected ? "nav-item-selected" : "")"
+                                @onclick="() => FocusArc(navArc)">
+                            <svg class="nav-item-icon nav-icon-arc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="2" y1="14" x2="12" y2="4" />
+                                <polyline points="7,4 12,4 12,9" />
+                            </svg>
+                            <span class="nav-item-name">@arcLabel</span>
+                            @if (navArc.Weight > 1)
+                            {
+                                <span class="nav-item-badge">w@(navArc.Weight)</span>
+                            }
+                            @if (navArc.ArcType != ArcType.Normal)
+                            {
+                                <span class="nav-item-badge nav-badge-arctype">@(navArc.ArcType.ToString().Substring(0, 1))</span>
+                            }
+                        </button>
+                    }
+                }
+
+                @if (!_navPlaces.Any() && !_navTransitions.Any() && !_navArcs.Any())
+                {
+                    <p class="nav-empty">No elements yet.<br />Add places, transitions and arcs to the canvas.</p>
+                }
+            </div>
+
+            <!-- Navigator toggle — bottom left -->
+            <button class="navigator-toggle @(_navigatorOpen ? "active" : "")"
+                    title="@(_navigatorOpen ? "Close navigator" : "Open navigator")"
+                    @onclick="ToggleNavigator">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+            </button>
+
+            <!-- Zoom controls — bottom right -->
+            <div class="zoom-controls">
+                <button class="zoom-btn" title="Zoom in" @onclick="() => Manager.ZoomIn()">+</button>
+                <span class="zoom-label">@((Manager.Diagram.Zoom * 100).ToString("F0"))%</span>
+                <button class="zoom-btn" title="Zoom out" @onclick="() => Manager.ZoomOut()">−</button>
+                <button class="zoom-btn zoom-reset" title="Reset view" @onclick="ResetView">⌂</button>
+            </div>
+
+            <!-- Analysis result toast -->
+            @if (_analysisResult != null)
+            {
+                <div class="analysis-toast @(_analysisOk ? "toast-ok" : "toast-warn")">
+                    <span>@_analysisResult</span>
+                    <button class="toast-close" @onclick="() => _analysisResult = null">✕</button>
+                </div>
+            }
+
+        </div>
+
+    </div>
 </div>
 
 @code {
-	private string ActiveTool = "";
-	private Model? SelectedModel { get; set; }
+    private string ActiveTool = "";
+    private Model? SelectedModel { get; set; }
+    private string? _analysisResult;
+    private bool _analysisOk;
+    private bool _navigatorOpen = false;
 
-	protected override void OnInitialized()
-	{
-		Manager.Diagram.PointerDown += OnPointerDown;
-		Manager.Diagram.PointerDoubleClick += OnDoubleClick;
-		Manager.Diagram.KeyDown += OnKeyDown;
-		Manager.Diagram.SelectionChanged += OnSelectionChanged;
-		Manager.PendingLinkChanged += OnPendingLinkChanged;
-	}
+    // Navigator cached lists — rebuilt on every structural change
+    private List<PlaceNode> _navPlaces = new();
+    private List<TransitionNode> _navTransitions = new();
+    private List<PetriLinkModel> _navArcs = new();
 
-	private void OnPendingLinkChanged() => InvokeAsync(StateHasChanged);
+    private const double BaseGrid = 20.0;
 
-	private void OnSelectionChanged(SelectableModel _)
-	{
-		SelectedModel = Manager.Diagram.GetSelectedModels().FirstOrDefault();
-		InvokeAsync(StateHasChanged);
-	}
+    private string GridSize => (BaseGrid * Manager.Diagram.Zoom).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private string GridOffsetX => (Manager.Diagram.Pan.X % (BaseGrid * Manager.Diagram.Zoom)).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private string GridOffsetY => (Manager.Diagram.Pan.Y % (BaseGrid * Manager.Diagram.Zoom)).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 
-	private void SetTool(string tool)
-	{
-		ActiveTool = ActiveTool == tool ? "" : tool;
+    private DotNetObjectReference<Home>? _dotNetRef;
+    private bool _jsRegistered = false;
 
-		var serviceToolType = ActiveTool == "arc"
-			? DiagramStateService.ToolType.Arc
-			: DiagramStateService.ToolType.Select;
-		StateService.SelectTool(serviceToolType);
+    protected override void OnInitialized()
+    {
+        Manager.Diagram.PointerDown += OnPointerDown;
+        Manager.Diagram.PointerUp += OnPointerUp;
+        Manager.Diagram.PointerDoubleClick += OnDoubleClick;
+        Manager.Diagram.KeyDown += OnKeyDown;
+        Manager.Diagram.SelectionChanged += OnSelectionChanged;
+        Manager.Diagram.Nodes.Removed += OnNodeRemoved;
+        Manager.Diagram.Links.Removed += OnLinkRemoved;
+        Manager.Diagram.Nodes.Added += OnNodeAdded;
+        Manager.Diagram.Links.Added += OnLinkAdded;
+        Manager.PendingLinkChanged += OnPendingLinkChanged;
+        Manager.Diagram.ZoomChanged += OnZoomChanged;
+        Manager.Diagram.PanChanged += OnPanChanged;
+        Manager.History.HistoryChanged += OnHistoryChanged;
+        RebuildNavLists();
+    }
 
-		if (ActiveTool == "arc")
-			Manager.EnableLinkDrawing();
-		else
-			Manager.DisableLinkDrawing();
-	}
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_jsRegistered)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("registerGlobalKeyHandler", _dotNetRef);
+            await JS.InvokeVoidAsync("installPanBlockerOnce");
+            _jsRegistered = true;
+        }
+    }
 
-	private void UpdateDiagram(Model? model = null)
-	{
-		SyncRenderedText(model);
-		if (model is NodeModel node) node.Refresh();
-		else if (model is PetriLinkModel link) link.Refresh();
-		Manager.Diagram.Refresh();
-		InvokeAsync(StateHasChanged);
-	}
+    [JSInvokable]
+    public void OnGlobalKey(string key, bool ctrl, bool shift, bool alt)
+    {
+        if (key == "Escape")
+        {
+            HandleEscape();
+            InvokeAsync(StateHasChanged);
+        }
+    }
 
-	private void SyncRenderedText(Model? model)
-	{
-		if (model is PlaceNode p) p.Title = p.Data.Name;
-		else if (model is TransitionNode t) t.Title = t.Data.Name;
-	}
+    // ── Grid / zoom / pan ─────────────────────────────────────────────────────
+    private void OnPendingLinkChanged()
+    {
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
+    private void OnZoomChanged() => InvokeAsync(StateHasChanged);
+    private void OnPanChanged() => InvokeAsync(StateHasChanged);
+    private void OnHistoryChanged()
+    {
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
 
-	private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
-	{
-		if (ActiveTool == "arc")
-		{
-			Manager.HandleArcToolClick(model, new Point(e.ClientX, e.ClientY));
-			StateHasChanged();
-			return;
-		}
+    private void Undo() { Manager.History.Undo(); StateHasChanged(); }
+    private void Redo() { Manager.History.Redo(); StateHasChanged(); }
+    private void ResetView() { Manager.ResetView(); StateHasChanged(); }
+    private void ToggleNavigator() { _navigatorOpen = !_navigatorOpen; StateHasChanged(); }
 
-		// place / transition tool — add node on blank canvas click
-		if (model == null && ActiveTool is "place" or "transition")
-		{
-			Manager.AddNodeAt(ActiveTool, new Point(e.ClientX, e.ClientY));
-			StateHasChanged();
-		}
-	}
+    // ── Selection ─────────────────────────────────────────────────────────────
+    private void OnSelectionChanged(SelectableModel _)
+    {
+        FlushPendingEdit();
+        SelectedModel = Manager.Diagram.GetSelectedModels().FirstOrDefault();
+        SnapshotSelected();
+        InvokeAsync(StateHasChanged);
+    }
 
-	private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
-	{
-		Manager.HandleDoubleClick(model, new Point(e.ClientX, e.ClientY));
-		StateHasChanged();
-	}
+    // ── Structure changes → rebuild navigator lists ───────────────────────────
+    private void OnNodeAdded(NodeModel _)
+    {
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
 
-	private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
-	{
-		if (e.Key == "Escape")
-		{
-			Manager.CancelPendingLink();
-			InvokeAsync(StateHasChanged);
-			return;
-		}
-		if (e.Key == "Delete" || e.Key == "Backspace")
-		{
-			Manager.DeleteSelected();
-			InvokeAsync(StateHasChanged);
-		}
-	}
+    private void OnLinkAdded(BaseLinkModel _)
+    {
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
 
-	public void Dispose()
-	{
-		Manager.Diagram.PointerDown -= OnPointerDown;
-		Manager.Diagram.PointerDoubleClick -= OnDoubleClick;
-		Manager.Diagram.KeyDown -= OnKeyDown;
-		Manager.Diagram.SelectionChanged -= OnSelectionChanged;
-		Manager.PendingLinkChanged -= OnPendingLinkChanged;
-	}
+    private void OnNodeRemoved(NodeModel model)
+    {
+        if (SelectedModel == model) SelectedModel = null;
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLinkRemoved(BaseLinkModel model)
+    {
+        if (SelectedModel == model) SelectedModel = null;
+        RebuildNavLists();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void RebuildNavLists()
+    {
+        _navPlaces = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+        _navTransitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
+        _navArcs = Manager.Diagram.Links
+                            .OfType<PetriLinkModel>()
+                            .Where(l => !l.IsDraggingEndpoint && l.Target != null)
+                            .ToList();
+    }
+
+    // ── Property-edit snapshots ───────────────────────────────────────────────
+    private string? _snapPlaceName;
+    private int _snapPlaceTokens;
+    private string? _snapTransName;
+    private int _snapTransPriority;
+    private int _snapLinkWeight;
+    private ArcType _snapLinkArcType;
+
+    private void SnapshotSelected()
+    {
+        switch (SelectedModel)
+        {
+            case PlaceNode pn:
+                _snapPlaceName = pn.Data.Name;
+                _snapPlaceTokens = pn.Data.Tokens;
+                break;
+            case TransitionNode tn:
+                _snapTransName = tn.Data.Name;
+                _snapTransPriority = tn.Data.Priority;
+                break;
+            case PetriLinkModel ln:
+                _snapLinkWeight = ln.Weight;
+                _snapLinkArcType = ln.ArcType;
+                break;
+        }
+    }
+
+    private void FlushPendingEdit()
+    {
+        switch (SelectedModel)
+        {
+            case PlaceNode pn when _snapPlaceName != null:
+                if (pn.Data.Name != _snapPlaceName || pn.Data.Tokens != _snapPlaceTokens)
+                    Manager.History.Record(new EditPlaceCommand(pn, _snapPlaceName, _snapPlaceTokens, pn.Data.Name, pn.Data.Tokens));
+                break;
+            case TransitionNode tn when _snapTransName != null:
+                if (tn.Data.Name != _snapTransName || tn.Data.Priority != _snapTransPriority)
+                    Manager.History.Record(new EditTransitionCommand(tn, _snapTransName, _snapTransPriority, tn.Data.Name, tn.Data.Priority));
+                break;
+            case PetriLinkModel ln:
+                if (ln.Weight != _snapLinkWeight || ln.ArcType != _snapLinkArcType)
+                    Manager.History.Record(new EditLinkCommand(ln, _snapLinkWeight, _snapLinkArcType, ln.Weight, ln.ArcType));
+                break;
+        }
+        _snapPlaceName = null;
+        _snapTransName = null;
+    }
+
+    // ── Tools ─────────────────────────────────────────────────────────────────
+    private void SetTool(string tool)
+    {
+        ActiveTool = ActiveTool == tool ? "" : tool;
+        StateService.SelectTool(ActiveTool == "arc"
+            ? DiagramStateService.ToolType.Arc
+            : DiagramStateService.ToolType.Select);
+        if (ActiveTool == "arc") Manager.EnableLinkDrawing();
+        else Manager.DisableLinkDrawing();
+        _ = JS.InvokeVoidAsync("setSelectToolActive", ActiveTool == "select");
+    }
+
+    // No-op — pan is blocked by JS, rect is armed synchronously in OnPointerDown.
+    [JSInvokable]
+    public void OnCanvasPointerDown(double offsetX, double offsetY) { }
+
+    private void SetArcType(PetriLinkModel link, ArcType type)
+    {
+        FlushPendingEdit();
+        SnapshotSelected();
+        link.ArcType = type;
+        UpdateDiagram(link);
+        FlushPendingEdit();
+        SnapshotSelected();
+    }
+
+    private void UpdateDiagram(Model? model = null)
+    {
+        SyncRenderedText(model);
+        if (model is NodeModel node) node.Refresh();
+        else if (model is PetriLinkModel lnk) lnk.Refresh();
+        Manager.Diagram.Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncRenderedText(Model? model)
+    {
+        if (model is PlaceNode pn) pn.Title = pn.Data.Name;
+        else if (model is TransitionNode tn) tn.Title = tn.Data.Name;
+    }
+
+    // ── Pointer / keyboard ────────────────────────────────────────────────────
+
+    // Tracks what action is primed on pointer-down, executed on pointer-up.
+    // ESC while button held clears this, cancelling the action.
+    private string? _pendingAction;   // "place" | "transition" | "arc"
+    private Model? _pendingModel;
+    private Point? _pendingPoint;
+
+    [JSInvokable]
+    public void OnCanvasPointerUp()
+    {
+        if (_selRectArmed)
+        {
+            if (_selRectActive) CommitSelectionRect();
+            CancelSelRect();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (e.Button != 0) return;
+
+        if (ActiveTool == "select")
+        {
+            if (model == null)
+            {
+                // Arm selection rect. JS has already stopped pan propagation.
+                // Convert client → container-relative using Diagram.Container bounds.
+                var c = Manager.Diagram.Container;
+                var ox = c != null ? e.ClientX - c.Left : e.ClientX;
+                var oy = c != null ? e.ClientY - c.Top : e.ClientY;
+                _selRectArmed = true;
+                _selRectActive = false;
+                _selStart = (ox, oy);
+                _selCurrent = (ox, oy);
+                _ = JS.InvokeVoidAsync("armPointerUpListener");
+            }
+            // model != null: let diagram handle selection normally, rect stays disarmed
+            return;
+        }
+
+        if (ActiveTool is "place" or "transition" or "arc")
+        {
+            _pendingAction = ActiveTool;
+            _pendingModel = model;
+            _pendingPoint = new Point(e.ClientX, e.ClientY);
+        }
+    }
+
+    private void OnPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (e.Button != 0 || _pendingAction == null) return;
+
+        var action = _pendingAction;
+        var pt = _pendingPoint!;
+        _pendingAction = null;
+        _pendingModel = null;
+        _pendingPoint = null;
+
+        if (action == "arc")
+        {
+            Manager.HandleArcToolClick(model, pt);
+            StateHasChanged();
+        }
+        else if (model == null && action is "place" or "transition")
+        {
+            Manager.AddNodeAt(action, pt);
+            StateHasChanged();
+        }
+    }
+
+    private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        Manager.HandleDoubleClick(model, new Point(e.ClientX, e.ClientY));
+        StateHasChanged();
+    }
+
+    private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
+    {
+        // ESC is handled globally via JS — but also here as fallback when canvas has focus
+        if (e.Key == "Escape") { HandleEscape(); return; }
+        if (e.Key == "Delete" || e.Key == "Backspace") { Manager.DeleteSelected(); InvokeAsync(StateHasChanged); }
+        if (e.Key == "+" || e.Key == "=") { Manager.ZoomIn(); InvokeAsync(StateHasChanged); }
+        if (e.Key == "-") { Manager.ZoomOut(); InvokeAsync(StateHasChanged); }
+        if (e.Key == "z" && e.CtrlKey) { Manager.History.Undo(); InvokeAsync(StateHasChanged); }
+        if ((e.Key == "y" && e.CtrlKey) ||
+            (e.Key == "Z" && e.CtrlKey && e.ShiftKey)) { Manager.History.Redo(); InvokeAsync(StateHasChanged); }
+    }
+
+    private void HandleEscape()
+    {
+        // Cancel any primed pending action
+        _pendingAction = null;
+        _pendingModel = null;
+        _pendingPoint = null;
+        // Cancel pending arc
+        Manager.CancelPendingLink();
+        // Cancel selection rect (also clears JS pointerup listener)
+        CancelSelRect();
+        _ = JS.InvokeVoidAsync("cancelPointerUpListener");
+        // Unselect all
+        Manager.Diagram.UnselectAll();
+        // Unequip tool
+        if (ActiveTool != "")
+        {
+            ActiveTool = "";
+            StateService.SelectTool(DiagramStateService.ToolType.Select);
+            Manager.DisableLinkDrawing();
+            _ = JS.InvokeVoidAsync("setSelectToolActive", false);
+        }
+        // Close navigator
+        if (_navigatorOpen) _navigatorOpen = false;
+    }
+
+    // ── Selection rectangle ───────────────────────────────────────────────────
+    // Strategy: arm on Diagram.PointerDown(model==null), track via JS window
+    // pointermove callback, commit/cancel on Diagram.PointerUp.
+    // This avoids any stopPropagation that would break node selection.
+    private bool _selRectActive = false;
+    private bool _selRectArmed = false;
+    private (double X, double Y) _selStart = default;
+    private (double X, double Y) _selCurrent = default;
+    private const double SelRectMinDrag = 4.0;
+
+    private void CancelSelRect()
+    {
+        _selRectArmed = false;
+        _selRectActive = false;
+        _ = JS.InvokeVoidAsync("setSelRectActive", false);
+    }
+
+    [JSInvokable]
+    public void OnSelPointerMoveJS(double offsetX, double offsetY)
+    {
+        if (!_selRectArmed) return;
+        _selCurrent = (offsetX, offsetY);
+        var dx = Math.Abs(_selCurrent.X - _selStart.X);
+        var dy = Math.Abs(_selCurrent.Y - _selStart.Y);
+        if (!_selRectActive && (dx > SelRectMinDrag || dy > SelRectMinDrag))
+        {
+            Manager.Diagram.UnselectAll();
+            _selRectActive = true;
+            _ = JS.InvokeVoidAsync("setSelRectActive", true);
+        }
+        if (_selRectActive) InvokeAsync(StateHasChanged);
+    }
+
+    private void CommitSelectionRect()
+    {
+        // Convert container-space rect to diagram-space rect
+        var zoom = Manager.Diagram.Zoom;
+        var pan = Manager.Diagram.Pan;
+
+        double sx = Math.Min(_selStart.X, _selCurrent.X);
+        double sy = Math.Min(_selStart.Y, _selCurrent.Y);
+        double ex = Math.Max(_selStart.X, _selCurrent.X);
+        double ey = Math.Max(_selStart.Y, _selCurrent.Y);
+
+        // screen → diagram:  diagramX = (screenX - panX) / zoom
+        double dsx = (sx - pan.X) / zoom;
+        double dsy = (sy - pan.Y) / zoom;
+        double dex = (ex - pan.X) / zoom;
+        double dey = (ey - pan.Y) / zoom;
+
+        Manager.Diagram.UnselectAll();
+
+        foreach (var node in Manager.Diagram.Nodes)
+        {
+            if (node.Position == null || node.Size == null) continue;
+            var nx = node.Position.X;
+            var ny = node.Position.Y;
+            var nw = node.Size.Width;
+            var nh = node.Size.Height;
+            // Intersect: node AABB overlaps selection rect
+            if (nx < dex && nx + nw > dsx && ny < dey && ny + nh > dsy)
+                Manager.Diagram.SelectModel(node, false);
+        }
+
+        StateHasChanged();
+    }
+
+    // ── Navigator ─────────────────────────────────────────────────────────────
+    private void FocusElement(NodeModel node)
+    {
+        if (node.Position == null || node.Size == null) return;
+        var cx = node.Position.X + node.Size.Width / 2.0;
+        var cy = node.Position.Y + node.Size.Height / 2.0;
+        FocusDiagramPoint(cx, cy);
+        Manager.Diagram.SelectModel(node, true);
+        StateHasChanged();
+    }
+
+    private void FocusArc(PetriLinkModel arc)
+    {
+        var src = GetArcSourceNode(arc);
+        var tgt = GetArcTargetNode(arc);
+        if (src?.Position == null || tgt?.Position == null) return;
+        var sx = src.Position.X + (src.Size?.Width ?? 0) / 2.0;
+        var sy = src.Position.Y + (src.Size?.Height ?? 0) / 2.0;
+        var tx = tgt.Position.X + (tgt.Size?.Width ?? 0) / 2.0;
+        var ty = tgt.Position.Y + (tgt.Size?.Height ?? 0) / 2.0;
+        FocusDiagramPoint((sx + tx) / 2.0, (sy + ty) / 2.0);
+        Manager.Diagram.SelectModel(arc, true);
+        StateHasChanged();
+    }
+
+    private void FocusDiagramPoint(double diagramX, double diagramY)
+    {
+        var zoom = Manager.Diagram.Zoom;
+        var container = Manager.Diagram.Container;
+        var halfW = (container != null ? container.Width : 1200.0) / 2.0;
+        var halfH = (container != null ? container.Height : 800.0) / 2.0;
+        Manager.Diagram.SetPan(halfW - diagramX * zoom, halfH - diagramY * zoom);
+    }
+
+    private string GetArcLabel(PetriLinkModel arc)
+    {
+        var src = GetArcSourceNode(arc)?.Title ?? "?";
+        var tgt = GetArcTargetNode(arc)?.Title ?? "?";
+        return src + " \u2192 " + tgt;
+    }
+
+    /// <summary>
+    /// Returns true when the arc goes Transition → Place, meaning only Normal type is valid.
+    /// Inhibitor and Cancellation arcs are semantically restricted to Place → Transition.
+    /// </summary>
+    private bool IsArcOnlyNormal(PetriLinkModel arc)
+        => GetArcSourceNode(arc) is TransitionNode;
+
+    private NodeModel? GetArcSourceNode(PetriLinkModel arc) => arc.Source?.Model switch
+    {
+        NodeModel n => n,
+        PortModel pm => pm.Parent,
+        _ => null
+    };
+
+    private NodeModel? GetArcTargetNode(PetriLinkModel arc) => arc.Target?.Model switch
+    {
+        NodeModel n => n,
+        PortModel pm => pm.Parent,
+        _ => null
+    };
+
+    // ── Analysis stubs ────────────────────────────────────────────────────────
+    private void RunReachability() => ShowResult("Reachability analysis: not yet implemented.", false);
+    private void RunLiveness() => ShowResult("Liveness analysis: not yet implemented.", false);
+    private void RunBoundedness() => ShowResult("Boundedness analysis: not yet implemented.", false);
+    private void RunFire() => ShowResult("Fire step: not yet implemented.", false);
+
+    private void ShowResult(string msg, bool ok) { _analysisResult = msg; _analysisOk = ok; StateHasChanged(); }
+
+    // ── Dispose ───────────────────────────────────────────────────────────────
+    public void Dispose()
+    {
+        FlushPendingEdit();
+        Manager.Diagram.PointerDown -= OnPointerDown;
+        Manager.Diagram.PointerUp -= OnPointerUp;
+        Manager.Diagram.PointerDoubleClick -= OnDoubleClick;
+        Manager.Diagram.KeyDown -= OnKeyDown;
+        Manager.Diagram.SelectionChanged -= OnSelectionChanged;
+        Manager.Diagram.Nodes.Removed -= OnNodeRemoved;
+        Manager.Diagram.Links.Removed -= OnLinkRemoved;
+        Manager.Diagram.Nodes.Added -= OnNodeAdded;
+        Manager.Diagram.Links.Added -= OnLinkAdded;
+        Manager.PendingLinkChanged -= OnPendingLinkChanged;
+        Manager.Diagram.ZoomChanged -= OnZoomChanged;
+        Manager.Diagram.PanChanged -= OnPanChanged;
+        Manager.History.HistoryChanged -= OnHistoryChanged;
+        _ = JS.InvokeVoidAsync("unregisterGlobalKeyHandler");
+        _dotNetRef?.Dispose();
+    }
 }

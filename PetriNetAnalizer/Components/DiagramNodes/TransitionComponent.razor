@@ -13,13 +13,31 @@
         <rect x="0" y="0"
               width="@Node.Size.Width"
               height="@Node.Size.Height"
-              fill="@(Node.Selected ? "#e3f2fd" : "white")"
+              fill="black"
               stroke="@(Node.Selected ? "#007bff" : "black")"
               stroke-width="@(Node.Selected ? 3 : 2)"
-              style="transition: all 0.2s;
-                     fill: black" />
-    </svg>
+              style="transition: all 0.2s;" />
 
+        @* Priority badge — always visible when priority > 0 *@
+        @if (TransitionModel?.Data?.Priority > 0)
+        {
+            var badgeX = Node.Size.Width / 2.0;
+            var badgeY = -14.0;
+            <g>
+                <circle cx="@badgeX" cy="@badgeY" r="11"
+                        fill="#ff4081" stroke="white" stroke-width="1.5" />
+                <text x="@badgeX" y="@badgeY"
+                      text-anchor="middle"
+                      dominant-baseline="central"
+                      fill="white"
+                      font-size="11"
+                      font-weight="bold"
+                      style="user-select:none;">
+                    @TransitionModel!.Data.Priority
+                </text>
+            </g>
+        }
+    </svg>
 
     @foreach (var port in Node.Ports)
     {

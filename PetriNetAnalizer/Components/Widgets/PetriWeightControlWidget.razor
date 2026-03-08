@@ -2,16 +2,16 @@
 @using Blazor.Diagrams.Core.Models.Base
 @using PetriNetAnalyzer.DiagramModels
 @using PetriNetAnalyzer.Components.Widgets
+@implements IDisposable
 
-@if (Model is PetriLinkModel link)
+@* Visible whenever weight > 1, regardless of selection *@
+@if (Model is PetriLinkModel link && link.Weight > 1)
 {
-    <foreignObject x="-25" y="-15" width="100" height="50" style="overflow:visible;">
-        <div class="petri-weight @(link.Selected ? "petri-weight--active" : "petri-weight--inactive")"
+    <foreignObject x="-20" y="-12" width="40" height="24" style="overflow:visible;">
+        <div class="petri-weight"
+             style="cursor:@(_dragging ? "grabbing" : "grab");"
              @onpointerdown="(e) => OnPointerDown(link, e)"
-             @onpointerdown:stopPropagation="link.Selected"
-             @onpointermove="(e) => Drag(link, e)"
-             @onpointerup="EndDrag"
-             @onpointercancel="EndDrag">
+             @onpointerdown:stopPropagation="true">
             @link.Weight
         </div>
     </foreignObject>
@@ -23,89 +23,45 @@
     [Parameter] public Model Model { get; set; } = null!;
 
     private bool _dragging;
+    private Point _dragStartMouse;
+    private Point _dragStartOffset;
+
+    protected override void OnInitialized()
+    {
+        Diagram.PointerMove += OnDiagramPointerMove;
+        Diagram.PointerUp += OnDiagramPointerUp;
+    }
+
+    public void Dispose()
+    {
+        Diagram.PointerMove -= OnDiagramPointerMove;
+        Diagram.PointerUp -= OnDiagramPointerUp;
+    }
 
     private void OnPointerDown(PetriLinkModel link, PointerEventArgs e)
     {
-        // Když není vybraný, jen ho vyber a NIC netahej
-        if (!link.Selected)
-        {
-            Diagram.SelectModel(link, true);
-            link.Refresh();
-            Diagram.Refresh();
-            return;
-        }
-
-        // Vybraný => povol drag
         _dragging = true;
+        _dragStartMouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        _dragStartOffset = link.WeightLabelOffset;
     }
 
-    private void Drag(PetriLinkModel link, PointerEventArgs e)
+    private void OnDiagramPointerMove(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (!_dragging || !link.Selected) return;
+        if (!_dragging || Model is not PetriLinkModel link) return;
 
         var mouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
-
-        var points = PetriWeightControl.GetFullLinkPoints(link);
-        if (points.Count < 2) return;
-
-        Point closestPointOnLine = points[0];
-        double minDistanceSq = double.MaxValue;
-
-        foreach (var (p1, p2) in points.Zip(points.Skip(1)))
-        {
-            var p = GetClosestPointOnSegment(mouse, p1, p2);
-            var dSq = DistanceSquared(mouse, p);
-            if (dSq < minDistanceSq)
-            {
-                minDistanceSq = dSq;
-                closestPointOnLine = p;
-            }
-        }
-
-        double maxDistance = 40;
-        double dx = mouse.X - closestPointOnLine.X;
-        double dy = mouse.Y - closestPointOnLine.Y;
-        double currentDist = Math.Sqrt(dx * dx + dy * dy);
-
-        Point finalLabelPos;
-        if (currentDist > maxDistance)
-        {
-            finalLabelPos = new Point(
-                closestPointOnLine.X + (dx / currentDist) * maxDistance,
-                closestPointOnLine.Y + (dy / currentDist) * maxDistance
-            );
-        }
-        else
-        {
-            finalLabelPos = mouse;
-        }
-
-        var mid = GetMidPoint(points);
-        link.WeightLabelOffset = new Point(finalLabelPos.X - mid.X, finalLabelPos.Y - mid.Y);
+        link.WeightLabelOffset = new Point(
+            _dragStartOffset.X + mouse.X - _dragStartMouse.X,
+            _dragStartOffset.Y + mouse.Y - _dragStartMouse.Y);
 
         link.Refresh();
-        Diagram.Refresh();
-        StateHasChanged();
+        InvokeAsync(StateHasChanged);
     }
 
-    private Point GetClosestPointOnSegment(Point p, Point a, Point b)
+    private void OnDiagramPointerUp(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        var abx = b.X - a.X; var aby = b.Y - a.Y;
-        var t = ((p.X - a.X) * abx + (p.Y - a.Y) * aby) / (abx * abx + aby * aby);
-        t = Math.Clamp(t, 0, 1);
-        return new Point(a.X + t * abx, a.Y + t * aby);
-    }
-
-    private double DistanceSquared(Point a, Point b) => (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
-
-    private Point GetMidPoint(List<Point> pts)
-    {
-        var seg = (pts.Count - 2) / 2;
-        return new Point((pts[seg].X + pts[seg + 1].X) / 2, (pts[seg].Y + pts[seg + 1].Y) / 2);
-    }
-
-    private void EndDrag()
-    {
+        if (!_dragging) return;
         _dragging = false;
+        InvokeAsync(StateHasChanged);
     }
 }

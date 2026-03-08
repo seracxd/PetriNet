@@ -4,6 +4,14 @@ using System.Text;
 
 namespace Core.Models
 {
+    public enum ArcType
+    {
+        Normal,
+        Inhibitor,
+        Cancellation
+    }
+
+
     public class Arc
     {
         public string SourceId { get; set; } = string.Empty;

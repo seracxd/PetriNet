@@ -13,39 +13,39 @@ public class PetriWeightControl : Control
         if (model is not PetriLinkModel link)
             return null;
 
+        var mid = GetMidpoint(link);
+        if (mid == null) return null;
+
+        return new Point(mid.X + link.WeightLabelOffset.X,
+                         mid.Y + link.WeightLabelOffset.Y);
+    }
+
+    /// <summary>Midpoint of the middle segment of the arc.</summary>
+    public static Point? GetMidpoint(PetriLinkModel link)
+    {
         var pts = GetFullLinkPoints(link);
-        if (pts.Count == 0)
-            return null;
-
-        Point mid;
-        if (pts.Count == 1)
-            mid = pts[0];
-        else
-        {
-            var seg = (pts.Count - 2) / 2;
-            var a = pts[seg];
-            var b = pts[seg + 1];
-            mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
-        }
-
-        return mid + link.WeightLabelOffset;
+        if (pts.Count < 2) return null;
+        var seg = (pts.Count - 2) / 2;
+        var a = pts[seg]; var b = pts[seg + 1];
+        return new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
     }
 
     public static List<Point> GetFullLinkPoints(LinkModel link)
     {
-        var fallback = link.Vertices.Count > 0 ? link.Vertices[0].Position : new Point(0, 0);
+        var verts = link.Vertices.Select(v => v.Position).ToList();
 
-        var first = link.Vertices.Count > 0 ? link.Vertices[0].Position : fallback;
-        var last = link.Vertices.Count > 0 ? link.Vertices[^1].Position : fallback;
+        var srcHint = verts.Count > 0 ? verts[0]
+                    : link.Target?.GetPlainPosition() ?? new Point(0, 0);
+        var tgtHint = verts.Count > 0 ? verts[^1]
+                    : link.Source?.GetPlainPosition() ?? new Point(0, 0);
 
-        var sourcePos = link.Source.GetPosition(link, new[] { first, first });
-        var targetPos = link.Target?.GetPosition(link, new[] { last, last });
+        var sourcePos = link.Source.GetPosition(link, new[] { srcHint, srcHint });
+        var targetPos = link.Target?.GetPosition(link, new[] { tgtHint, tgtHint });
 
-        var points = new List<Point>();
-        if (sourcePos != null) points.Add(sourcePos);
-        points.AddRange(link.Vertices.Select(v => v.Position));
-        if (targetPos != null) points.Add(targetPos);
-
-        return points;
+        var pts = new List<Point>();
+        if (sourcePos != null) pts.Add(sourcePos);
+        pts.AddRange(verts);
+        if (targetPos != null) pts.Add(targetPos);
+        return pts;
     }
 }

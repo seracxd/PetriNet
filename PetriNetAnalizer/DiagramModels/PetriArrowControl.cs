@@ -5,6 +5,7 @@ using Blazor.Diagrams.Core.Events;
 using Blazor.Diagrams.Core.Geometry;
 using Blazor.Diagrams.Core.Models;
 using Blazor.Diagrams.Core.Models.Base;
+using Core.Models;
 using PetriNetAnalyzer.Services;
 
 namespace PetriNetAnalyzer.DiagramModels
@@ -50,6 +51,7 @@ namespace PetriNetAnalyzer.DiagramModels
             var snapshotSource = link.Source;
             var snapshotTarget = link.Target;
             var weight = link.Weight;
+            var arcType = link.ArcType;          // ← preserve arc type
             var canonicalSourceId = link.CanonicalSourceId;
             var vertexPositions = link.Vertices.Select(v => v.Position).ToList();
 
@@ -71,6 +73,7 @@ namespace PetriNetAnalyzer.DiagramModels
             tempLink.Color = "black";
             tempLink.SelectedColor = "#007bff";
             tempLink.Weight = weight;
+            tempLink.ArcType = arcType;        // ← restore arc type
             tempLink.CanonicalSourceId = canonicalSourceId;
             tempLink.IsDraggingEndpoint = true;
             tempLink.SnapshotSource = snapshotSource;
@@ -102,13 +105,13 @@ namespace PetriNetAnalyzer.DiagramModels
 
                 if (hitNode == null)
                 {
+                    // Dropped on canvas — restore original link unchanged
                     diagram.Links.Remove(tempLink);
                     RestoreOriginal(diagram, snapshotSource, snapshotTarget,
-                        weight, canonicalSourceId, vertexPositions);
+                        weight, arcType, canonicalSourceId, vertexPositions);
                     return;
                 }
 
-                // Find closest port on the hit node — preserves exact port selection
                 var closestPort = _manager.FindClosestPort(hitNode, dropPos);
                 Anchor nodeAnchor = closestPort != null
                     ? (Anchor)new SinglePortAnchor(closestPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
@@ -141,7 +144,8 @@ namespace PetriNetAnalyzer.DiagramModels
             => ValueTask.CompletedTask;
 
         private static void RestoreOriginal(Diagram diagram,
-            Anchor src, Anchor tgt, int weight, string? canonicalSourceId, List<Point> vertices)
+            Anchor src, Anchor tgt, int weight, ArcType arcType,
+            string? canonicalSourceId, List<Point> vertices)
         {
             var restored = new PetriLinkModel(src, tgt)
             {
@@ -150,6 +154,7 @@ namespace PetriNetAnalyzer.DiagramModels
                 Color = "black",
                 SelectedColor = "#007bff",
                 Weight = weight,
+                ArcType = arcType,              // ← preserve arc type
                 CanonicalSourceId = canonicalSourceId,
             };
             foreach (var vp in vertices)

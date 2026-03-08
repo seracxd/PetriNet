@@ -1,0 +1,382 @@
+@* PetriLinkWidget.razor — always-visible custom link renderer *@
+@using Blazor.Diagrams.Core.Geometry
+@using Blazor.Diagrams.Core.Models
+@using Blazor.Diagrams.Core.Models.Base
+@using PetriNetAnalyzer.DiagramModels
+@using PetriNetAnalyzer.Components.Widgets
+@using PetriNetAnalyzer.Services
+@using Core.Models
+@implements IDisposable
+@inject DiagramStateService StateService
+@inject PetriNetManager Manager
+
+@if (Link != null && _points != null && _points.Count >= 2)
+{
+    var color = Link.Selected ? "#007bff" : "black";
+    var dSmooth = BuildRoundedPath(_points, 14);
+    var srcPt = _points[0];
+    var tgtPt = _points[^1];
+
+    <g class="petri-link-group">
+
+        @* ── Visible line ── *@
+        <path d="@dSmooth" fill="none" stroke="@color" stroke-width="2" />
+
+        @* ── Tip marker ── *@
+        @if (Link.ArcType == ArcType.Normal)
+        {
+            <path d="@NormalArrowPath(_points)" fill="@color" stroke="none" />
+        }
+        else if (Link.ArcType == ArcType.Inhibitor)
+        {
+            <circle cx="@Fmt(PointAlongFromTip(_points, 6).X)"
+                    cy="@Fmt(PointAlongFromTip(_points, 6).Y)"
+                    r="6" fill="white" stroke="@color" stroke-width="2" />
+        }
+        else if (Link.ArcType == ArcType.Cancellation)
+        {
+            <path d="@CancellationTicks(_points)"
+                  fill="none" stroke="@color" stroke-width="2" stroke-linecap="round" />
+        }
+
+        @* ── Line hit area — before vertices so vertex rects win on overlap ── *@
+        @if (StateService.IsArcToolActive)
+        {
+            <path d="@dSmooth" fill="none" stroke="transparent" stroke-width="8"
+                  style="cursor:crosshair; pointer-events:stroke;"
+                  @onpointerdown="OnHitArcTool"
+                  @onpointerdown:stopPropagation="true" />
+        }
+        else
+        {
+            <path d="@dSmooth" fill="none" stroke="transparent" stroke-width="8"
+                  style="cursor:pointer; pointer-events:stroke;"
+                  @onpointerdown="OnHitSelect"
+                  @onpointerdown:stopPropagation="true"
+                  @ondblclick="OnLineDblClick"
+                  @ondblclick:stopPropagation="true" />
+        }
+
+        @* ── Mid-line vertices — after line hit area so they win on overlap.
+             Diamonds only visible when selected. Hit rects always present for drag.
+             Two-pass: idle vertices first, dragging vertex last (on top). *@
+        @foreach (var vertex in Link.Vertices.OfType<PetriVertexModel>().Where(v => v != _draggingVertex))
+        {
+            var v = vertex;
+            var vx = v.Position.X;
+            var vy = v.Position.Y;
+            @if (Link.Selected)
+            {
+                <rect x="@Fmt(vx - 6)" y="@Fmt(vy - 6)" width="12" height="12"
+                      fill="#ff8c00" stroke="white" stroke-width="1.5"
+                      transform="rotate(45, @Fmt(vx), @Fmt(vy))"
+                      style="pointer-events:none;" />
+            }
+            <rect x="@Fmt(vx - 14)" y="@Fmt(vy - 14)" width="28" height="28"
+                  fill="transparent" stroke="transparent"
+                  style="cursor:move; pointer-events:all;"
+                  @onpointerdown="(e) => OnVertexPointerDown(e, v)"
+                  @onpointerdown:stopPropagation="true" />
+        }
+        @if (_draggingVertex != null && Link.Vertices.Contains(_draggingVertex))
+        {
+            var v = _draggingVertex;
+            var vx = v.Position.X;
+            var vy = v.Position.Y;
+            <rect x="@Fmt(vx - 6)" y="@Fmt(vy - 6)" width="12" height="12"
+                  fill="#ff8c00" stroke="white" stroke-width="1.5"
+                  transform="rotate(45, @Fmt(vx), @Fmt(vy))"
+                  style="pointer-events:none;" />
+            <rect x="@Fmt(vx - 14)" y="@Fmt(vy - 14)" width="28" height="28"
+                  fill="transparent" stroke="transparent"
+                  style="cursor:move; pointer-events:all;"
+                  @onpointerdown="(e) => OnVertexPointerDown(e, v)"
+                  @onpointerdown:stopPropagation="true" />
+        }
+
+        @* ── Source endpoint diamond — only visible when selected ── *@
+        @if (!Link.IsDraggingEndpoint)
+        {
+            @if (Link.Selected)
+            {
+                <rect x="@Fmt(srcPt.X - 6)" y="@Fmt(srcPt.Y - 6)" width="12" height="12"
+                      fill="#ff8c00" stroke="white" stroke-width="1.5"
+                      transform="rotate(45, @Fmt(srcPt.X), @Fmt(srcPt.Y))"
+                      style="pointer-events:none;" />
+            }
+            <rect x="@Fmt(srcPt.X - 14)" y="@Fmt(srcPt.Y - 14)" width="28" height="28"
+                  fill="transparent" stroke="transparent"
+                  style="cursor:crosshair; pointer-events:all;"
+                  @onpointerdown="OnSourcePointerDown"
+                  @onpointerdown:stopPropagation="true" />
+        }
+
+        @* ── Target endpoint diamond — only visible when selected ── *@
+        @if (!Link.IsDraggingEndpoint)
+        {
+            @if (Link.Selected)
+            {
+                <rect x="@Fmt(tgtPt.X - 6)" y="@Fmt(tgtPt.Y - 6)" width="12" height="12"
+                      fill="#ff8c00" stroke="white" stroke-width="1.5"
+                      transform="rotate(45, @Fmt(tgtPt.X), @Fmt(tgtPt.Y))"
+                      style="pointer-events:none;" />
+            }
+            <rect x="@Fmt(tgtPt.X - 14)" y="@Fmt(tgtPt.Y - 14)" width="28" height="28"
+                  fill="transparent" stroke="transparent"
+                  style="cursor:crosshair; pointer-events:all;"
+                  @onpointerdown="OnTargetPointerDown"
+                  @onpointerdown:stopPropagation="true" />
+        }
+
+    </g>
+}
+
+@code {
+    [CascadingParameter] public Blazor.Diagrams.BlazorDiagram Diagram { get; set; } = null!;
+    [Parameter] public PetriLinkModel Link { get; set; } = null!;
+
+    private List<Point>? _points;
+    private PetriVertexModel? _draggingVertex;
+    private Point _dragStartMouse;
+    private Point _dragStartVertex;
+    private bool _didDrag;
+
+    // Double-click detection via pointer-down timestamps
+    private PetriVertexModel? _lastClickVertex;
+    private long _lastClickTime;
+    private const long DblClickMs = 350;
+
+    protected override void OnParametersSet() => RefreshPoints();
+
+    protected override void OnInitialized()
+    {
+        if (Link != null) Link.Changed += OnLinkChanged;
+        StateService.OnToolChanged += OnToolChanged;
+        Diagram.PointerMove += OnDiagramPointerMove;
+        Diagram.PointerUp += OnDiagramPointerUp;
+        RefreshPoints();
+    }
+
+    private void OnToolChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLinkChanged(Blazor.Diagrams.Core.Models.Base.Model _)
+        => InvokeAsync(() => { RefreshPoints(); StateHasChanged(); });
+
+    public void Dispose()
+    {
+        if (Link != null) Link.Changed -= OnLinkChanged;
+        StateService.OnToolChanged -= OnToolChanged;
+        Diagram.PointerMove -= OnDiagramPointerMove;
+        Diagram.PointerUp -= OnDiagramPointerUp;
+    }
+
+    private void RefreshPoints()
+    {
+        var link = Link;
+        if (link == null) { _points = null; return; }
+
+        // Build point list with correct directional hints for anchor resolution
+        var verts = link.Vertices.Select(v => v.Position).ToList();
+
+        // Source hint: direction toward first vertex (or target if no vertices)
+        var srcHint = verts.Count > 0 ? verts[0]
+                    : link.Target?.GetPlainPosition() ?? new Point(0, 0);
+        // Target hint: direction from last vertex (or source if no vertices)
+        var tgtHint = verts.Count > 0 ? verts[^1]
+                    : link.Source?.GetPlainPosition() ?? new Point(0, 0);
+
+        var srcPos = link.Source.GetPosition(link, new[] { srcHint, srcHint });
+        var tgtPos = link.Target?.GetPosition(link, new[] { tgtHint, tgtHint });
+
+        var pts = new List<Point>();
+        if (srcPos != null) pts.Add(srcPos);
+        pts.AddRange(verts);
+        if (tgtPos != null) pts.Add(tgtPos);
+
+        // Remove consecutive duplicate/near-identical points (distance < 2px)
+        // These cause degenerate zero-length segments and broken corner rounding
+        var deduped = new List<Point>();
+        foreach (var p in pts)
+        {
+            if (deduped.Count == 0) { deduped.Add(p); continue; }
+            var prev = deduped[^1];
+            double dx = p.X - prev.X, dy = p.Y - prev.Y;
+            if (dx * dx + dy * dy > 4) deduped.Add(p);
+        }
+
+        _points = deduped.Count >= 2 ? deduped : null;
+    }
+
+    // ── Line handlers ─────────────────────────────────────────────────────────
+
+    private void OnHitSelect(Microsoft.AspNetCore.Components.Web.PointerEventArgs _)
+        => Diagram.SelectModel(Link, true);
+
+    private void OnHitArcTool(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (!Manager.HasPendingLink) return;
+        Manager.AddVertexToPending(Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
+    }
+
+    private void OnLineDblClick(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        Diagram.SelectModel(Link, true);
+        Manager.AddVertexToLink(Link, Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
+    }
+
+    // ── Endpoint handlers ─────────────────────────────────────────────────────
+
+    private void OnSourcePointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        Diagram.SelectModel(Link, true);
+        Manager.StartEndpointDrag(Link, isSource: true, e.ClientX, e.ClientY);
+    }
+
+    private void OnTargetPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        Diagram.SelectModel(Link, true);
+        Manager.StartEndpointDrag(Link, isSource: false, e.ClientX, e.ClientY);
+    }
+
+    // ── Vertex handlers ───────────────────────────────────────────────────────
+
+    private void OnVertexPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e,
+                                     PetriVertexModel vertex)
+    {
+        long now = Environment.TickCount64;
+
+        // Two pointer-downs on the same vertex within DblClickMs → remove it
+        if (_lastClickVertex == vertex && (now - _lastClickTime) <= DblClickMs)
+        {
+            _lastClickVertex = null;
+            _lastClickTime = 0;
+            _draggingVertex = null;
+            Link.Vertices.Remove(vertex);
+            Link.Refresh();
+            RefreshPoints();
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _lastClickVertex = vertex;
+        _lastClickTime = now;
+
+        Diagram.SelectModel(Link, true);
+        _draggingVertex = vertex;
+        _dragStartMouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        _dragStartVertex = vertex.Position;
+        _didDrag = false;
+        // No StateHasChanged here — re-rendering during pointer-down disrupts drag
+    }
+
+    private void OnDiagramPointerMove(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (_draggingVertex == null) return;
+
+        var mouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        double dx = mouse.X - _dragStartMouse.X;
+        double dy = mouse.Y - _dragStartMouse.Y;
+
+        if (!_didDrag && dx * dx + dy * dy < 9) return;
+        _didDrag = true;
+
+        _draggingVertex.Position = new Point(
+            _dragStartVertex.X + dx,
+            _dragStartVertex.Y + dy);
+        _draggingVertex.Refresh();
+        Link.Refresh();
+        RefreshPoints();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnDiagramPointerUp(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (_draggingVertex == null) return;
+        _draggingVertex = null;
+        _didDrag = false;
+        RefreshPoints();
+        InvokeAsync(StateHasChanged);
+    }
+
+    // ── Tip markers ───────────────────────────────────────────────────────────
+
+    private static string NormalArrowPath(List<Point> pts)
+    {
+        var tip = pts[^1];
+        var prev = pts[^2];
+        double fwd = Math.Atan2(tip.Y - prev.Y, tip.X - prev.X);
+        double perp = fwd + Math.PI / 2;
+        const double baseBack = 12.0, halfW = 5.0;
+        double bx = tip.X - baseBack * Math.Cos(fwd), by = tip.Y - baseBack * Math.Sin(fwd);
+        double lx = bx + halfW * Math.Cos(perp), ly = by + halfW * Math.Sin(perp);
+        double rx = bx - halfW * Math.Cos(perp), ry = by - halfW * Math.Sin(perp);
+        return $"M {Fmt(tip.X)} {Fmt(tip.Y)} L {Fmt(lx)} {Fmt(ly)} L {Fmt(rx)} {Fmt(ry)} Z";
+    }
+
+    private static string CancellationTicks(List<Point> pts)
+    {
+        var tip = pts[^1];
+        var prev = pts[^2];
+        double fwd = Math.Atan2(tip.Y - prev.Y, tip.X - prev.X);
+        double tickAngle = fwd + Math.PI / 2 + Math.PI / 6;
+        const double half = 7.0;
+        double cos = Math.Cos(tickAngle), sin = Math.Sin(tickAngle);
+        var c1 = PointAlongFromTip(pts, 12);
+        var c2 = PointAlongFromTip(pts, 20);
+        return $"M {Fmt(c1.X - half * cos)} {Fmt(c1.Y - half * sin)} L {Fmt(c1.X + half * cos)} {Fmt(c1.Y + half * sin)} " +
+               $"M {Fmt(c2.X - half * cos)} {Fmt(c2.Y - half * sin)} L {Fmt(c2.X + half * cos)} {Fmt(c2.Y + half * sin)}";
+    }
+
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    private static Point PointAlongFromTip(List<Point> pts, double dist)
+    {
+        var last = pts[^1]; var prev = pts[^2];
+        double dx = last.X - prev.X, dy = last.Y - prev.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return last;
+        return new Point(prev.X + dx * Math.Max(0, (len - dist) / len),
+                         prev.Y + dy * Math.Max(0, (len - dist) / len));
+    }
+
+    private static string BuildRoundedPath(List<Point> pts, double radius)
+    {
+        if (pts.Count < 2) return "";
+        if (pts.Count == 2)
+            return $"M {Fmt(pts[0].X)} {Fmt(pts[0].Y)} L {Fmt(pts[1].X)} {Fmt(pts[1].Y)}";
+
+        // For each interior vertex i (1 .. Count-2):
+        //   approach segment ends at CornerEntry (r px before vertex)
+        //   Q bezier through vertex, exits at CornerExit (r px after vertex)
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"M {Fmt(pts[0].X)} {Fmt(pts[0].Y)}");
+
+        for (int i = 1; i < pts.Count - 1; i++)
+        {
+            var entry = CornerEntry(pts[i - 1], pts[i], radius);
+            var exit = CornerExit(pts[i], pts[i + 1], radius);
+            sb.Append($" L {Fmt(entry.X)} {Fmt(entry.Y)}");
+            sb.Append($" Q {Fmt(pts[i].X)} {Fmt(pts[i].Y)} {Fmt(exit.X)} {Fmt(exit.Y)}");
+        }
+
+        sb.Append($" L {Fmt(pts[^1].X)} {Fmt(pts[^1].Y)}");
+        return sb.ToString();
+    }
+
+    private static Point CornerEntry(Point a, Point b, double r)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6 || len <= r) return a;
+        return new Point(a.X + dx * (len - r) / len, a.Y + dy * (len - r) / len);
+    }
+
+    private static Point CornerExit(Point a, Point b, double r)
+    {
+        double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6 || len <= r) return b;
+        return new Point(a.X + dx * r / len, a.Y + dy * r / len);
+    }
+
+    private static string Fmt(double v)
+        => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+}
