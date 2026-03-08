@@ -1,8 +1,7 @@
 ﻿using Blazor.Diagrams;
 using Blazor.Diagrams.Core;
 using Blazor.Diagrams.Core.Anchors;
-using Blazor.Diagrams.Core.Controls.Default;
-using Blazor.Diagrams.Core.Events;
+using Blazor.Diagrams.Core.Behaviors;
 using Blazor.Diagrams.Core.Geometry;
 using Blazor.Diagrams.Core.Models;
 using Blazor.Diagrams.Core.Models.Base;
@@ -20,6 +19,18 @@ public class PetriNetManager : IDisposable
 {
     public BlazorDiagram Diagram { get; private set; }
 
+    // ── Click-to-connect state ────────────────────────────────────────────────
+    // When arc tool is active and the user clicks a port/node, we start a
+    // pending link. Subsequent clicks on canvas add vertices; click on a
+    // node/port finalises the link.
+
+    private PetriLinkModel? _pendingLink;      // the in-progress arc
+    private MutablePositionAnchor? _pendingFloating; // floating target follows mouse
+    private PortModel? _pendingSourcePort;     // remembered source port (may be null)
+
+    public event Action? PendingLinkChanged;   // lets Home.razor re-render cursor etc.
+    public bool HasPendingLink => _pendingLink != null;
+
     private int _placeCounter = 1;
     private int _transitionCounter = 1;
 
@@ -29,154 +40,289 @@ public class PetriNetManager : IDisposable
         {
             AllowMultiSelection = false,
             Virtualization = { Enabled = false },
-            Links = {
-                DefaultRouter = new NormalRouter(),
+            Links =
+            {
+                DefaultRouter        = new NormalRouter(),
                 DefaultPathGenerator = new StraightPathGenerator(radius: 20),
-                Factory = LinkFactory,
-                SnappingRadius = 3,
+                Factory              = LinkFactory,
+                SnappingRadius       = 3,
             }
         };
 
         Diagram = new BlazorDiagram(options);
+
+        // We manage link drawing entirely ourselves — no drag behaviour needed
+        Diagram.UnregisterBehavior<DragNewLinkBehavior>();
+
         Diagram.RegisterComponent<PlaceNode, PlaceComponent>();
         Diagram.RegisterComponent<TransitionNode, TransitionComponent>();
         Diagram.RegisterComponent<PetriVertexModel, PetriVertexWidget>();
         Diagram.RegisterComponent<PetriWeightControl, PetriWeightControlWidget>();
+        Diagram.RegisterComponent<PetriEndpointControl, PetriEndpointWidget>();
 
         Diagram.Links.Added += OnLinkAdded;
-
+        Diagram.PointerMove += OnPointerMove;
     }
+
+    // ── Tool control ──────────────────────────────────────────────────────────
+
+    public void EnableLinkDrawing() { /* click-to-connect, no DragNewLinkBehavior needed */ }
+    public void DisableLinkDrawing() => CancelPendingLink();
+
+    // ── Click-to-connect entry point (called from Home.razor OnPointerDown) ───
+
+    /// <summary>
+    /// Main dispatcher for the arc tool.
+    /// Called for every pointer-down when arc tool is active.
+    /// model = whatever was clicked (port, node, link, null=canvas).
+    /// </summary>
+    public void HandleArcToolClick(Model? model, Point clientPoint)
+    {
+        var pos = Diagram.GetRelativeMousePoint(clientPoint.X, clientPoint.Y);
+
+        if (_pendingLink == null)
+        {
+            // ── No pending link: start one from the clicked port/node ─────────
+            StartPendingLink(model, pos);
+        }
+        else
+        {
+            // ── Pending link exists ───────────────────────────────────────────
+            if (model == null)
+            {
+                // Clicked blank canvas → add vertex at this point
+                AddVertexToPending(pos);
+            }
+            else if (model is PortModel port)
+            {
+                FinishPendingLink(port.Parent, port, pos);
+            }
+            else if (model is NodeModel node)
+            {
+                // Find closest port on the node to the click point
+                var closestPort = FindClosestPort(node, pos);
+                FinishPendingLink(node, closestPort, pos);
+            }
+            else if (model is PetriLinkModel || model is PetriVertexModel)
+            {
+                // Clicked an existing link/vertex — ignore, don't cancel
+            }
+            // Clicking something else (like the floating link itself) is ignored
+        }
+    }
+
+    private void StartPendingLink(Model? model, Point pos)
+    {
+        PortModel? sourcePort = null;
+        Anchor sourceAnchor;
+
+        if (model is PortModel port)
+        {
+            sourcePort = port;
+            sourceAnchor = new SinglePortAnchor(port) { MiddleIfNoMarker = false, UseShapeAndAlignment = true };
+        }
+        else if (model is NodeModel node)
+        {
+            var closest = FindClosestPort(node, pos);
+            sourcePort = closest;
+            sourceAnchor = closest != null
+                ? (Anchor)new SinglePortAnchor(closest) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
+                : new ShapeIntersectionAnchor(node);
+        }
+        else
+        {
+            return; // clicked nothing useful
+        }
+
+        _pendingSourcePort = sourcePort;
+        _pendingFloating = new MutablePositionAnchor(pos);
+
+        _pendingLink = new PetriLinkModel(sourceAnchor, _pendingFloating)
+        {
+            Segmentable = false,
+            TargetMarker = LinkMarker.Arrow,
+            Color = "#007bff",
+            SelectedColor = "#007bff",
+            IsDraggingEndpoint = true,
+        };
+
+        Diagram.Links.Add(_pendingLink);
+        PendingLinkChanged?.Invoke();
+    }
+
+    private void AddVertexToPending(Point pos)
+    {
+        if (_pendingLink == null || _pendingFloating == null) return;
+
+        // Insert a real vertex just before the floating target
+        var vertex = new PetriVertexModel(_pendingLink, pos);
+        _pendingLink.Vertices.Add(vertex);
+        _pendingFloating.SetPosition(pos);
+        _pendingLink.Refresh();
+    }
+
+    private void FinishPendingLink(NodeModel targetNode, PortModel? targetPort, Point pos)
+    {
+        if (_pendingLink == null) return;
+
+        var sourceNode = GetParentNode(_pendingLink.Source);
+        if (sourceNode == null) { CancelPendingLink(); return; }
+
+        // Validate Petri rules before finalising
+        if (sourceNode.GetType() == targetNode.GetType()) { CancelPendingLink(); return; }
+
+        var duplicateExists = Diagram.Links
+            .OfType<LinkModel>()
+            .Any(other =>
+                other != _pendingLink &&
+                GetParentNode(other.Source) == sourceNode &&
+                GetParentNode(other.Target) == targetNode);
+        if (duplicateExists) { CancelPendingLink(); return; }
+
+        // Attach real target anchor
+        Anchor targetAnchor = targetPort != null
+            ? (Anchor)new SinglePortAnchor(targetPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
+            : new ShapeIntersectionAnchor(targetNode);
+
+        _pendingLink.SetTarget(targetAnchor);
+        _pendingLink.IsDraggingEndpoint = false;
+        _pendingLink.Color = "black";
+        _pendingLink.CanonicalSourceId = sourceNode.Id;
+
+        var finalised = _pendingLink;
+        _pendingLink = null;
+        _pendingFloating = null;
+        _pendingSourcePort = null;
+
+        finalised.Refresh();
+        AddControls(finalised);
+        PendingLinkChanged?.Invoke();
+    }
+
+    public void CancelPendingLink()
+    {
+        if (_pendingLink == null) return;
+        Diagram.Links.Remove(_pendingLink);
+        _pendingLink = null;
+        _pendingFloating = null;
+        _pendingSourcePort = null;
+        PendingLinkChanged?.Invoke();
+    }
+
+    private void OnPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
+    {
+        if (_pendingLink == null || _pendingFloating == null) return;
+        _pendingFloating.SetPosition(Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
+        _pendingLink.Refresh();
+    }
+
+    // ── Link lifecycle ────────────────────────────────────────────────────────
 
     private void OnLinkAdded(BaseLinkModel baseLink)
     {
         if (baseLink is not PetriLinkModel link) return;
+        if (link.IsDraggingEndpoint) return; // pending or temp link — skip
 
-        link.TargetChanged += (l, _, _) =>
-        {
-            CheckPetriRule((LinkModel)l);
-        };
+        AddControls(link);
+        link.TargetAttached += OnLinkTargetAttached;
+    }
 
-        var diamondMarker = new LinkMarker("M 7.6569 -5.6569 L 13.3137 0 L 7.6569 5.6569 L 2 0 Z", 11.31370000001);
+    private void AddControls(PetriLinkModel link)
+    {
         Diagram.Controls.AddFor(link)
-        .Add(new PetriArrowControl(source: true, marker: diamondMarker))
-        .Add(new PetriArrowControl(source: false, marker: diamondMarker))
-        .Add(new PetriWeightControl());
-
-        link.TargetAttached += async (m) =>
-    {
-            await Task.Yield();
-            NormalizePetriLink(link);
-        };
-
-    }
-    private void NormalizePetriLink(LinkModel link)
-    {
-        if (link is not PetriLinkModel petriLink) return;
-
-        if (link.Source is SinglePortAnchor s && link.Target is SinglePortAnchor t)
-        {
-            if (petriLink.IsAdjustingSource)
-            {
-                ReverseLinkCompletely(petriLink);
-
-                petriLink.IsAdjustingSource = false;
-    }
-        }
+            .Add(new PetriEndpointControl(isSourceEnd: true, validatePetriLink: RunValidation, addControls: AddControls, manager: this))
+            .Add(new PetriEndpointControl(isSourceEnd: false, validatePetriLink: RunValidation, addControls: AddControls, manager: this))
+            .Add(new PetriWeightControl());
     }
 
-    private void ReverseLinkCompletely(LinkModel link)
-        {
-            var s = link.Source;
-            var t = link.Target;
+    private void RunValidation(PetriLinkModel link, NodeModel sourceNode, NodeModel targetNode)
+        => ValidatePetriLink(link, sourceNode, targetNode);
 
-            link.SetSource(t);
-            link.SetTarget(s);
-
-            if (link.Vertices.Count > 0)
-            {
-            var rev = link.Vertices.AsEnumerable().Reverse().ToList();
-                link.Vertices.Clear();
-            foreach (var v in rev) link.Vertices.Add(v);
-            }
-
-            link.Refresh();
-        }
-    private void CheckPetriRule(LinkModel link)
+    private async void OnLinkTargetAttached(BaseLinkModel baseLink)
     {
-        if (link.Target.Model == null) return;
+        if (baseLink is not PetriLinkModel link) return;
+        if (link.IsDraggingEndpoint) return;
+
+        await Task.Yield();
 
         var sourceNode = GetParentNode(link.Source);
         var targetNode = GetParentNode(link.Target);
-
         if (sourceNode == null || targetNode == null) return;
 
-        if (sourceNode.GetType() == targetNode.GetType())
-        {
-            Diagram.Links.Remove(link);
-        }
+        if (!ValidatePetriLink(link, sourceNode, targetNode)) return;
+        if (link.CanonicalSourceId == null) link.CanonicalSourceId = sourceNode.Id;
+    }
 
+    private bool ValidatePetriLink(PetriLinkModel link, NodeModel sourceNode, NodeModel targetNode)
+    {
         if (sourceNode.GetType() == targetNode.GetType())
         {
             Diagram.Links.Remove(link);
-            return;
+            return false;
         }
 
         var duplicateExists = Diagram.Links
             .OfType<LinkModel>()
-            .Any(otherLink =>
-                otherLink != link &&
-                GetParentNode(otherLink.Source) == sourceNode &&
-                GetParentNode(otherLink.Target) == targetNode);
+            .Any(other =>
+                other != link &&
+                GetParentNode(other.Source) == sourceNode &&
+                GetParentNode(other.Target) == targetNode);
 
-
-        if (link is not PetriLinkModel petriLink) return;
-
-        if (duplicateExists && !petriLink.IsAdjustingSource)
+        if (duplicateExists)
         {
             Diagram.Links.Remove(link);
+            return false;
         }
+
+        return true;
     }
 
-    private NodeModel? GetParentNode(Anchor anchor)
-    {
-        if (anchor.Model is NodeModel node) return node;
-        if (anchor.Model is PortModel port) return port.Parent;
-        return null;
-    }
-    private LinkModel LinkFactory(Diagram diagram, ILinkable source, Anchor? targetAnchor)
-    {
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-        Anchor sourceAnchor;
+    private NodeModel? GetParentNode(Anchor anchor) => anchor.Model switch
+    {
+        NodeModel node => node,
+        PortModel port => port.Parent,
+        _ => null
+    };
 
-        if (source is NodeModel node)
-        {
-            sourceAnchor = new ShapeIntersectionAnchor(node);
-        }
-        else if (source is PortModel port)
-        {
-            sourceAnchor = new SinglePortAnchor(port)
+    /// <summary>Find the port on a node whose rendered position is closest to p.</summary>
+    public PortModel? FindClosestPort(NodeModel node, Point p)
+    {
+        if (!node.Ports.Any()) return null;
+
+        return node.Ports
+            .OrderBy(port =>
             {
-                MiddleIfNoMarker = false,
-                UseShapeAndAlignment = true
-            };
-        }
-        else
-        {
-            return null!;
-        }
+                var pp = port.Position;
+                if (pp == null) return double.MaxValue;
+                var dx = pp.X - p.X;
+                var dy = pp.Y - p.Y;
+                return dx * dx + dy * dy;
+            })
+            .First();
+    }
 
-        var link = new PetriLinkModel(sourceAnchor, targetAnchor)
+    private LinkModel? LinkFactory(Diagram diagram, ILinkable source, Anchor? targetAnchor)
+    {
+        Anchor? sourceAnchor = source switch
+        {
+            NodeModel node => new ShapeIntersectionAnchor(node),
+            PortModel port => new SinglePortAnchor(port) { MiddleIfNoMarker = false, UseShapeAndAlignment = true },
+            _ => null
+        };
+        if (sourceAnchor is null) return null;
+
+        return new PetriLinkModel(sourceAnchor, targetAnchor)
         {
             Segmentable = false,
             TargetMarker = LinkMarker.Arrow,
             Color = "black",
             SelectedColor = "#007bff",
-            
-
         };
-
-        return link;
     }
+
+    // ── Node management ───────────────────────────────────────────────────────
 
     public void AddNodeAt(string type, Point clientPoint)
     {
@@ -187,50 +333,39 @@ public class PetriNetManager : IDisposable
             "transition" => new TransitionNode(new Transition { Name = $"T{_transitionCounter++}" }),
             _ => null
         };
+        if (newNode is null) return;
 
-        if (newNode != null)
-        {
-            var centerX = point.X - (newNode.Size?.Width ?? 60) / 2;
-            var centerY = point.Y - (newNode.Size?.Height ?? 60) / 2;
-            newNode.Position = new Point(centerX, centerY);
-            Diagram.Nodes.Add(newNode);
-        }
+        newNode.Position = new Point(
+            point.X - (newNode.Size?.Width ?? 60) / 2,
+            point.Y - (newNode.Size?.Height ?? 60) / 2);
+        Diagram.Nodes.Add(newNode);
     }
 
     public void DeleteSelected()
     {
-        var selectedModels = Diagram.GetSelectedModels().ToList();
-        foreach (var model in selectedModels)
+        foreach (var model in Diagram.GetSelectedModels().ToList())
         {
-            if (model is PetriVertexModel vertex)
+            switch (model)
             {
-                var link = vertex.Parent;
-                link.Vertices.Remove(vertex);
-                link.Refresh();
+                case PetriVertexModel vertex:
+                    vertex.Parent.Vertices.Remove(vertex);
+                    vertex.Parent.Refresh();
+                    break;
+                case NodeModel node:
+                    Diagram.Nodes.Remove(node);
+                    break;
+                case LinkModel link:
+                    Diagram.Links.Remove(link);
+                    break;
             }
-            else if (model is NodeModel node) Diagram.Nodes.Remove(node);
-            else if (model is LinkModel link) Diagram.Links.Remove(link);
         }
     }
 
     public void HandleDoubleClick(Model? model, Point clientPoint)
     {
-        if (model is PetriLinkModel link)
-        {
-            var relPoint = Diagram.GetRelativeMousePoint(clientPoint.X, clientPoint.Y);
-            var points = GetFullLinkPoints(link, relPoint);
-            var segIndex = FindClosestSegmentIndex(points, relPoint);
-
-            var newVertex = new PetriVertexModel(link, relPoint);
-            link.Vertices.Insert(Math.Clamp(segIndex, 0, link.Vertices.Count), newVertex);
-
-            Diagram.SelectModel(link, true);
-            Diagram.SelectModel(newVertex, true);
-        }
-        else if (model is PetriVertexModel vertex)
-        {
+        if (model is PetriVertexModel vertex)
             vertex.Parent.Vertices.Remove(vertex);
-        }
+        // Double-click on link is now handled by single-click vertex insertion during pending
     }
 
     private List<Point> GetFullLinkPoints(LinkModel link, Point fallback)
@@ -238,44 +373,41 @@ public class PetriNetManager : IDisposable
         var first = link.Vertices.Count > 0 ? link.Vertices[0].Position : fallback;
         var last = link.Vertices.Count > 0 ? link.Vertices[^1].Position : fallback;
 
-        var sourcePos = link.Source.GetPosition(link, [first, first]);
-        var targetPos = link.Target.GetPosition(link, [last, last]);
+        var sourcePos = link.Source.GetPosition(link, new[] { first, first });
+        var targetPos = link.Target.GetPosition(link, new[] { last, last });
 
         var points = new List<Point>();
         if (sourcePos != null) points.Add(sourcePos);
-
         points.AddRange(link.Vertices.Select(v => v.Position));
-
         if (targetPos != null) points.Add(targetPos);
-
         return points;
     }
 
     private static int FindClosestSegmentIndex(IReadOnlyList<Point> pts, Point p)
     {
-        var bestIndex = 0;
-        var bestDist2 = double.MaxValue;
-        for (var i = 0; i < pts.Count - 1; i++)
+        int best = 0; double bestD = double.MaxValue;
+        for (int i = 0; i < pts.Count - 1; i++)
         {
-            var d2 = DistancePointToSegmentSquared(p, pts[i], pts[i + 1]);
-            if (d2 < bestDist2) { bestDist2 = d2; bestIndex = i; }
+            var d = DistPtSegSq(p, pts[i], pts[i + 1]);
+            if (d < bestD) { bestD = d; best = i; }
         }
-        return bestIndex;
+        return best;
     }
 
-    private static double DistancePointToSegmentSquared(Point p, Point a, Point b)
+    private static double DistPtSegSq(Point p, Point a, Point b)
     {
-        var abx = b.X - a.X; var aby = b.Y - a.Y;
-        var apx = p.X - a.X; var apy = p.Y - a.Y;
-        var abLen2 = abx * abx + aby * aby;
-        if (abLen2 < 1e-9) return apx * apx + apy * apy;
-        var t = Math.Max(0, Math.Min(1, (apx * abx + apy * aby) / abLen2));
-        var dx = p.X - (a.X + t * abx);
-        var dy = p.Y - (a.Y + t * aby);
+        double abx = b.X - a.X, aby = b.Y - a.Y;
+        double apx = p.X - a.X, apy = p.Y - a.Y;
+        double len2 = abx * abx + aby * aby;
+        if (len2 < 1e-9) return apx * apx + apy * apy;
+        double t = Math.Clamp((apx * abx + apy * aby) / len2, 0, 1);
+        double dx = p.X - (a.X + t * abx), dy = p.Y - (a.Y + t * aby);
         return dx * dx + dy * dy;
     }
+
     public void Dispose()
     {
         Diagram.Links.Added -= OnLinkAdded;
+        Diagram.PointerMove -= OnPointerMove;
     }
 }
