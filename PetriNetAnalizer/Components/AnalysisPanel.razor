@@ -1,0 +1,385 @@
+@using Microsoft.JSInterop
+@using PetriNetAnalyzer.Services
+@using Analysis
+@using PetriNetAnalyzer.DiagramModels
+@using Core.Models
+@inject IJSRuntime JS
+@inject PetriNetManager Manager
+@inject SimulationService Sim
+@implements IDisposable
+
+<!-- ── Vertical book-tab strip ── -->
+<div style="flex-shrink:0;width:36px;background:#f0f0f0;border-left:1px solid #d0d0d0;display:flex;flex-direction:column;align-items:center;padding-top:8px;z-index:120;">
+    <button title="Analysis" @onclick="ToggleOpen"
+            style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0;border:none;border-left:3px solid @(_open ? "#00897b" : "transparent");background:@(_open ? "#fff" : "transparent");cursor:pointer;color:@(_open ? "#00897b" : "#555");width:100%;transition:background 0.15s,color 0.15s;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;flex-shrink:0;">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+        <span style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;user-select:none;">Analysis</span>
+    </button>
+</div>
+
+@if (_open)
+{
+    <div id="ap-panel" style="@PanelStyle">
+
+        <!-- Title bar -->
+        <div id="ap-titlebar" @ondblclick="ToggleFloat"
+             style="flex-shrink:0;height:36px;background:#f5f5f5;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 6px 0 12px;gap:6px;user-select:none;cursor:@(_floating ? "grab" : "default");">
+            <span style="flex:1;font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#999;">Analysis</span>
+            <div style="display:flex;gap:1px;">
+                <button title="@(_floating ? "Dock" : "Float")" @onclick="ToggleFloat"
+                        style="width:24px;height:24px;border:none;background:transparent;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#bbb;padding:0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                        @if (_floating)
+                        {
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <line x1="3" y1="9" x2="21" y2="9" />
+                        }
+                        else
+                        {
+                            <rect x="5" y="5" width="14" height="14" rx="2" />
+                            <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+                            <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+                        }
+                    </svg>
+                </button>
+                <button title="Close" @onclick="Close"
+                        style="width:24px;height:24px;border:none;background:transparent;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#bbb;padding:0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div style="flex-shrink:0;display:flex;align-items:stretch;background:#fafafa;border-bottom:1.5px solid #e8e8e8;">
+            <button id="ap-tabs-arrow-left"
+                    onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:-120,behavior:'smooth'})"
+                    style="display:none;flex-shrink:0;width:24px;border:none;border-right:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+            <div id="ap-tabs-scroll" style="flex:1;display:flex;overflow-x:auto;scrollbar-width:none;">
+                @foreach (var tab in _tabs)
+                {
+                    var isActive = _activeTab == tab.Id;
+                    <button @onclick="() => _activeTab = tab.Id"
+                            style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 12px;font-size:12px;font-weight:600;color:@(isActive ? "#00897b" : "#aaa");background:transparent;border:none;border-bottom:2.5px solid @(isActive ? "#00897b" : "transparent");margin-bottom:-1.5px;cursor:pointer;white-space:nowrap;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0;">
+                            @if (tab.Id == "simulation")
+                            {
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                            }
+                            else if (tab.Id == "reachability")
+                            {
+                                <circle cx="11" cy="11" r="7" />
+                                <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                            }
+                            else if (tab.Id == "liveness")
+                            {
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            }
+                            else if (tab.Id == "boundedness")
+                            {
+                                <rect x="3" y="3" width="18" height="18" rx="3" />
+                                <line x1="3" y1="9" x2="21" y2="9" />
+                                <line x1="9" y1="21" x2="9" y2="9" />
+                            }
+                        </svg>
+                        @tab.Label
+                    </button>
+                }
+            </div>
+            <button id="ap-tabs-arrow-right"
+                    onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:120,behavior:'smooth'})"
+                    style="display:none;flex-shrink:0;width:24px;border:none;border-left:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+        </div>
+
+        <!-- Content -->
+        <div style="flex:1;overflow-y:auto;overflow-x:hidden;">
+            @if (_activeTab == "simulation")
+            {
+                @if (!Sim.IsActive)
+                {
+                    var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+                    var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
+                    var arcs = Manager.Diagram.Links.OfType<PetriLinkModel>()
+                    .Where(l => !l.IsDraggingEndpoint && l.Target != null).ToList();
+                    var totalTokens = places.Sum(p => p.Data.Tokens);
+                    var inhibArcs = arcs.Count(a => a.ArcType == ArcType.Inhibitor);
+                    var resetArcs = arcs.Count(a => a.ArcType == ArcType.Reset);
+
+                    <div style="padding:14px 14px 0;">
+                        <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Net Statistics</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
+                            @foreach (var (label, value, color) in new[]{
+                                ("Places",      places.Count.ToString(),      "#00897b"),
+                                ("Transitions", transitions.Count.ToString(), "#00897b"),
+                                ("Arcs",        arcs.Count.ToString(),        "#00897b"),
+                                ("Tokens",      totalTokens.ToString(),       "#00897b"),
+                                ("Inhibitor",   inhibArcs.ToString(),         inhibArcs>0?"#e65100":"#bbb"),
+                                ("Reset",       resetArcs.ToString(),         resetArcs>0?"#6a1b9a":"#bbb"),
+                                })
+                            {
+                                <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:8px 10px;">
+                                    <div style="font-size:18px;font-weight:700;color:@color;">@value</div>
+                                    <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (places.Any())
+                        {
+                            <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Initial Marking</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;">
+                                @foreach (var p in places)
+                                {
+                                    <div style="display:flex;align-items:center;gap:5px;padding:4px 8px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:7px;font-size:12px;">
+                                        <span style="color:#888;font-weight:600;">@p.Data.Name</span>
+                                        <span style="min-width:18px;text-align:center;background:@(p.Data.Tokens > 0 ? "#00897b" : "#ddd");color:@(p.Data.Tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@p.Data.Tokens</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (!places.Any() || !transitions.Any())
+                        {
+                            <div style="padding:8px;background:#fff8e1;border-radius:7px;font-size:11px;color:#f57f17;margin-bottom:12px;">
+                                ⚠ Add places and transitions before simulating.
+                            </div>
+                        }
+
+                        <button @onclick="() => Sim.Start()"
+                                disabled="@(!places.Any() || !transitions.Any())"
+                                style="width:100%;padding:9px 0;background:@(places.Any() && transitions.Any() ? "#00897b" : "#e0e0e0");color:@(places.Any() && transitions.Any() ? "#fff" : "#aaa");border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:@(places.Any() && transitions.Any() ? "pointer" : "default");display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:14px;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                            Start Simulation
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;">
+
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <div style="font-size:13px;color:#00897b;font-weight:700;flex:1;">
+                                Step @Sim.StepCount
+                                @if (Sim.IsViewingHistory)
+                                {
+                                    <span style="font-size:10px;font-weight:400;color:#f57f17;"> · viewing past</span>
+                                }
+                            </div>
+                            @if (Sim.IsAutoFiring)
+                            {
+                                <div style="font-size:10px;background:#e0f5f3;color:#00897b;border-radius:10px;padding:2px 8px;font-weight:600;">● Auto</div>
+                            }
+                            @if (Sim.IsDeadlock)
+                            {
+                                <div style="font-size:10px;background:#ffebee;color:#e53935;border-radius:10px;padding:2px 8px;font-weight:600;">Deadlock</div>
+                            }
+                        </div>
+
+                        <div>
+                            <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Current Marking</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                                @foreach (var place in Sim.Places)
+                                {
+                                    var tokens = Sim.Marking.GetValueOrDefault(place.Id, 0);
+                                    var initial = place.InitialTokens;
+                                    var delta = tokens - initial;
+                                    <div style="display:flex;align-items:center;gap:5px;padding:4px 8px;background:#f7f7f7;border:1.5px solid @(tokens > initial ? "#a5d6a7" : tokens < initial ? "#ffcdd2" : "#ebebeb");border-radius:7px;font-size:12px;">
+                                        <span style="color:#888;font-weight:600;">@place.Name</span>
+                                        <span style="min-width:18px;text-align:center;background:@(tokens > 0 ? "#00897b" : "#ddd");color:@(tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@tokens</span>
+                                        @if (delta != 0)
+                                        {
+                                            <span style="font-size:10px;color:@(delta > 0 ? "#388e3c" : "#e53935");font-weight:700;">@(delta > 0 ? "+" : "")@delta</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div>
+                            <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Fire Transition</div>
+                            @{
+                                var enabled = Sim.EnabledTransitions;
+                            }
+                            @if (Sim.IsDeadlock)
+                            {
+                                <div style="padding:6px 8px;background:#ffebee;border-radius:7px;font-size:11px;color:#e53935;font-weight:600;">⚠ No transitions enabled.</div>
+                            }
+                            else
+                            {
+                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                    @foreach (var t in Sim.Transitions.OrderByDescending(t => t.Priority))
+                                    {
+                                        var isEnabled = enabled.Contains(t.Id);
+                                        var fired = Sim.FiringCounts.GetValueOrDefault(t.Id, 0);
+                                        <button @onclick="() => Sim.StepManual(t.Id)" disabled="@(!isEnabled)"
+                                                style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;border:1.5px solid @(isEnabled ? "#00897b" : "#ebebeb");background:@(isEnabled ? "#f0faf8" : "#fafafa");color:@(isEnabled ? "#00897b" : "#bbb");cursor:@(isEnabled ? "pointer" : "default");font-size:12px;font-weight:600;text-align:left;">
+                                            <svg viewBox="0 0 24 24" fill="@(isEnabled ? "#00897b" : "#ccc")" style="width:10px;height:10px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                            @t.Name
+                                            @if (t.Priority > 0)
+                                            {
+                                                <span style="font-size:10px;color:#aaa;">P@(t.Priority)</span>
+                                            }
+                                            @if (fired > 0)
+                                            {
+                                                <span style="margin-left:auto;font-size:10px;color:@(isEnabled ? "#80cbc4" : "#ccc");font-weight:700;">×@fired</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (Sim.FiringCounts.Any())
+                        {
+                            <div>
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Firing Statistics</div>
+                                @{
+                                    var maxFired = Sim.FiringCounts.Values.Max();
+                                }
+                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                    @foreach (var kv in Sim.FiringCounts.OrderByDescending(x => x.Value))
+                                    {
+                                        var tname = Sim.GetTransitionName(kv.Key);
+                                        var pct = maxFired > 0 ? (int)(kv.Value * 100.0 / maxFired) : 0;
+                                        <div style="font-size:12px;">
+                                            <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                                                <span style="color:#555;font-weight:600;">@tname</span>
+                                                <span style="color:#00897b;font-weight:700;">@kv.Value</span>
+                                            </div>
+                                            <div style="height:4px;background:#f0f0f0;border-radius:2px;overflow:hidden;">
+                                                <div style="height:100%;width:@(pct)%;background:#00897b;border-radius:2px;transition:width 0.3s;"></div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                <div style="margin-top:6px;font-size:10px;color:#bbb;">Total firings: @Sim.StepCount</div>
+                            </div>
+                        }
+
+                    </div>
+                }
+            }
+            else
+            {
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;height:100%;gap:12px;padding:32px 24px;text-align:center;">
+                    <div style="width:52px;height:52px;border-radius:14px;background:#f3f3f3;border:1.5px solid #e8e8e8;display:flex;align-items:center;justify-content:center;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;">
+                            @if (_activeTab == "reachability")
+                            {
+                                <circle cx="11" cy="11" r="7" />
+                                <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                            }
+                            else if (_activeTab == "liveness")
+                            {
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            }
+                            else if (_activeTab == "boundedness")
+                            {
+                                <rect x="3" y="3" width="18" height="18" rx="3" />
+                                <line x1="3" y1="9" x2="21" y2="9" />
+                                <line x1="9" y1="21" x2="9" y2="9" />
+                            }
+                        </svg>
+                    </div>
+                    <p style="font-size:15px;font-weight:700;color:#555;margin:0;">@_tabs.First(t => t.Id == _activeTab).Label</p>
+                    <span style="font-size:12px;color:#aaa;line-height:1.6;max-width:220px;">@_tabs.First(t => t.Id == _activeTab).Description</span>
+                    <div style="margin-top:4px;font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#00897b;background:#e0f5f3;border-radius:20px;padding:3px 10px;">Coming soon</div>
+                </div>
+            }
+        </div>
+
+        <!-- Resize handles -->
+        @if (!_floating)
+        {
+            <div id="ap-resize-left" style="position:absolute;left:0;top:0;width:5px;height:100%;cursor:ew-resize;z-index:10;"></div>
+        }
+        else
+        {
+            <div id="ap-resize-w" style="position:absolute;left:0;top:6px;width:5px;height:calc(100% - 12px);cursor:ew-resize;z-index:10;"></div>
+            <div id="ap-resize-e" style="position:absolute;right:0;top:6px;width:5px;height:calc(100% - 12px);cursor:ew-resize;z-index:10;"></div>
+            <div id="ap-resize-n" style="position:absolute;top:0;left:6px;height:5px;width:calc(100% - 12px);cursor:ns-resize;z-index:10;"></div>
+            <div id="ap-resize-s" style="position:absolute;bottom:0;left:6px;height:5px;width:calc(100% - 12px);cursor:ns-resize;z-index:10;"></div>
+            <div id="ap-resize-nw" style="position:absolute;top:0;left:0;width:10px;height:10px;cursor:nw-resize;z-index:10;"></div>
+            <div id="ap-resize-ne" style="position:absolute;top:0;right:0;width:10px;height:10px;cursor:ne-resize;z-index:10;"></div>
+            <div id="ap-resize-sw" style="position:absolute;bottom:0;left:0;width:10px;height:10px;cursor:sw-resize;z-index:10;"></div>
+            <div id="ap-resize-se" style="position:absolute;bottom:0;right:0;width:10px;height:10px;cursor:se-resize;z-index:10;"></div>
+        }
+    </div>
+}
+
+@code {
+    private bool _open = false;
+    private bool _floating = false;
+    private string _activeTab = "simulation";
+
+    private double _dockedWidth = 320;
+    private const double DockedMin = 200, DockedMax = 700;
+    private double _floatX = 100, _floatY = 80, _floatW = 380, _floatH = 500;
+    private const double FloatMinW = 240, FloatMinH = 200;
+
+    private record TabDef(string Id, string Label, string Description);
+    private readonly TabDef[] _tabs =
+    [
+        new("simulation",   "Simulation",   "Step through token firing one transition at a time."),
+        new("reachability", "Reachability", "Build the reachability graph and check for deadlocks."),
+        new("liveness",     "Liveness",     "Verify that every transition can eventually fire."),
+        new("boundedness",  "Boundedness",  "Check whether token counts stay within a finite bound."),
+    ];
+
+    protected override void OnInitialized()
+    {
+        Sim.OnChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        Sim.OnChanged -= StateHasChanged;
+    }
+
+    // ── Panel state ───────────────────────────────────────────────────────
+
+    private string PanelStyle => _floating
+        ? $"position:fixed;left:{F(_floatX)}px;top:{F(_floatY)}px;width:{F(_floatW)}px;height:{F(_floatH)}px;" +
+          "background:#fff;border:1.5px solid #d0d0d0;border-radius:10px;box-shadow:0 8px 36px rgba(0,0,0,0.20);" +
+          "display:flex;flex-direction:column;overflow:hidden;z-index:500;"
+        : $"flex-shrink:0;width:{F(_dockedWidth)}px;height:100%;background:#fff;" +
+          "border-left:1.5px solid #e0e0e0;display:flex;flex-direction:column;overflow:hidden;position:relative;";
+
+    private static string F(double v) =>
+        v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+
+    private void ToggleOpen() { _open = !_open; if (_open) _ = SetupJsAsync(); }
+    private void Close() => _open = false;
+    private void ToggleFloat() { _floating = !_floating; _ = SetupJsAsync(); }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_open) await SetupJsAsync();
+    }
+
+    private async Task SetupJsAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("analysisPanel.setup",
+                _floating, _dockedWidth, DockedMin, DockedMax,
+                _floatX, _floatY, _floatW, _floatH, FloatMinW, FloatMinH,
+                DotNetObjectReference.Create(this));
+            await JS.InvokeVoidAsync("analysisPanel.setupTabScroll");
+        }
+        catch { }
+    }
+
+    [JSInvokable] public void UpdateDockedWidth(double w) { _dockedWidth = Math.Clamp(w, DockedMin, DockedMax); InvokeAsync(StateHasChanged); }
+    [JSInvokable] public void UpdateFloating(double x, double y, double w, double h) { _floatX = x; _floatY = y; _floatW = Math.Max(w, FloatMinW); _floatH = Math.Max(h, FloatMinH); InvokeAsync(StateHasChanged); }
+}

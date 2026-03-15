@@ -30,6 +30,9 @@ public class PetriNetManager : IDisposable
     public event Action? PendingLinkChanged;
     public bool HasPendingLink => _pendingLink != null;
 
+    /// <summary>Set by SimulationService — blocks node drag tracking while true.</summary>
+    public bool IsSimulating { get; set; }
+
     private int _placeCounter = 1;
     private int _transitionCounter = 1;
 
@@ -141,6 +144,7 @@ public class PetriNetManager : IDisposable
 
     private void OnDiagramPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (IsSimulating) return; // fully locked during simulation
         if (model is NodeModel node)
         {
             _draggingNode = node;
@@ -150,6 +154,7 @@ public class PetriNetManager : IDisposable
 
     private void OnDiagramPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (IsSimulating) { _draggingNode = null; _dragStartPos = null; return; }
         if (_draggingNode != null && _dragStartPos != null && _draggingNode.Position != null)
         {
             var from = _dragStartPos;

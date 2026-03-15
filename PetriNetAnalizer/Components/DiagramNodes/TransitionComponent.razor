@@ -5,21 +5,29 @@
 @implements IDisposable
 @inject DiagramStateService StateService
 @inject DiagramSettings Settings
+@inject SimulationService Sim
 
-<div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
-     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative;">
+@{
+    var isEnabled = StateService.IsSimulating && Sim.EnabledTransitions.Contains(TransitionModel?.Data?.Id ?? "");
+    var isLastFired = StateService.IsSimulating && Sim.LastFiredId == TransitionModel?.Data?.Id;
+}
+
+<div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
+     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; @(StateService.IsSimulating ? "cursor:default;" : "")">
 
     <svg width="@Node.Size.Width" height="@Node.Size.Height"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
-                @(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" : "")">
+                @(Node.Selected && !StateService.IsSimulating ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" :
+                           isLastFired ? "filter: drop-shadow(0 0 8px rgba(0, 137, 123, 0.9));" :
+                           isEnabled ? "filter: drop-shadow(0 0 4px rgba(0, 137, 123, 0.5));" : "")">
 
         <rect x="0" y="0"
               width="@Node.Size.Width"
               height="@Node.Size.Height"
-              fill="@Settings.ArcColor"
-              stroke="@(Node.Selected? Settings.ArcSelectedColor: Settings.ArcColor)"
-              stroke-width="@(Node.Selected ? 3 : 2)"
-              style="transition: all 0.2s;" />
+              fill="@(isLastFired ? "#00897b" : isEnabled ? "#4db6ac" : Settings.ArcColor)"
+              stroke="@(Node.Selected && !StateService.IsSimulating ? Settings.ArcSelectedColor : Settings.ArcColor)"
+              stroke-width="@(Node.Selected && !StateService.IsSimulating ? 3 : 2)"
+              style="transition: fill 0.25s, filter 0.25s;" />
 
         @if (TransitionModel?.Data?.Priority > 0)
         {
@@ -38,14 +46,17 @@
         }
     </svg>
 
-    @foreach (var port in Node.Ports)
+    @if (!StateService.IsSimulating)
     {
-        <div style="@GetPortStyle(port)" class="port-anchor">
-            <PortRenderer Port="port" />
-        </div>
+        @foreach (var port in Node.Ports)
+        {
+            <div style="@GetPortStyle(port)" class="port-anchor">
+                <PortRenderer Port="port" />
+            </div>
+        }
     }
 
-    <div class="node-title">@Node.Title</div>
+    <div class="node-title" style="@(isEnabled ? "color:#fff;" : "")">@Node.Title</div>
 </div>
 
 @code {
@@ -55,13 +66,17 @@
     protected override void OnInitialized()
     {
         StateService.OnToolChanged += StateHasChanged;
+        StateService.OnSimulationChanged += StateHasChanged;
         Settings.Changed += StateHasChanged;
+        Sim.OnChanged += StateHasChanged;
     }
 
     public void Dispose()
     {
         StateService.OnToolChanged -= StateHasChanged;
+        StateService.OnSimulationChanged -= StateHasChanged;
         Settings.Changed -= StateHasChanged;
+        Sim.OnChanged -= StateHasChanged;
     }
 
     private string GetPortStyle(PortModel port)
@@ -80,14 +95,9 @@
                 x = "100%";
                 y = indexInAlignment == 0 ? "25%" : indexInAlignment == 1 ? "50%" : "75%";
                 break;
-            case PortAlignment.Top:
-                x = "50%"; y = "0%";
-                break;
-            case PortAlignment.Bottom:
-                x = "50%"; y = "100%";
-                break;
+            case PortAlignment.Top: x = "50%"; y = "0%"; break;
+            case PortAlignment.Bottom: x = "50%"; y = "100%"; break;
         }
-
         return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
     }
 }

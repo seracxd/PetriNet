@@ -23,5 +23,23 @@
         public bool IsArcToolActive => SelectedTool == ToolType.Arc;
 
         public void SelectTool(ToolType tool) => SelectedTool = tool;
+
+        // ── Simulation lock ───────────────────────────────────────────────
+
+        private bool _isSimulating;
+        public bool IsSimulating
+        {
+            get => _isSimulating;
+            set
+            {
+                if (_isSimulating != value)
+                {
+                    _isSimulating = value;
+                    OnSimulationChanged?.Invoke();
+                }
+            }
+        }
+
+        public event Action? OnSimulationChanged;
     }
 }

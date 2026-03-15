@@ -4,22 +4,26 @@
 @implements IDisposable
 @inject DiagramStateService StateService
 @inject DiagramSettings Settings
+@inject SimulationService Sim
 
-<div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
-     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; box-sizing: content-box;">
+<div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
+     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; box-sizing: content-box; @(StateService.IsSimulating ? "cursor:default;" : "")">
 
     <svg width="@(Node.Size?.Width ?? Settings.PlaceSize)" height="@(Node.Size?.Height ?? Settings.PlaceSize)"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
 
+        @if (StateService.IsSimulating && Sim.EnabledTransitions.Count > 0)
+        {
+            <!-- Subtle pulse ring when simulation running -->
+        }
+
         <circle cx="@((Node.Size?.Width ?? Settings.PlaceSize) / 2)"
                 cy="@((Node.Size?.Height ?? Settings.PlaceSize) / 2)"
                 r="@(((Node.Size?.Width ?? Settings.PlaceSize) / 2) - 2)"
-                stroke="@(Node.Selected? Settings.ArcSelectedColor: Settings.ArcColor)"
-                stroke-width="@(Node.Selected ? 3 : 2)"
-                fill="@(Node.Selected ? "#e3f2fd" : "white")"
-                style="@(Node.Selected
-                                    ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;"
-                                    : "transition: all 0.2s;")" />
+                stroke="@(StateService.IsSimulating ? "#00897b" : (Node.Selected ? Settings.ArcSelectedColor : Settings.ArcColor))"
+                stroke-width="@(Node.Selected && !StateService.IsSimulating ? 3 : 2)"
+                fill="@(Node.Selected && !StateService.IsSimulating ? "#e3f2fd" : "white")"
+                style="transition: all 0.2s;" />
 
         @if (PlaceModel?.Data?.Tokens > 0)
         {
@@ -29,10 +33,10 @@
 
             @if (tokens <= 5)
             {
-                <g fill="black">
+                <g fill="@(StateService.IsSimulating ? "#00897b" : "black")">
                     @foreach (var pos in GetTokenPositions(tokens, centerX, centerY))
                     {
-                        <circle cx="@pos.X" cy="@pos.Y" r="6" />
+                        <circle cx="@pos.X" cy="@pos.Y" r="6" style="transition: all 0.3s;" />
                     }
                 </g>
             }
@@ -42,7 +46,8 @@
                     <text x="@centerX" y="@centerY"
                           text-anchor="middle" dominant-baseline="central"
                           font-weight="bolder"
-                          style="user-select: none; font-size: 18px;">
+                          fill="@(StateService.IsSimulating ? "#00897b" : "black")"
+                          style="user-select: none; font-size: 18px; transition: all 0.3s;">
                         @tokens
                     </text>
                 </g>
@@ -50,11 +55,14 @@
         }
     </svg>
 
-    @foreach (var port in Node.Ports)
+    @if (!StateService.IsSimulating)
     {
-        <div style="@GetPortStyle(port)" class="port-anchor">
-            <PortRenderer Port="port" />
-        </div>
+        @foreach (var port in Node.Ports)
+        {
+            <div style="@GetPortStyle(port)" class="port-anchor">
+                <PortRenderer Port="port" />
+            </div>
+        }
     }
 
     <div class="node-title">@Node.Title</div>
@@ -67,13 +75,17 @@
     protected override void OnInitialized()
     {
         StateService.OnToolChanged += StateHasChanged;
+        StateService.OnSimulationChanged += StateHasChanged;
         Settings.Changed += StateHasChanged;
+        Sim.OnChanged += StateHasChanged;
     }
 
     public void Dispose()
     {
         StateService.OnToolChanged -= StateHasChanged;
+        StateService.OnSimulationChanged -= StateHasChanged;
         Settings.Changed -= StateHasChanged;
+        Sim.OnChanged -= StateHasChanged;
     }
 
     private string GetPortStyle(PortModel port)

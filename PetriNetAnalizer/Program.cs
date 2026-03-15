@@ -11,6 +11,7 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 
 builder.Services.AddSingleton<DiagramStateService>();
 builder.Services.AddScoped<PetriNetManager>();
+builder.Services.AddScoped<SimulationService>();
 builder.Services.Configure<DiagramSettingsOptions>(builder.Configuration.GetSection(DiagramSettingsOptions.Section));
 builder.Services.AddSingleton<DiagramSettings>();
 builder.Services.AddSingleton<IDiagramLogger, AspNetDiagramLogger>();

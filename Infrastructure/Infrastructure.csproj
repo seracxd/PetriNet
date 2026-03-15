@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <Folder Include="External\" />
-    <Folder Include="State\" />
     <Folder Include="Serialization\" />
+    <Folder Include="State\" />
   </ItemGroup>
 
   <ItemGroup>

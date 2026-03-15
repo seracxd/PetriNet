@@ -10,6 +10,7 @@
 @inject PetriNetManager Manager
 @inject IJSRuntime JS
 @inject DiagramSettings Settings
+@inject SimulationService Sim
 
 <div class="app-root">
 
@@ -19,129 +20,257 @@
 
     <div class="body-row">
 
-        <!-- ── Sidebar ── -->
+        @* ── Sidebar ── *@
         <aside class="sidebar">
 
-            <section class="sidebar-section">
-                <div class="section-label">Tools</div>
-                <div class="tool-list">
+            @if (StateService.IsSimulating)
+            {
+                @* ── Simulation controls ── *@
+                <section class="sidebar-section">
+                    <div class="section-label" style="color:#00897b;">Simulation</div>
 
-                    <button class="tool-btn @(ActiveTool == "select" ? "active" : "")"
-                            title="Select" @onclick='() => SetTool("select")'>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
-                            <path d="M5 3l14 9-7 1-4 7z" />
-                        </svg>
-                    </button>
+                    @* Step counter *@
+                    <div style="font-size:11px;color:#aaa;margin-bottom:8px;">Step @Sim.StepCount</div>
 
-                    <button class="tool-btn @(ActiveTool == "place" ? "active" : "")"
-                            title="Place" @onclick='() => SetTool("place")'>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="8" />
-                        </svg>
-                    </button>
-
-                    <button class="tool-btn @(ActiveTool == "transition" ? "active" : "")"
-                            title="Transition" @onclick='() => SetTool("transition")'>
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <rect x="8" y="3" width="8" height="18" rx="1.5" />
-                        </svg>
-                    </button>
-
-                    <button class="tool-btn @(ActiveTool == "arc" ? "active" : "") @(Manager.HasPendingLink ? "pending" : "")"
-                            title="Arc" @onclick='() => SetTool("arc")'>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="5" y1="19" x2="17" y2="7" />
-                            <polyline points="11,7 17,7 17,13" />
-                        </svg>
-                    </button>
-
-                </div>
-            </section>
-
-            <div class="sidebar-spacer"></div>
-
-            <div class="sidebar-divider"></div>
-
-            <section class="sidebar-section props-section">
-                <div class="section-label">Properties</div>
-
-                @if (SelectedModel is PlaceNode p)
-                {
-                    <div class="prop-group">
-                        <div class="prop-field">
-                            <label class="prop-label">Name</label>
-                            <input class="prop-input" @bind-value="p.Data.Name"
-                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
-                        </div>
-                        <div class="prop-field">
-                            <label class="prop-label">Tokens</label>
-                            <input class="prop-input" type="number" min="0"
-                                   @bind-value="p.Data.Tokens"
-                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
-                        </div>
+                    @* Control buttons row *@
+                    <div style="display:flex;gap:6px;margin-bottom:10px;">
+                        @* Stop *@
+                        <button class="tool-btn" title="Stop simulation" @onclick="StopSimulation"
+                                style="flex:1;background:#ffebee;border-color:#ffcdd2;color:#e53935;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;">
+                                <rect x="4" y="4" width="16" height="16" rx="2" />
+                            </svg>
+                        </button>
+                        @* Reset *@
+                        <button class="tool-btn" title="Reset to initial marking" @onclick="ResetSimulation"
+                                style="flex:1;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                                <polyline points="1 4 1 10 7 10" />
+                                <path d="M3.51 15a9 9 0 1 0 .49-4.95" />
+                            </svg>
+                        </button>
+                        @* Step once (manual/highest priority) *@
+                        <button class="tool-btn @(Sim.IsDeadlock ? "disabled" : "")" title="Step once" @onclick="StepOnce"
+                                disabled="@Sim.IsDeadlock" style="flex:1;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;">
+                                <polygon points="5 4 15 12 5 20 5 4" />
+                                <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                        </button>
                     </div>
-                }
-                else if (SelectedModel is TransitionNode t)
-                {
-                    <div class="prop-group">
-                        <div class="prop-field">
-                            <label class="prop-label">Name</label>
-                            <input class="prop-input" @bind-value="t.Data.Name"
-                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
-                        </div>
-                        <div class="prop-field">
-                            <label class="prop-label">Priority</label>
-                            <input class="prop-input" type="number" min="0"
-                                   @bind-value="t.Data.Priority"
-                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
-                        </div>
+
+                    @* Auto fire toggle *@
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <button @onclick="() => Sim.ToggleAuto()"
+                                style="flex:1;padding:6px 0;border-radius:7px;border:1.5px solid @(Sim.IsAutoFiring ? "#00897b" : "#e0e0e0");background:@(Sim.IsAutoFiring ? "#e0f5f3" : "#fff");color:@(Sim.IsAutoFiring ? "#00897b" : "#888");font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;">
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                            </svg>
+                            @(Sim.IsAutoFiring ? "Auto: ON" : "Auto: OFF")
+                        </button>
                     </div>
-                }
-                else if (SelectedModel is PetriLinkModel arcSel)
-                {
-                    var arcOnlyNormal = IsArcOnlyNormal(arcSel);
-                    <div class="prop-group">
-                        <div class="prop-field">
-                            <label class="prop-label">Weight</label>
-                            <input class="prop-input" type="number" min="1"
-                                   @bind-value="arcSel.Weight"
-                                   @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(arcSel)" />
+
+                    @* Delay slider *@
+                    <div style="margin-bottom:10px;">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:#aaa;margin-bottom:4px;">
+                            <span>Firing delay</span><span>@Sim.FiringDelay ms</span>
                         </div>
-                        <div class="prop-field">
-                            <label class="prop-label">Arc type</label>
-                            <div class="arc-type-btns">
-                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Normal ? "active" : "")"
-                                        @onclick="() => SetArcType(arcSel, ArcType.Normal)">
-                                    Normal
-                                </button>
-                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Inhibitor ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
-                                        disabled="@arcOnlyNormal"
-                                        title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
-                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Inhibitor); }">
-                                    Inhibit
-                                </button>
-                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Reset ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
-                                        disabled="@arcOnlyNormal"
-                                        title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
-                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Reset); }">
-                                    Cancel
-                                </button>
+                        <input type="range" min="100" max="3000" step="100"
+                               value="@Sim.FiringDelay"
+                               @oninput="e => Sim.FiringDelay = int.Parse(e.Value!.ToString()!)"
+                               style="width:100%;accent-color:#00897b;" />
+                    </div>
+
+                    @if (Sim.IsDeadlock)
+                    {
+                        <div style="padding:6px 8px;background:#ffebee;border-radius:7px;font-size:11px;color:#e53935;font-weight:600;margin-bottom:8px;">
+                            ⚠ Deadlock — no transitions enabled.
+                        </div>
+                    }
+                </section>
+
+                <div class="sidebar-divider"></div>
+
+                @* Firing history *@
+                <section class="sidebar-section" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+                    <div style="display:flex;align-items:center;margin-bottom:6px;">
+                        <div class="section-label" style="margin-bottom:0;flex:1;">History</div>
+                        @if (Sim.IsViewingHistory)
+                        {
+                            <button @onclick="() => Sim.ReturnToPresent()"
+                                    style="font-size:10px;font-weight:700;color:#00897b;background:#e0f5f3;border:none;border-radius:10px;padding:2px 8px;cursor:pointer;white-space:nowrap;">
+                                ↩ Present (@Sim.LiveStepCount)
+                            </button>
+                        }
+                    </div>
+
+                    @if (Sim.IsViewingHistory)
+                    {
+                        <div style="font-size:10px;color:#f57f17;background:#fff8e1;border-radius:6px;padding:4px 7px;margin-bottom:6px;font-weight:600;">
+                            Viewing step @Sim.StepCount — future discarded on next fire
+                        </div>
+                    }
+
+                    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;">
+                        @{
+                            var displayHistory = Sim.FullHistory;
+                            var currentStep = Sim.StepCount - 1;
+                        }
+                        @for (int i = displayHistory.Count - 1; i >= 0; i--)
+                        {
+                            var stepIdx = i;
+                            var step = i + 1;
+                            var name = Sim.GetTransitionName(displayHistory[i]);
+                            var isCurrent = i == currentStep;
+                            var isFuture = Sim.IsViewingHistory && i >= Sim.StepCount;
+                            <button @onclick="() => Sim.JumpToStep(stepIdx)"
+                                    style="display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;background:@(isCurrent ? "#e0f5f3" : isFuture ? "#fafafa" : "transparent");font-size:12px;border:@(isFuture ? "1px dashed #e0e0e0" : "none");cursor:pointer;text-align:left;width:100%;opacity:@(isFuture ? "0.5" : "1");">
+                                <span style="color:#ccc;font-size:10px;min-width:18px;text-align:right;">@step</span>
+                                <svg viewBox="0 0 24 24" fill="@(isFuture ? "#ccc" : "#00897b")" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                <span style="color:@(isCurrent ? "#00897b" : isFuture ? "#ccc" : "#555");font-weight:@(isCurrent ? "700" : "400");">@name</span>
+                                @if (!isCurrent && !isFuture)
+                                {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;margin-left:auto;flex-shrink:0;">
+                                        <polyline points="1 4 1 10 7 10" />
+                                        <path d="M3.51 15a9 9 0 1 0 .49-4.95" />
+                                    </svg>
+                                }
+                            </button>
+                        }
+                        @if (!displayHistory.Any())
+                        {
+                            <span style="font-size:11px;color:#ccc;padding:4px 6px;">No transitions fired yet.</span>
+                        }
+                    </div>
+                </section>
+            }
+            else
+            {
+                @* ── Normal editing tools ── *@
+                <section class="sidebar-section">
+                    <div class="section-label">Tools</div>
+                    <div class="tool-list">
+
+                        <button class="tool-btn @(ActiveTool == "select" ? "active" : "")"
+                                title="Select" @onclick='() => SetTool("select")'>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                                <path d="M5 3l14 9-7 1-4 7z" />
+                            </svg>
+                        </button>
+
+                        <button class="tool-btn @(ActiveTool == "place" ? "active" : "")"
+                                title="Place" @onclick='() => SetTool("place")'>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="8" />
+                            </svg>
+                        </button>
+
+                        <button class="tool-btn @(ActiveTool == "transition" ? "active" : "")"
+                                title="Transition" @onclick='() => SetTool("transition")'>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="8" y="3" width="8" height="18" rx="1.5" />
+                            </svg>
+                        </button>
+
+                        <button class="tool-btn @(ActiveTool == "arc" ? "active" : "") @(Manager.HasPendingLink ? "pending" : "")"
+                                title="Arc" @onclick='() => SetTool("arc")'>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="5" y1="19" x2="17" y2="7" />
+                                <polyline points="11,7 17,7 17,13" />
+                            </svg>
+                        </button>
+
+                    </div>
+                </section>
+            }
+
+            @if (!StateService.IsSimulating)
+            {
+                <div class="sidebar-spacer"></div>
+
+                <div class="sidebar-divider"></div>
+
+                <section class="sidebar-section props-section">
+                    <div class="section-label">Properties</div>
+
+                    @if (SelectedModel is PlaceNode p)
+                    {
+                        <div class="prop-group">
+                            <div class="prop-field">
+                                <label class="prop-label">Name</label>
+                                <input class="prop-input" @bind-value="p.Data.Name"
+                                       @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
                             </div>
-                            @if (arcOnlyNormal)
-                            {
-                                <p class="arc-type-hint">Inhibitor and Reset arcs require a Place → Transition direction.</p>
-                            }
+                            <div class="prop-field">
+                                <label class="prop-label">Tokens</label>
+                                <input class="prop-input" type="number" min="0"
+                                       @bind-value="p.Data.Tokens"
+                                       @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(p)" />
+                            </div>
                         </div>
-                    </div>
-                }
-                else
-                {
-                    <p class="prop-empty">No element selected.</p>
-                }
+                    }
+                    else if (SelectedModel is TransitionNode t)
+                    {
+                        <div class="prop-group">
+                            <div class="prop-field">
+                                <label class="prop-label">Name</label>
+                                <input class="prop-input" @bind-value="t.Data.Name"
+                                       @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
+                            </div>
+                            <div class="prop-field">
+                                <label class="prop-label">Priority</label>
+                                <input class="prop-input" type="number" min="0"
+                                       @bind-value="t.Data.Priority"
+                                       @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(t)" />
+                            </div>
+                        </div>
+                    }
+                    else if (SelectedModel is PetriLinkModel arcSel)
+                    {
+                        var arcOnlyNormal = IsArcOnlyNormal(arcSel);
+                        <div class="prop-group">
+                            <div class="prop-field">
+                                <label class="prop-label">Weight</label>
+                                <input class="prop-input" type="number" min="1"
+                                       @bind-value="arcSel.Weight"
+                                       @bind-value:event="oninput" @bind-value:after="() => UpdateDiagram(arcSel)" />
+                            </div>
+                            <div class="prop-field">
+                                <label class="prop-label">Arc type</label>
+                                <div class="arc-type-btns">
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Normal ? "active" : "")"
+                                            @onclick="() => SetArcType(arcSel, ArcType.Normal)">
+                                        Normal
+                                    </button>
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Inhibitor ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
+                                            disabled="@arcOnlyNormal"
+                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
+                                            @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Inhibitor); }">
+                                        Inhibit
+                                    </button>
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Reset ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
+                                            disabled="@arcOnlyNormal"
+                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
+                                            @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Reset); }">
+                                        Reset
+                                    </button>
+                                </div>
+                                @if (arcOnlyNormal)
+                                {
+                                    <p class="arc-type-hint">Inhibitor and Reset arcs require a Place → Transition direction.</p>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="prop-empty">No element selected.</p>
+                    }
 
-            </section>
+                </section>
+            }
 
-            <!-- Debug log — small button pinned to bottom of sidebar -->
+            @* Debug log — small button pinned to bottom of sidebar *@
             <div class="debug-corner">
                 <button class="debug-corner-btn @(_logPanelOpen ? "active" : "")"
                         title="Toggle debug log"
@@ -170,10 +299,10 @@
 
         </aside>
 
-        <!-- ── Canvas area ── -->
+        @* ── Canvas area ── *@
         <div class="canvas-wrap">
 
-            <!-- Analysis buttons — top right -->
+            @* Analysis buttons — top right *@
             <div class="analysis-bar">
                 <button class="analysis-btn undo-redo-btn @(!Manager.History.CanUndo ? "disabled" : "")"
                         title="Undo (Ctrl+Z)" @onclick="Undo" disabled="@(!Manager.History.CanUndo)">
@@ -192,34 +321,6 @@
                     Redo
                 </button>
                 <div class="analysis-bar-divider"></div>
-                <button class="analysis-btn" title="Check reachability" @onclick="RunReachability">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <circle cx="11" cy="11" r="7" />
-                        <line x1="16.5" y1="16.5" x2="22" y2="22" />
-                    </svg>
-                    Reachability
-                </button>
-                <button class="analysis-btn" title="Check liveness" @onclick="RunLiveness">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                    </svg>
-                    Liveness
-                </button>
-                <button class="analysis-btn" title="Check boundedness" @onclick="RunBoundedness">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <rect x="3" y="3" width="18" height="18" rx="3" />
-                        <line x1="3" y1="9" x2="21" y2="9" />
-                        <line x1="9" y1="21" x2="9" y2="9" />
-                    </svg>
-                    Boundedness
-                </button>
-                <button class="analysis-btn" title="Fire transition" @onclick="RunFire">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                    Fire step
-                </button>
-                <div class="analysis-bar-divider"></div>
                 <button class="analysis-btn analysis-btn-icon @(_settingsOpen ? "active" : "")"
                         title="Settings"
                         @onclick="() => _settingsOpen = !_settingsOpen">
@@ -231,16 +332,13 @@
                 </button>
             </div>
 
-            <!-- Diagram -->
+            @* Diagram *@
             <div id="diagram-container" tabindex="0"
                  style="--grid-size: @(GridSize)px; --grid-offset-x: @(GridOffsetX)px; --grid-offset-y: @(GridOffsetY)px; background-image: @(GridBackgroundImage)">
                 <CascadingValue Value="Manager.Diagram" IsFixed="true">
                     <DiagramCanvas />
                 </CascadingValue>
 
-                @* Selection capture layer — pointer-events:none always so all
-                   clicks fall through to diagram nodes/links normally.
-                   The rect is armed from OnPointerDown(model==null) instead. *@
                 @if (ActiveTool == "select")
                 {
                     <div class="sel-capture-layer"></div>
@@ -258,7 +356,7 @@
                 }
             </div>
 
-            <!-- Navigator panel -->
+            @* Navigator panel *@
             <div class="navigator-panel @(_navigatorOpen ? "open" : "")">
                 <div class="navigator-header">
                     <span class="navigator-title">Elements</span>
@@ -360,7 +458,7 @@
                 </svg>
             </button>
 
-            <!-- Zoom controls — bottom right -->
+            @* Zoom controls — bottom right *@
             <div class="zoom-controls">
                 <button class="zoom-btn" title="Zoom in" @onclick="() => Manager.ZoomIn()">+</button>
                 <span class="zoom-label">@((Manager.Diagram.Zoom * 100).ToString("F0"))%</span>
@@ -368,7 +466,7 @@
                 <button class="zoom-btn zoom-reset" title="Reset view" @onclick="ResetView">⌂</button>
             </div>
 
-            <!-- Settings panel — top right, below analysis bar -->
+            @* Settings panel — top right, below analysis bar *@
             <div class="settings-panel @(_settingsOpen ? "open" : "")">
                 <div class="settings-panel-header">
                     <span class="settings-panel-title">Settings</span>
@@ -406,7 +504,7 @@
                 </div>
             </div>
 
-            <!-- Analysis result toast -->
+            @* Analysis result toast *@
             @if (_analysisResult != null)
             {
                 <div class="analysis-toast @(_analysisOk ? "toast-ok" : "toast-warn")">
@@ -416,6 +514,9 @@
             }
 
         </div>
+
+        @* ── Analysis panel (docked right, collapsible / floatable) ── *@
+        <AnalysisPanel />
 
     </div>
 </div>
@@ -461,6 +562,8 @@
         Manager.Diagram.PanChanged += OnPanChanged;
         Manager.History.HistoryChanged += OnHistoryChanged;
         Settings.Changed += OnSettingsChanged;
+        StateService.OnSimulationChanged += OnSimulationStateChanged;
+        Sim.OnChanged += OnSimulationStateChanged;
         RebuildNavLists();
     }
 
@@ -546,7 +649,8 @@
     private void OnSelectionChanged(SelectableModel _)
     {
         FlushPendingEdit();
-        SelectedModel = Manager.Diagram.GetSelectedModels().FirstOrDefault();
+        var selected = Manager.Diagram.GetSelectedModels().ToList();
+        SelectedModel = selected.Count == 1 ? selected[0] : null;
         SnapshotSelected();
         InvokeAsync(StateHasChanged);
     }
@@ -677,9 +781,7 @@
 
     // ── Pointer / keyboard ────────────────────────────────────────────────────
 
-    // Tracks what action is primed on pointer-down, executed on pointer-up.
-    // ESC while button held clears this, cancelling the action.
-    private string? _pendingAction;   // "place" | "transition" | "arc"
+    private string? _pendingAction;
     private Model? _pendingModel;
     private Point? _pendingPoint;
 
@@ -697,6 +799,7 @@
     private void OnPointerDown(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
         if (e.Button != 0) return;
+        if (StateService.IsSimulating) return;
 
         if (ActiveTool is "place" or "transition" or "arc")
         {
@@ -706,7 +809,6 @@
         }
     }
 
-    // Called from JS when right-click empty canvas fires while select tool is active.
     [JSInvokable]
     public void OnSelRectArmed(double offsetX, double offsetY)
     {
@@ -720,22 +822,21 @@
     {
         if (e.Button != 0) return;
 
-        // Left button up — execute any pending action
         if (_pendingAction == null) return;
         var action = _pendingAction;
-        var pt = _pendingPoint!;
+        var downPt = _pendingPoint!;
         _pendingAction = null;
         _pendingModel = null;
         _pendingPoint = null;
 
         if (action == "arc")
         {
-            Manager.HandleArcToolClick(model, pt);
+            Manager.HandleArcToolClick(model, downPt);
             StateHasChanged();
         }
         else if (model == null && action is "place" or "transition")
         {
-            Manager.AddNodeAt(action, pt);
+            Manager.AddNodeAt(action, new Point(e.ClientX, e.ClientY));
             StateHasChanged();
         }
     }
@@ -748,25 +849,18 @@
 
     private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
     {
-        // All keyboard shortcuts are handled globally via OnGlobalKey (JS document keydown).
-        // This handler only covers zoom shortcuts which don't have a global equivalent.
         if (e.Key == "+" || e.Key == "=") { Manager.ZoomIn(); InvokeAsync(StateHasChanged); }
         if (e.Key == "-") { Manager.ZoomOut(); InvokeAsync(StateHasChanged); }
     }
 
     private void HandleEscape()
     {
-        // Cancel any primed pending action
         _pendingAction = null;
         _pendingModel = null;
         _pendingPoint = null;
-        // Cancel pending arc
         Manager.CancelPendingLink();
-        // Cancel selection rect
         CancelSelRect();
-        // Unselect all
         Manager.Diagram.UnselectAll();
-        // Unequip tool
         if (ActiveTool != "")
         {
             ActiveTool = "";
@@ -774,14 +868,10 @@
             Manager.DisableLinkDrawing();
             _ = JS.InvokeVoidAsync("setSelectToolActive", false);
         }
-        // Close navigator
         if (_navigatorOpen) _navigatorOpen = false;
     }
 
     // ── Selection rectangle ───────────────────────────────────────────────────
-    // Strategy: arm on Diagram.PointerDown(model==null), track via JS window
-    // pointermove callback, commit/cancel on Diagram.PointerUp.
-    // This avoids any stopPropagation that would break node selection.
     private bool _selRectActive = false;
     private bool _selRectArmed = false;
     private (double X, double Y) _selStart = default;
@@ -811,7 +901,6 @@
 
     private void CommitSelectionRect()
     {
-        // Convert container-space rect to diagram-space rect
         var zoom = Manager.Diagram.Zoom;
         var pan = Manager.Diagram.Pan;
 
@@ -820,7 +909,6 @@
         double ex = Math.Max(_selStart.X, _selCurrent.X);
         double ey = Math.Max(_selStart.Y, _selCurrent.Y);
 
-        // screen → diagram:  diagramX = (screenX - panX) / zoom
         double dsx = (sx - pan.X) / zoom;
         double dsy = (sy - pan.Y) / zoom;
         double dex = (ex - pan.X) / zoom;
@@ -835,7 +923,6 @@
             var ny = node.Position.Y;
             var nw = node.Size.Width;
             var nh = node.Size.Height;
-            // Intersect: node AABB overlaps selection rect
             if (nx < dex && nx + nw > dsx && ny < dey && ny + nh > dsy)
                 Manager.Diagram.SelectModel(node, false);
         }
@@ -884,10 +971,6 @@
         return src + " \u2192 " + tgt;
     }
 
-    /// <summary>
-    /// Returns true when the arc goes Transition → Place, meaning only Normal type is valid.
-    /// Inhibitor and Reset arcs are semantically restricted to Place → Transition.
-    /// </summary>
     private bool IsArcOnlyNormal(PetriLinkModel arc)
         => GetArcSourceNode(arc) is TransitionNode;
 
@@ -919,13 +1002,29 @@
         StateHasChanged();
     }
 
-    // ── Analysis stubs ────────────────────────────────────────────────────────
-    private void RunReachability() => ShowResult("Reachability analysis: not yet implemented.", false);
-    private void RunLiveness() => ShowResult("Liveness analysis: not yet implemented.", false);
-    private void RunBoundedness() => ShowResult("Boundedness analysis: not yet implemented.", false);
-    private void RunFire() => ShowResult("Fire step: not yet implemented.", false);
-
+    // ── Analysis ──────────────────────────────────────────────────────────────
     private void ShowResult(string msg, bool ok) { _analysisResult = msg; _analysisOk = ok; StateHasChanged(); }
+
+    // ── Simulation ────────────────────────────────────────────────────────────
+    private void OnSimulationStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void StopSimulation()
+    {
+        Sim.Stop();
+        StateHasChanged();
+    }
+
+    private void ResetSimulation()
+    {
+        Sim.Reset();
+        StateHasChanged();
+    }
+
+    private void StepOnce()
+    {
+        Sim.StepAuto();
+        StateHasChanged();
+    }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
     public void Dispose()
@@ -945,6 +1044,8 @@
         Manager.Diagram.PanChanged -= OnPanChanged;
         Manager.History.HistoryChanged -= OnHistoryChanged;
         Settings.Changed -= OnSettingsChanged;
+        StateService.OnSimulationChanged -= OnSimulationStateChanged;
+        Sim.OnChanged -= OnSimulationStateChanged;
         _ = JS.InvokeVoidAsync("unregisterGlobalKeyHandler");
         _dotNetRef?.Dispose();
     }

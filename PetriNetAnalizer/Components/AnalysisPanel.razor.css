@@ -1,0 +1,379 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANALYSIS PANEL  —  VS-style book tab + dockable / floatable panel
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Strip: the thin column that always sits on the right edge ──────────── */
+.ap-strip {
+    flex-shrink: 0;
+    width: 36px;
+    background: #f0f0f0;
+    border-left: 1px solid #d0d0d0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+    gap: 4px;
+    z-index: 120;
+}
+
+/* ── Book tab button ─────────────────────────────────────────────────────── */
+.ap-book-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 0;
+    border: none;
+    border-left: 3px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    color: #555;
+    width: 100%;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+    .ap-book-tab svg {
+        width: 17px;
+        height: 17px;
+        flex-shrink: 0;
+    }
+
+    .ap-book-tab span {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        transform: rotate(180deg);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .ap-book-tab:hover {
+        background: #e2e2e2;
+        color: #00897b;
+    }
+
+.ap-book-tab--active {
+    background: #ffffff;
+    color: #00897b;
+    border-left-color: #00897b;
+}
+
+/* ── Docked panel ────────────────────────────────────────────────────────── */
+.ap-panel--docked {
+    /* Sits as a flex sibling of canvas-wrap inside body-row */
+    flex-shrink: 0;
+    height: 100%;
+    background: #ffffff;
+    border-left: 1.5px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    /* width set via inline style from Blazor */
+}
+
+/* ── Floating panel ──────────────────────────────────────────────────────── */
+.ap-panel--floating {
+    position: fixed;
+    background: #ffffff;
+    border: 1.5px solid #d0d0d0;
+    border-radius: 10px;
+    box-shadow: 0 8px 36px rgba(0,0,0,0.20);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 500;
+    /* left/top/width/height set via inline style from Blazor */
+}
+
+/* ── Title bar ───────────────────────────────────────────────────────────── */
+.ap-titlebar {
+    flex-shrink: 0;
+    height: 36px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #e8e8e8;
+    display: flex;
+    align-items: center;
+    padding: 0 6px 0 12px;
+    gap: 6px;
+    user-select: none;
+}
+
+.ap-panel--floating .ap-titlebar {
+    cursor: grab;
+}
+
+    .ap-panel--floating .ap-titlebar:active {
+        cursor: grabbing;
+    }
+
+.ap-title {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: #999;
+}
+
+.ap-titlebar-actions {
+    display: flex;
+    gap: 1px;
+}
+
+.ap-tb-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    padding: 0;
+    transition: background 0.12s, color 0.12s;
+}
+
+    .ap-tb-btn svg {
+        width: 12px;
+        height: 12px;
+    }
+
+    .ap-tb-btn:hover {
+        background: #ebebeb;
+        color: #444;
+    }
+
+/* ── Sub-tab bar ─────────────────────────────────────────────────────────── */
+.ap-tabs-wrap {
+    flex-shrink: 0;
+    display: flex;
+    align-items: stretch;
+    background: #fafafa;
+    border-bottom: 1.5px solid #e8e8e8;
+    position: relative;
+}
+
+.ap-tabs {
+    flex: 1;
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+}
+
+    .ap-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+.ap-tabs-arrow {
+    flex-shrink: 0;
+    width: 24px;
+    border: none;
+    background: #fafafa;
+    color: #999;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+    padding: 0;
+    /* hidden by default — JS shows them when needed */
+    opacity: 0;
+    pointer-events: none;
+}
+
+    .ap-tabs-arrow svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    .ap-tabs-arrow:hover {
+        background: #f0f0f0;
+        color: #00897b;
+    }
+
+.ap-tabs-arrow--left {
+    border-right: 1px solid #e8e8e8;
+}
+
+.ap-tabs-arrow--right {
+    border-left: 1px solid #e8e8e8;
+}
+
+.ap-tabs-arrow.visible {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.ap-tab {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #aaa;
+    background: transparent;
+    border: none;
+    border-bottom: 2.5px solid transparent;
+    margin-bottom: -1.5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.13s, border-color 0.13s;
+}
+
+    .ap-tab svg {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+    }
+
+    .ap-tab:hover {
+        color: #555;
+    }
+
+.ap-tab--active {
+    color: #00897b;
+    border-bottom-color: #00897b;
+}
+
+/* ── Content area ────────────────────────────────────────────────────────── */
+.ap-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* ── Placeholder ─────────────────────────────────────────────────────────── */
+.ap-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    height: 100%;
+    gap: 12px;
+    padding: 32px 24px;
+    text-align: center;
+}
+
+.ap-placeholder-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: #f3f3f3;
+    border: 1.5px solid #e8e8e8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+
+    .ap-placeholder-icon svg {
+        width: 24px;
+        height: 24px;
+        color: #bbb;
+    }
+
+.ap-placeholder p {
+    font-size: 15px;
+    font-weight: 700;
+    color: #555;
+    margin: 0;
+}
+
+.ap-placeholder span {
+    font-size: 12px;
+    color: #aaa;
+    line-height: 1.6;
+    max-width: 220px;
+}
+
+.ap-placeholder-badge {
+    margin-top: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #00897b;
+    background: #e0f5f3;
+    border-radius: 20px;
+    padding: 3px 10px;
+}
+
+/* ── Resize handles ──────────────────────────────────────────────────────── */
+.ap-resize {
+    position: absolute;
+    z-index: 10;
+}
+
+.ap-resize--w {
+    left: 0;
+    top: 6px;
+    width: 5px;
+    height: calc(100% - 12px);
+    cursor: ew-resize;
+}
+
+.ap-resize--e {
+    right: 0;
+    top: 6px;
+    width: 5px;
+    height: calc(100% - 12px);
+    cursor: ew-resize;
+}
+
+.ap-resize--n {
+    top: 0;
+    left: 6px;
+    height: 5px;
+    width: calc(100% - 12px);
+    cursor: ns-resize;
+}
+
+.ap-resize--s {
+    bottom: 0;
+    left: 6px;
+    height: 5px;
+    width: calc(100% - 12px);
+    cursor: ns-resize;
+}
+
+.ap-resize--nw {
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    cursor: nw-resize;
+}
+
+.ap-resize--ne {
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    cursor: ne-resize;
+}
+
+.ap-resize--sw {
+    bottom: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    cursor: sw-resize;
+}
+
+.ap-resize--se {
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    cursor: se-resize;
+}
