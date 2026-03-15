@@ -9,15 +9,16 @@ namespace Core.Models
         /// <summary>
         /// Firing priority. 0 = default (no priority badge shown).
         /// Higher value = higher priority over transitions with lower values.
-        /// Any transition with a priority set fires before those without one.
         /// </summary>
         public int Priority { get; set; } = 0;
 
         public Transition()
         {
             Name = "T";
-            Width = 20;
-            Height = 60;
+            // Width and Height are intentionally NOT set here.
+            // They are assigned from DiagramSettings when TransitionNode is constructed,
+            // so all nodes (including those restored by undo/redo) use the current
+            // configured size rather than a hardcoded default.
         }
     }
 }

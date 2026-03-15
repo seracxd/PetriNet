@@ -1,17 +1,27 @@
 ﻿using Core.Models;
 using Blazor.Diagrams.Core.Models;
 using Blazor.Diagrams.Core.Geometry;
+using PetriNetAnalyzer.Services;
 
 namespace PetriNetAnalyzer.DiagramModels
 {
     public class PlaceNode : NodeModel
     {
-        public Place Data { get; } 
-        public PlaceNode(Place place) : base()
+        public Place Data { get; }
+
+        public PlaceNode(Place place, DiagramSettings? settings = null) : base()
         {
-            Data = place;            
+            Data = place;
             Title = place.Name;
-            Size = new Size(place.Width, place.Height);
+
+            var size = settings?.PlaceSize ?? 60.0;
+
+            // Write size back onto the domain object so it round-trips correctly
+            // if the model is ever serialised/deserialised.
+            place.Width = size;
+            place.Height = size;
+
+            Size = new Size(size, size);
 
             AddPort(PortAlignment.Top);    // 0
             AddPort(PortAlignment.Right);  // 1 (45)

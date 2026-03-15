@@ -11,8 +11,10 @@ namespace Core.Models
         public Place()
         {
             Name = "P";
-            Width = 60;
-            Height = 60;
+            // Width and Height are intentionally NOT set here.
+            // They are assigned from DiagramSettings when PlaceNode is constructed,
+            // so all nodes (including those restored by undo/redo) use the current
+            // configured size rather than a hardcoded default.
         }
     }
 }

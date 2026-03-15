@@ -9,10 +9,11 @@
 @implements IDisposable
 @inject DiagramStateService StateService
 @inject PetriNetManager Manager
+@inject DiagramSettings Settings
 
 @if (Link != null && _points != null && _points.Count >= 2)
 {
-    var color = Link.Selected ? "#007bff" : "black";
+    var color = Link.Selected ? Settings.ArcSelectedColor : Settings.ArcColor;
     var dSmooth = BuildRoundedPath(_points, 14);
     var srcPt = _points[0];
     var tgtPt = _points[^1];
@@ -21,6 +22,20 @@
 
         @* ── Visible line ── *@
         <path d="@dSmooth" fill="none" stroke="@color" stroke-width="2" />
+
+        @* ── Weight label ── *@
+        @if (Link.Weight != 1)
+        {
+            var seg = ResolvedWeightSegment(_points, Link.WeightLabelSegment);
+            var wlp = SegmentLabelPoint(_points, seg, Link.WeightLabelFlipped);
+            var labelColor = Link.Selected ? Settings.ArcSelectedColor : Settings.ArcColor;
+            <rect x="@Fmt(wlp.X - 11)" y="@Fmt(wlp.Y - 9)" width="22" height="18"
+                  fill="transparent" rx="3"
+                  style="cursor:grab; pointer-events:all;"
+                  @onpointerdown="OnWeightLabelPointerDown"
+                  @onpointerdown:stopPropagation="true" />
+            @((MarkupString)$"<text x=\"{Fmt(wlp.X)}\" y=\"{Fmt(wlp.Y)}\" text-anchor=\"middle\" dominant-baseline=\"central\" font-size=\"12\" font-weight=\"bold\" fill=\"{labelColor}\" style=\"user-select:none;pointer-events:none;\">{Link.Weight}</text>")
+        }
 
         @* ── Tip marker ── *@
         @if (Link.ArcType == ArcType.Normal)
@@ -33,13 +48,13 @@
                     cy="@Fmt(PointAlongFromTip(_points, 6).Y)"
                     r="6" fill="white" stroke="@color" stroke-width="2" />
         }
-        else if (Link.ArcType == ArcType.Cancellation)
+        else if (Link.ArcType == ArcType.Reset)
         {
-            <path d="@CancellationTicks(_points)"
+            <path d="@ResetTicks(_points)"
                   fill="none" stroke="@color" stroke-width="2" stroke-linecap="round" />
         }
 
-        @* ── Line hit area — before vertices so vertex rects win on overlap ── *@
+        @* ── Line hit area ── *@
         @if (StateService.IsArcToolActive)
         {
             <path d="@dSmooth" fill="none" stroke="transparent" stroke-width="8"
@@ -57,9 +72,7 @@
                   @ondblclick:stopPropagation="true" />
         }
 
-        @* ── Mid-line vertices — after line hit area so they win on overlap.
-             Diamonds only visible when selected. Hit rects always present for drag.
-             Two-pass: idle vertices first, dragging vertex last (on top). *@
+        @* ── Mid-line vertices ── *@
         @foreach (var vertex in Link.Vertices.OfType<PetriVertexModel>().Where(v => v != _draggingVertex))
         {
             var v = vertex;
@@ -94,7 +107,7 @@
                   @onpointerdown:stopPropagation="true" />
         }
 
-        @* ── Source endpoint diamond — only visible when selected ── *@
+        @* ── Source endpoint diamond ── *@
         @if (!Link.IsDraggingEndpoint)
         {
             @if (Link.Selected)
@@ -111,7 +124,7 @@
                   @onpointerdown:stopPropagation="true" />
         }
 
-        @* ── Target endpoint diamond — only visible when selected ── *@
+        @* ── Target endpoint diamond ── *@
         @if (!Link.IsDraggingEndpoint)
         {
             @if (Link.Selected)
@@ -141,7 +154,10 @@
     private Point _dragStartVertex;
     private bool _didDrag;
 
-    // Double-click detection via pointer-down timestamps
+    private bool _draggingWeightLabel;
+    private int _weightLabelSegmentBefore;
+    private bool _weightLabelFlippedBefore;
+
     private PetriVertexModel? _lastClickVertex;
     private long _lastClickTime;
     private const long DblClickMs = 350;
@@ -152,12 +168,14 @@
     {
         if (Link != null) Link.Changed += OnLinkChanged;
         StateService.OnToolChanged += OnToolChanged;
+        Settings.Changed += OnSettingsChanged;
         Diagram.PointerMove += OnDiagramPointerMove;
         Diagram.PointerUp += OnDiagramPointerUp;
         RefreshPoints();
     }
 
     private void OnToolChanged() => InvokeAsync(StateHasChanged);
+    private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
 
     private void OnLinkChanged(Blazor.Diagrams.Core.Models.Base.Model _)
         => InvokeAsync(() => { RefreshPoints(); StateHasChanged(); });
@@ -166,6 +184,7 @@
     {
         if (Link != null) Link.Changed -= OnLinkChanged;
         StateService.OnToolChanged -= OnToolChanged;
+        Settings.Changed -= OnSettingsChanged;
         Diagram.PointerMove -= OnDiagramPointerMove;
         Diagram.PointerUp -= OnDiagramPointerUp;
     }
@@ -175,15 +194,9 @@
         var link = Link;
         if (link == null) { _points = null; return; }
 
-        // Build point list with correct directional hints for anchor resolution
         var verts = link.Vertices.Select(v => v.Position).ToList();
-
-        // Source hint: direction toward first vertex (or target if no vertices)
-        var srcHint = verts.Count > 0 ? verts[0]
-                    : link.Target?.GetPlainPosition() ?? new Point(0, 0);
-        // Target hint: direction from last vertex (or source if no vertices)
-        var tgtHint = verts.Count > 0 ? verts[^1]
-                    : link.Source?.GetPlainPosition() ?? new Point(0, 0);
+        var srcHint = verts.Count > 0 ? verts[0] : link.Target?.GetPlainPosition() ?? new Point(0, 0);
+        var tgtHint = verts.Count > 0 ? verts[^1] : link.Source?.GetPlainPosition() ?? new Point(0, 0);
 
         var srcPos = link.Source.GetPosition(link, new[] { srcHint, srcHint });
         var tgtPos = link.Target?.GetPosition(link, new[] { tgtHint, tgtHint });
@@ -193,8 +206,6 @@
         pts.AddRange(verts);
         if (tgtPos != null) pts.Add(tgtPos);
 
-        // Remove consecutive duplicate/near-identical points (distance < 2px)
-        // These cause degenerate zero-length segments and broken corner rounding
         var deduped = new List<Point>();
         foreach (var p in pts)
         {
@@ -211,6 +222,15 @@
 
     private void OnHitSelect(Microsoft.AspNetCore.Components.Web.PointerEventArgs _)
         => Diagram.SelectModel(Link, true);
+
+    private void OnWeightLabelPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        if (e.Button != 0) return;
+        _draggingWeightLabel = true;
+        _weightLabelSegmentBefore = ResolvedWeightSegment(_points, Link.WeightLabelSegment);
+        _weightLabelFlippedBefore = Link.WeightLabelFlipped;
+        InvokeAsync(StateHasChanged);
+    }
 
     private void OnHitArcTool(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
@@ -243,46 +263,51 @@
     private void OnVertexPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e,
                                      PetriVertexModel vertex)
     {
-        long now = Environment.TickCount64;
+        if (e.Button != 0) return;
 
-        // Two pointer-downs on the same vertex within DblClickMs → remove it
-        if (_lastClickVertex == vertex && (now - _lastClickTime) <= DblClickMs)
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (vertex == _lastClickVertex && now - _lastClickTime < DblClickMs)
         {
-            _lastClickVertex = null;
-            _lastClickTime = 0;
-            _draggingVertex = null;
+            Manager.History.Record(new RemoveVertexCommand(Link, vertex));
             Link.Vertices.Remove(vertex);
             Link.Refresh();
-            RefreshPoints();
-            InvokeAsync(StateHasChanged);
+            _lastClickVertex = null;
             return;
         }
-
         _lastClickVertex = vertex;
         _lastClickTime = now;
 
-        Diagram.SelectModel(Link, true);
         _draggingVertex = vertex;
         _dragStartMouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
         _dragStartVertex = vertex.Position;
         _didDrag = false;
-        // No StateHasChanged here — re-rendering during pointer-down disrupts drag
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnDiagramPointerMove(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (_draggingWeightLabel && _points != null)
+        {
+            var mouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+            NearestSegmentAndSide(_points, mouse, out int nearest, out bool flipped);
+            if (nearest != Link.WeightLabelSegment || flipped != Link.WeightLabelFlipped)
+            {
+                Link.WeightLabelSegment = nearest;
+                Link.WeightLabelFlipped = flipped;
+                Link.Refresh();
+                InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
         if (_draggingVertex == null) return;
 
-        var mouse = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
-        double dx = mouse.X - _dragStartMouse.X;
-        double dy = mouse.Y - _dragStartMouse.Y;
-
+        var m = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        double dx = m.X - _dragStartMouse.X, dy = m.Y - _dragStartMouse.Y;
         if (!_didDrag && dx * dx + dy * dy < 9) return;
         _didDrag = true;
 
-        _draggingVertex.Position = new Point(
-            _dragStartVertex.X + dx,
-            _dragStartVertex.Y + dy);
+        _draggingVertex.Position = new Point(_dragStartVertex.X + dx, _dragStartVertex.Y + dy);
         _draggingVertex.Refresh();
         Link.Refresh();
         RefreshPoints();
@@ -291,8 +316,25 @@
 
     private void OnDiagramPointerUp(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
+        if (_draggingWeightLabel)
+        {
+            _draggingWeightLabel = false;
+            var segAfter = Link.WeightLabelSegment;
+            var flippedAfter = Link.WeightLabelFlipped;
+            if (segAfter != _weightLabelSegmentBefore || flippedAfter != _weightLabelFlippedBefore)
+                Manager.History.Record(new MoveWeightLabelCommand(
+                    Link,
+                    _weightLabelSegmentBefore, _weightLabelFlippedBefore,
+                    segAfter, flippedAfter));
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
         if (_draggingVertex == null) return;
+        var vertex = _draggingVertex;
         _draggingVertex = null;
+        if (_didDrag)
+            Manager.History.Record(new MoveVertexCommand(vertex, Link, _dragStartVertex, vertex.Position));
         _didDrag = false;
         RefreshPoints();
         InvokeAsync(StateHasChanged);
@@ -302,8 +344,7 @@
 
     private static string NormalArrowPath(List<Point> pts)
     {
-        var tip = pts[^1];
-        var prev = pts[^2];
+        var tip = pts[^1]; var prev = pts[^2];
         double fwd = Math.Atan2(tip.Y - prev.Y, tip.X - prev.X);
         double perp = fwd + Math.PI / 2;
         const double baseBack = 12.0, halfW = 5.0;
@@ -313,10 +354,9 @@
         return $"M {Fmt(tip.X)} {Fmt(tip.Y)} L {Fmt(lx)} {Fmt(ly)} L {Fmt(rx)} {Fmt(ry)} Z";
     }
 
-    private static string CancellationTicks(List<Point> pts)
+    private static string ResetTicks(List<Point> pts)
     {
-        var tip = pts[^1];
-        var prev = pts[^2];
+        var tip = pts[^1]; var prev = pts[^2];
         double fwd = Math.Atan2(tip.Y - prev.Y, tip.X - prev.X);
         double tickAngle = fwd + Math.PI / 2 + Math.PI / 6;
         const double half = 7.0;
@@ -327,7 +367,42 @@
                $"M {Fmt(c2.X - half * cos)} {Fmt(c2.Y - half * sin)} L {Fmt(c2.X + half * cos)} {Fmt(c2.Y + half * sin)}";
     }
 
-    // ── Shared helpers ────────────────────────────────────────────────────────
+    // ── Label helpers ─────────────────────────────────────────────────────────
+
+    private static int ResolvedWeightSegment(List<Point> pts, int stored)
+        => stored < 0 || stored >= pts.Count - 1 ? (pts.Count - 2) / 2 : stored;
+
+    private static Point SegmentLabelPoint(List<Point> pts, int seg, bool flipped)
+    {
+        var a = pts[seg]; var b = pts[seg + 1];
+        double mx = (a.X + b.X) / 2.0, my = (a.Y + b.Y) / 2.0;
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return new Point(mx, my + (flipped ? 14 : -14));
+        double px = flipped ? dy / len : -dy / len;
+        double py = flipped ? -dx / len : dx / len;
+        return new Point(mx + px * 14.0, my + py * 14.0);
+    }
+
+    private static void NearestSegmentAndSide(List<Point> pts, Point p, out int seg, out bool flipped)
+    {
+        seg = 0; flipped = false;
+        double bestDist = double.MaxValue;
+        for (int i = 0; i < pts.Count - 1; i++)
+        {
+            var a = pts[i]; var b = pts[i + 1];
+            double mx = (a.X + b.X) / 2.0, my = (a.Y + b.Y) / 2.0;
+            double ddx = p.X - mx, ddy = p.Y - my;
+            double d = ddx * ddx + ddy * ddy;
+            if (d < bestDist)
+            {
+                bestDist = d;
+                seg = i;
+                double sdx = b.X - a.X, sdy = b.Y - a.Y;
+                flipped = (sdx * ddy - sdy * ddx) < 0;
+            }
+        }
+    }
 
     private static Point PointAlongFromTip(List<Point> pts, double dist)
     {
@@ -345,12 +420,8 @@
         if (pts.Count == 2)
             return $"M {Fmt(pts[0].X)} {Fmt(pts[0].Y)} L {Fmt(pts[1].X)} {Fmt(pts[1].Y)}";
 
-        // For each interior vertex i (1 .. Count-2):
-        //   approach segment ends at CornerEntry (r px before vertex)
-        //   Q bezier through vertex, exits at CornerExit (r px after vertex)
         var sb = new System.Text.StringBuilder();
         sb.Append($"M {Fmt(pts[0].X)} {Fmt(pts[0].Y)}");
-
         for (int i = 1; i < pts.Count - 1; i++)
         {
             var entry = CornerEntry(pts[i - 1], pts[i], radius);
@@ -358,7 +429,6 @@
             sb.Append($" L {Fmt(entry.X)} {Fmt(entry.Y)}");
             sb.Append($" Q {Fmt(pts[i].X)} {Fmt(pts[i].Y)} {Fmt(exit.X)} {Fmt(exit.Y)}");
         }
-
         sb.Append($" L {Fmt(pts[^1].X)} {Fmt(pts[^1].Y)}");
         return sb.ToString();
     }

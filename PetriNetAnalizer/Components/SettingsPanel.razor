@@ -1,0 +1,72 @@
+@using PetriNetAnalyzer.Services
+@inject DiagramSettings Settings
+
+@if (_open)
+{
+    <div class="settings-overlay" @onclick="Close"></div>
+
+    <div class="settings-panel">
+        <div class="settings-header">
+            <span class="settings-title">Settings</span>
+            <div class="settings-header-actions">
+                <button class="settings-reset-btn" @onclick="Reset">Reset to defaults</button>
+                <button class="settings-close-btn" @onclick="Close">✕</button>
+            </div>
+        </div>
+
+        <div class="settings-body">
+            <div class="settings-group-label">Grid</div>
+
+            <div class="settings-row">
+                <label class="settings-label">Align to grid</label>
+                <input type="checkbox"
+                       checked="@Settings.GridEnabled"
+                       @onchange="e => Commit(s => s.GridEnabled = e.Value is bool b && b)" />
+            </div>
+
+            <div class="settings-row">
+                <label class="settings-label">Grid size (px)</label>
+                <input type="number" class="settings-number" min="5" max="100" step="5"
+                       value="@Settings.GridSize"
+                       @onchange="e => Commit(s => s.GridSize = Clamp(Dbl(e, s.GridSize), 5, 100))" />
+            </div>
+        </div>
+    </div>
+}
+
+<button class="debug-corner-btn settings-toggle-btn @(_open ? "active" : "")"
+        title="Settings"
+        @onclick="Toggle">
+    ⚙ Settings
+</button>
+
+@code {
+    private bool _open;
+
+    private void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+
+    private void Commit(Action<DiagramSettings> mutate)
+    {
+        mutate(Settings);
+        Settings.NotifyChanged();
+    }
+
+    private void Reset()
+    {
+        Settings.ResetToDefaults();
+        StateHasChanged();
+    }
+
+    private static string Val(Microsoft.AspNetCore.Components.ChangeEventArgs e)
+        => e.Value?.ToString() ?? "";
+
+    private static double Dbl(Microsoft.AspNetCore.Components.ChangeEventArgs e, double fallback)
+        => double.TryParse(e.Value?.ToString(),
+               System.Globalization.NumberStyles.Any,
+               System.Globalization.CultureInfo.InvariantCulture,
+               out var r) ? r : fallback;
+
+    private static double Clamp(double value, double min, double max)
+        => Math.Clamp(value, min, max);
+}

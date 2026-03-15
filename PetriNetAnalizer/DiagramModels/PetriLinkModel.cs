@@ -27,10 +27,16 @@ namespace PetriNetAnalyzer.DiagramModels
         public int Weight { get; set; } = 1;
 
         /// <summary>
-        /// Offset from the arc midpoint for the weight label.
-        /// Moves with the arc. Default is 14px perpendicular (above the line).
+        /// Index of the arc segment the weight label is anchored to.
+        /// -1 means "auto" (middle segment). Updated when user drags the label.
         /// </summary>
-        public Point WeightLabelOffset { get; set; } = new(0, -14);
+        public int WeightLabelSegment { get; set; } = -1;
+
+        /// <summary>
+        /// Which side of the arc the label sits on.
+        /// False = left-hand perpendicular, True = right-hand perpendicular.
+        /// </summary>
+        public bool WeightLabelFlipped { get; set; } = false;
 
         /// <summary>Arc type: Normal, Inhibitor, or Cancellation.</summary>
         public ArcType ArcType { get; set; } = ArcType.Normal;

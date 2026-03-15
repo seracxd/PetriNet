@@ -8,7 +8,7 @@ namespace Core.Models
     {
         Normal,
         Inhibitor,
-        Cancellation
+        Reset
     }
 
 

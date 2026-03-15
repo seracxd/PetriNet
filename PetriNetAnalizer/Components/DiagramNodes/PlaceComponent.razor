@@ -1,145 +1,128 @@
 ﻿@using Blazor.Diagrams.Components.Renderers
 @using PetriNetAnalyzer.DiagramModels
+@using PetriNetAnalyzer.Services
 @implements IDisposable
 @inject DiagramStateService StateService
+@inject DiagramSettings Settings
 
 <div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
-	 style="width: @(Node.Size.Width)px;
-            height: @(Node.Size.Height)px;
-            position: relative;
-            box-sizing: content-box;">
+     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; box-sizing: content-box;">
 
-	<svg width="@(Node.Size?.Width ?? 60)" height="@(Node.Size?.Height ?? 60)"
-		 style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+    <svg width="@(Node.Size?.Width ?? Settings.PlaceSize)" height="@(Node.Size?.Height ?? Settings.PlaceSize)"
+         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
 
-		<circle cx="@((Node.Size?.Width ?? 60) / 2)"
-				cy="@((Node.Size?.Height ?? 60) / 2)"
-				r="@(((Node.Size?.Width ?? 60) / 2) - 2)"
-				stroke="@(Node.Selected ? "#007bff" : "black")"
-				stroke-width="@(Node.Selected ? 3 : 2)"
-				fill="@(Node.Selected ? "#e3f2fd" : "white")"
-				style="@(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;" : "transition: all 0.2s;")" />
+        <circle cx="@((Node.Size?.Width ?? Settings.PlaceSize) / 2)"
+                cy="@((Node.Size?.Height ?? Settings.PlaceSize) / 2)"
+                r="@(((Node.Size?.Width ?? Settings.PlaceSize) / 2) - 2)"
+                stroke="@(Node.Selected? Settings.ArcSelectedColor: Settings.ArcColor)"
+                stroke-width="@(Node.Selected ? 3 : 2)"
+                fill="@(Node.Selected ? "#e3f2fd" : "white")"
+                style="@(Node.Selected
+                                    ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8)); transition: all 0.2s;"
+                                    : "transition: all 0.2s;")" />
 
-		@if (PlaceModel?.Data?.Tokens > 0)
-		{
-			var tokens = PlaceModel.Data.Tokens;
-			var centerX = (Node.Size?.Width ?? 60) / 2;
-			var centerY = (Node.Size?.Height ?? 60) / 2;
+        @if (PlaceModel?.Data?.Tokens > 0)
+        {
+            var tokens = PlaceModel.Data.Tokens;
+            var centerX = (Node.Size?.Width ?? Settings.PlaceSize) / 2;
+            var centerY = (Node.Size?.Height ?? Settings.PlaceSize) / 2;
 
-			@if (tokens <= 5)
-			{
-				<g fill="black">
-					@foreach (var pos in GetTokenPositions(tokens, centerX, centerY))
-					{
-						<circle cx="@pos.X" cy="@pos.Y" r="6" />
-					}
-				</g>
-			}
-			else
-			{
-				<g>
-					<text x="@centerX"
-						  y="@centerY"
-						  text-anchor="middle"
-						  dominant-baseline="central"
-						  font-weight="bolder"
-						  style="user-select: none; font-size: 18px;">
-						@tokens
-					</text>
-				</g>
-			}
-		}
-	</svg>
+            @if (tokens <= 5)
+            {
+                <g fill="black">
+                    @foreach (var pos in GetTokenPositions(tokens, centerX, centerY))
+                    {
+                        <circle cx="@pos.X" cy="@pos.Y" r="6" />
+                    }
+                </g>
+            }
+            else
+            {
+                <g>
+                    <text x="@centerX" y="@centerY"
+                          text-anchor="middle" dominant-baseline="central"
+                          font-weight="bolder"
+                          style="user-select: none; font-size: 18px;">
+                        @tokens
+                    </text>
+                </g>
+            }
+        }
+    </svg>
 
-	@foreach (var port in Node.Ports)
-	{
-		<div style="@GetPortStyle(port)" class="port-anchor">
-			<PortRenderer Port="port" />
-		</div>
-	}
+    @foreach (var port in Node.Ports)
+    {
+        <div style="@GetPortStyle(port)" class="port-anchor">
+            <PortRenderer Port="port" />
+        </div>
+    }
 
-	<div class="node-title">
-		@Node.Title
-	</div>
+    <div class="node-title">@Node.Title</div>
 </div>
 
 @code {
-	[Parameter] 
-	public NodeModel Node { get; set; } = null!;
-	private PlaceNode? PlaceModel => Node as PlaceNode;
+    [Parameter] public NodeModel Node { get; set; } = null!;
+    private PlaceNode? PlaceModel => Node as PlaceNode;
 
-	protected override void OnInitialized()
-	{
-		StateService.OnToolChanged += StateHasChanged;
-	}
+    protected override void OnInitialized()
+    {
+        StateService.OnToolChanged += StateHasChanged;
+        Settings.Changed += StateHasChanged;
+    }
 
-	public void Dispose()
-	{
-		StateService.OnToolChanged -= StateHasChanged;
-	}
+    public void Dispose()
+    {
+        StateService.OnToolChanged -= StateHasChanged;
+        Settings.Changed -= StateHasChanged;
+    }
 
+    private string GetPortStyle(PortModel port)
+    {
+        var index = Node.Ports.ToList().IndexOf(port);
+        string x = "50%", y = "50%";
+        switch (index)
+        {
+            case 0: x = "50%"; y = "3%"; break;
+            case 1: x = "82%"; y = "17%"; break;
+            case 2: x = "97%"; y = "50%"; break;
+            case 3: x = "82%"; y = "82%"; break;
+            case 4: x = "50%"; y = "97%"; break;
+            case 5: x = "17%"; y = "83%"; break;
+            case 6: x = "3%"; y = "50%"; break;
+            case 7: x = "17%"; y = "17%"; break;
+            default:
+                x = port.Alignment switch
+                {
+                    PortAlignment.Left => "0%",
+                    PortAlignment.Right => "100%",
+                    _ => "50%"
+                };
+                y = port.Alignment switch
+                {
+                    PortAlignment.Top => "0%",
+                    PortAlignment.Bottom => "100%",
+                    _ => "50%"
+                };
+                break;
+        }
+        return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
+    }
 
-	private string GetPortStyle(PortModel port)
-	{
-		var index = Node.Ports.ToList().IndexOf(port);
+    private IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
+    {
+        const double offset = 12;
+        const double orbitRadius = 12;
+        const double startAngle = -Math.PI / 2;
 
-		string x = "50%";
-		string y = "50%";
-
-		switch (index)
-		{
-			case 0: x = "50%"; y = "3%"; break;   // 1. port Top
-			case 1: x = "82%"; y = "17%"; break;  // 2. port 45
-			case 2: x = "97%"; y = "50%"; break;  // 3. port Right
-			case 3: x = "82%"; y = "82%"; break;  // 4. port 135 
-			case 4: x = "50%"; y = "97%"; break;  // 5. port Bottom
-			case 5: x = "17%"; y = "83%"; break;  // 6. port 225
-			case 6: x = "3%"; y = "50%"; break;   // 7. port Left
-			case 7: x = "17%"; y = "17%"; break;  // 8. port 315
-
-			default:
-				x = port.Alignment switch
-				{
-					PortAlignment.Left => "0%",
-					PortAlignment.Right => "100%",
-					_ => "50%"
-				};
-				y = port.Alignment switch
-				{
-					PortAlignment.Top => "0%",
-					PortAlignment.Bottom => "100%",
-					_ => "50%"
-				};
-				break;
-		}
-
-		return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
-	}
-
-	private IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
-	{
-		double offset = 12;
-		double orbitRadius = 12;
-		double startAngle = -Math.PI / 2; 
-
-		switch (count)
-		{
-			case 1:
-				return new[] { (cx, cy) };
-
-			case 2:
-				return new[] { (cx - offset, cy), (cx + offset, cy) };
-
-			default:
-				var positions = new List<(double, double)>();
-				for (int i = 0; i < count; i++)
-				{
-					double angle = startAngle + (i * 2 * Math.PI / count);
-					double x = cx + orbitRadius * Math.Cos(angle);
-					double y = cy + orbitRadius * Math.Sin(angle);
-					positions.Add((x, y));
-				}
-				return positions;
-		}
-	}
+        return count switch
+        {
+            1 => new[] { (cx, cy) },
+            2 => new[] { (cx - offset, cy), (cx + offset, cy) },
+            _ => Enumerable.Range(0, count).Select(i =>
+            {
+                double angle = startAngle + i * 2 * Math.PI / count;
+                return (cx + orbitRadius * Math.Cos(angle), cy + orbitRadius * Math.Sin(angle));
+            })
+        };
+    }
 }

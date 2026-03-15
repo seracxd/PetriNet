@@ -1,139 +1,144 @@
 ﻿// ── Global keyboard handler ───────────────────────────────────────────────
 window.registerGlobalKeyHandler = (dotnetRef) => {
-    const keyHandler = (e) => {
+    document.addEventListener('keydown', (e) => {
         dotnetRef.invokeMethodAsync('OnGlobalKey', e.key, e.ctrlKey, e.shiftKey, e.altKey);
-    };
-    document.addEventListener('keydown', keyHandler);
-    window._globalKeyHandler = keyHandler;
-
-    // pointermove for selection rectangle — on window so it works even when
-    // the pointer leaves the diagram container during a drag
-    const moveHandler = (e) => {
-        if (!window._selRectActive) return;
-        const container = document.getElementById('diagram-container');
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
-        dotnetRef.invokeMethodAsync('OnSelPointerMoveJS',
-            e.clientX - rect.left,
-            e.clientY - rect.top);
-    };
-    window.addEventListener('pointermove', moveHandler);
-    window._selMoveHandler = moveHandler;
-
+    });
     window._dotNetRef = dotnetRef;
 };
 
-window.unregisterGlobalKeyHandler = () => {
-    if (window._globalKeyHandler) {
-        document.removeEventListener('keydown', window._globalKeyHandler);
-        window._globalKeyHandler = null;
-    }
-    if (window._selMoveHandler) {
-        window.removeEventListener('pointermove', window._selMoveHandler);
-        window._selMoveHandler = null;
-    }
-    if (window._panBlockHandler) {
-        const container = document.getElementById('diagram-container');
-        if (container) container.removeEventListener('pointerdown', window._panBlockHandler, true);
-        window._panBlockHandler = null;
-    }
-};
-
-// ── Returns container-relative offset for a clientX/clientY point ─────────
-window.getContainerOffset = (clientX, clientY) => {
-    const container = document.getElementById('diagram-container');
-    if (!container) return { x: clientX, y: clientY };
-    const rect = container.getBoundingClientRect();
-    return { x: clientX - rect.left, y: clientY - rect.top };
-};
-
-// ── Pan blocker ───────────────────────────────────────────────────────────
-// Attaches a capture-phase pointerdown listener. When select tool is active,
-// stops propagation on ALL canvas clicks so the diagram pan never starts.
-// Node/link elements already call stopPropagation themselves in their own
-// handlers, so the diagram library still processes them correctly — the only
-// thing we're preventing here is the PAN behavior that runs when no model
-// stops the event.
-window._selectToolActive = false;
-window._selRectActive = false;
-
-window.setSelectToolActive = (active) => {
-    window._selectToolActive = active;
-};
-
-window.setSelRectActive = (active) => {
-    window._selRectActive = active;
-};
-
-window.installPanBlocker = () => {
-    const container = document.getElementById('diagram-container');
-    if (!container || window._panBlockHandler) return;
-
-    const handler = (e) => {
-        if (!window._selectToolActive) return;
-        if (e.button !== 0) return;
-
-        // Check if click landed on a petri node or link — let those through untouched.
-        let el = e.target;
-        let onModel = false;
-        while (el && el !== container) {
-            if (el.classList && (
-                el.classList.contains('petri-node') ||
-                el.classList.contains('petri-link-group')
-            )) { onModel = true; break; }
-            el = el.parentElement;
-        }
-        if (onModel) return;
-
-        // Empty canvas click — let the event propagate normally so Blazor.Diagrams
-        // fires PointerDown(model==null), but immediately dispatch a synthetic
-        // pointerup to cancel whatever pan state the diagram started.
-        // We use setTimeout(0) so the diagram's pointerdown handler runs first.
-        setTimeout(() => {
-            const synth = new PointerEvent('pointerup', {
-                bubbles: true, cancelable: true,
-                pointerId: e.pointerId,
-                clientX: e.clientX, clientY: e.clientY,
-                button: 0, buttons: 0
-            });
-            container.dispatchEvent(synth);
-        }, 0);
-    };
-
-    container.addEventListener('pointerdown', handler, { capture: true });
-    window._panBlockHandler = handler;
-};
-
-window.armPointerUpListener = () => {
-    if (window._pointerUpHandler) return;
-    const handler = (e) => {
-        if (e.button !== 0) return;
-        window._pointerUpHandler = null;
-        window.removeEventListener('pointerup', handler);
-        if (window._dotNetRef) {
-            window._dotNetRef.invokeMethodAsync('OnCanvasPointerUp');
-        }
-    };
-    window.addEventListener('pointerup', handler);
-    window._pointerUpHandler = handler;
-};
-
-window.cancelPointerUpListener = () => {
-    if (window._pointerUpHandler) {
-        window.removeEventListener('pointerup', window._pointerUpHandler);
-        window._pointerUpHandler = null;
-    }
-};
-
-window.installPanBlockerOnce = () => {
-    // Wait for DiagramCanvas to render before installing
+// ── One-time setup: pan + selection — called after first render ───────────
+window.setupPanHandlerOnce = () => {
     const tryInstall = () => {
         const container = document.getElementById('diagram-container');
-        if (container) {
-            window.installPanBlocker();
-        } else {
-            requestAnimationFrame(tryInstall);
-        }
+        if (container) setupOnContainer(container);
+        else requestAnimationFrame(tryInstall);
     };
     tryInstall();
 };
+
+function setupOnContainer(container) {
+    if (container._installed) return;
+    container._installed = true;
+
+    // Suppress right-click context menu
+    container.addEventListener('contextmenu', (e) => e.preventDefault(), true);
+
+    // ── Capture-phase pointerdown — decides pan vs sel-rect vs pass-through ──
+    container.addEventListener('pointerdown', (e) => {
+
+        // ── Right button → pan ───────────────────────────────────────────────
+        if (e.button === 2) {
+            e.preventDefault();
+            e.stopPropagation();
+            container.setPointerCapture(e.pointerId);
+            window._panDrag = {
+                startX: e.clientX, startY: e.clientY,
+                lastX: e.clientX, lastY: e.clientY,
+                prevDx: 0, prevDy: 0,
+                pointerId: e.pointerId,
+                rafPending: false,
+            };
+            return;
+        }
+
+        // ── Left button, select tool, empty canvas → sel-rect ────────────────
+        if (e.button === 0 && window._selectToolActive) {
+            // Walk up from target — if we hit a petri-node or petri-link-group
+            // let the event fall through to the diagram normally.
+            let el = e.target;
+            let onModel = false;
+            while (el && el !== container) {
+                if (el.classList &&
+                    (el.classList.contains('petri-node') ||
+                        el.classList.contains('petri-link-group'))) {
+                    onModel = true; break;
+                }
+                el = el.parentElement;
+            }
+            if (!onModel) {
+                // Empty canvas click — arm the selection rect.
+                // Don't stopPropagation; Blazor still sees it (model==null) which
+                // is fine since OnPointerDown only primes _pendingAction for
+                // place/transition/arc tools, and returns early for "select".
+                const bounds = container.getBoundingClientRect();
+                window._selDrag = {
+                    armed: true,
+                    active: false,
+                    startX: e.clientX - bounds.left,
+                    startY: e.clientY - bounds.top,
+                    pointerId: e.pointerId,
+                };
+                // Notify Blazor so it can initialise _selStart/_selCurrent
+                if (window._dotNetRef)
+                    window._dotNetRef.invokeMethodAsync(
+                        'OnSelRectArmed',
+                        window._selDrag.startX,
+                        window._selDrag.startY);
+            }
+        }
+
+    }, true); // capture phase
+
+    // ── window pointermove — updates sel-rect and pan ─────────────────────
+    window.addEventListener('pointermove', (e) => {
+
+        // Pan
+        const d = window._panDrag;
+        if (d && e.pointerId === d.pointerId) {
+            e.preventDefault();
+            d.lastX = e.clientX; d.lastY = e.clientY;
+            if (!d.rafPending) {
+                d.rafPending = true;
+                requestAnimationFrame(() => {
+                    const drag = window._panDrag;
+                    if (!drag) return;
+                    drag.rafPending = false;
+                    const ddx = (drag.lastX - drag.startX) - drag.prevDx;
+                    const ddy = (drag.lastY - drag.startY) - drag.prevDy;
+                    drag.prevDx += ddx; drag.prevDy += ddy;
+                    if ((ddx || ddy) && window._dotNetRef)
+                        window._dotNetRef.invokeMethodAsync('PanByDelta', ddx, ddy);
+                });
+            }
+            return;
+        }
+
+        // Sel-rect
+        const s = window._selDrag;
+        if (!s || !s.armed) return;
+        const container = document.getElementById('diagram-container');
+        if (!container) return;
+        const bounds = container.getBoundingClientRect();
+        const cx = e.clientX - bounds.left;
+        const cy = e.clientY - bounds.top;
+        if (!s.rafPending) {
+            s.rafPending = true;
+            requestAnimationFrame(() => {
+                if (!window._selDrag) return;
+                window._selDrag.rafPending = false;
+                if (window._dotNetRef)
+                    window._dotNetRef.invokeMethodAsync('OnSelPointerMoveJS', cx, cy);
+            });
+        }
+    });
+
+    // ── window pointerup — commit sel-rect, end pan ───────────────────────
+    window.addEventListener('pointerup', (e) => {
+        if (window._panDrag && e.pointerId === window._panDrag.pointerId) {
+            window._panDrag = null;
+            return;
+        }
+        if (window._selDrag && window._selDrag.armed && e.button === 0) {
+            window._selDrag = null;
+            if (window._dotNetRef)
+                window._dotNetRef.invokeMethodAsync('OnCanvasPointerUp');
+        }
+    });
+}
+
+// ── Flags set from Blazor to control JS behaviour ─────────────────────────
+window._selectToolActive = false;
+window.setSelectToolActive = (active) => { window._selectToolActive = active; };
+
+window._panDrag = null;
+window._selDrag = null;

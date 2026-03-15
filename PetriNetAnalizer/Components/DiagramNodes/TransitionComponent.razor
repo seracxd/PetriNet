@@ -1,24 +1,26 @@
 ﻿@using Blazor.Diagrams.Components.Renderers
 @using Blazor.Diagrams.Core.Models
 @using PetriNetAnalyzer.DiagramModels
+@using PetriNetAnalyzer.Services
 @implements IDisposable
 @inject DiagramStateService StateService
+@inject DiagramSettings Settings
 
 <div class="petri-node @(Node.Selected ? "selected" : "") @(StateService.IsArcToolActive ? "arc-tool-active" : "")"
-     style="@($"width: {Node.Size.Width}px; height: {Node.Size.Height}px; position: relative;")">
+     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative;">
 
     <svg width="@Node.Size.Width" height="@Node.Size.Height"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
-            @(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" : "")">
+                @(Node.Selected ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" : "")">
+
         <rect x="0" y="0"
               width="@Node.Size.Width"
               height="@Node.Size.Height"
-              fill="black"
-              stroke="@(Node.Selected ? "#007bff" : "black")"
+              fill="@Settings.ArcColor"
+              stroke="@(Node.Selected? Settings.ArcSelectedColor: Settings.ArcColor)"
               stroke-width="@(Node.Selected ? 3 : 2)"
               style="transition: all 0.2s;" />
 
-        @* Priority badge — always visible when priority > 0 *@
         @if (TransitionModel?.Data?.Priority > 0)
         {
             var badgeX = Node.Size.Width / 2.0;
@@ -27,11 +29,8 @@
                 <circle cx="@badgeX" cy="@badgeY" r="11"
                         fill="#ff4081" stroke="white" stroke-width="1.5" />
                 <text x="@badgeX" y="@badgeY"
-                      text-anchor="middle"
-                      dominant-baseline="central"
-                      fill="white"
-                      font-size="11"
-                      font-weight="bold"
+                      text-anchor="middle" dominant-baseline="central"
+                      fill="white" font-size="11" font-weight="bold"
                       style="user-select:none;">
                     @TransitionModel!.Data.Priority
                 </text>
@@ -46,9 +45,7 @@
         </div>
     }
 
-    <div class="node-title">
-        @Node.Title
-    </div>
+    <div class="node-title">@Node.Title</div>
 </div>
 
 @code {
@@ -58,20 +55,20 @@
     protected override void OnInitialized()
     {
         StateService.OnToolChanged += StateHasChanged;
+        Settings.Changed += StateHasChanged;
     }
 
     public void Dispose()
     {
         StateService.OnToolChanged -= StateHasChanged;
+        Settings.Changed -= StateHasChanged;
     }
 
     private string GetPortStyle(PortModel port)
     {
         var allPorts = Node.Ports.ToList();
         var indexInAlignment = allPorts.Where(p => p.Alignment == port.Alignment).ToList().IndexOf(port);
-
-        string x = "50%";
-        string y = "50%";
+        string x = "50%", y = "50%";
 
         switch (port.Alignment)
         {
@@ -79,20 +76,15 @@
                 x = "0%";
                 y = indexInAlignment == 0 ? "25%" : indexInAlignment == 1 ? "50%" : "75%";
                 break;
-
             case PortAlignment.Right:
                 x = "100%";
                 y = indexInAlignment == 0 ? "25%" : indexInAlignment == 1 ? "50%" : "75%";
                 break;
-
             case PortAlignment.Top:
-                x = "50%";
-                y = "0%";
+                x = "50%"; y = "0%";
                 break;
-
             case PortAlignment.Bottom:
-                x = "50%";
-                y = "100%";
+                x = "50%"; y = "100%";
                 break;
         }
 

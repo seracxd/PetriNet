@@ -9,6 +9,7 @@
 @inject DiagramStateService StateService
 @inject PetriNetManager Manager
 @inject IJSRuntime JS
+@inject DiagramSettings Settings
 
 <div class="app-root">
 
@@ -119,16 +120,16 @@
                                         @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Inhibitor); }">
                                     Inhibit
                                 </button>
-                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Cancellation ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
+                                <button class="arc-type-btn @(arcSel.ArcType == ArcType.Reset ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
                                         disabled="@arcOnlyNormal"
                                         title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
-                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Cancellation); }">
+                                        @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Reset); }">
                                     Cancel
                                 </button>
                             </div>
                             @if (arcOnlyNormal)
                             {
-                                <p class="arc-type-hint">Inhibitor and Cancellation arcs require a Place → Transition direction.</p>
+                                <p class="arc-type-hint">Inhibitor and Reset arcs require a Place → Transition direction.</p>
                             }
                         </div>
                     </div>
@@ -139,6 +140,33 @@
                 }
 
             </section>
+
+            <!-- Debug log — small button pinned to bottom of sidebar -->
+            <div class="debug-corner">
+                <button class="debug-corner-btn @(_logPanelOpen ? "active" : "")"
+                        title="Toggle debug log"
+                        @onclick="() => { _logPanelOpen = !_logPanelOpen; StateHasChanged(); }">
+                    ◉ Debug
+                </button>
+                @if (_logPanelOpen)
+                {
+                    <div class="debug-log-panel open">
+                        <div class="debug-log-header">
+                            <span>@Manager.Logger.GetEntries().Count entries</span>
+                            <div class="debug-log-actions">
+                                <button class="debug-log-btn" @onclick="CopyLog" title="Copy to clipboard">Copy</button>
+                                <button class="debug-log-btn" @onclick="ClearLog">Clear</button>
+                            </div>
+                        </div>
+                        <div class="debug-log-body">
+                            @foreach (var entry in Manager.Logger.GetEntries().Reverse())
+                            {
+                                <div class="debug-log-line">@entry.ToString()</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
 
         </aside>
 
@@ -191,11 +219,21 @@
                     </svg>
                     Fire step
                 </button>
+                <div class="analysis-bar-divider"></div>
+                <button class="analysis-btn analysis-btn-icon @(_settingsOpen ? "active" : "")"
+                        title="Settings"
+                        @onclick="() => _settingsOpen = !_settingsOpen">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </button>
             </div>
 
             <!-- Diagram -->
             <div id="diagram-container" tabindex="0"
-                 style="--grid-size: @(GridSize)px; --grid-offset-x: @(GridOffsetX)px; --grid-offset-y: @(GridOffsetY)px">
+                 style="--grid-size: @(GridSize)px; --grid-offset-x: @(GridOffsetX)px; --grid-offset-y: @(GridOffsetY)px; background-image: @(GridBackgroundImage)">
                 <CascadingValue Value="Manager.Diagram" IsFixed="true">
                     <DiagramCanvas />
                 </CascadingValue>
@@ -311,7 +349,6 @@
                 }
             </div>
 
-            <!-- Navigator toggle — bottom left -->
             <button class="navigator-toggle @(_navigatorOpen ? "active" : "")"
                     title="@(_navigatorOpen ? "Close navigator" : "Open navigator")"
                     @onclick="ToggleNavigator">
@@ -329,6 +366,44 @@
                 <span class="zoom-label">@((Manager.Diagram.Zoom * 100).ToString("F0"))%</span>
                 <button class="zoom-btn" title="Zoom out" @onclick="() => Manager.ZoomOut()">−</button>
                 <button class="zoom-btn zoom-reset" title="Reset view" @onclick="ResetView">⌂</button>
+            </div>
+
+            <!-- Settings panel — top right, below analysis bar -->
+            <div class="settings-panel @(_settingsOpen ? "open" : "")">
+                <div class="settings-panel-header">
+                    <span class="settings-panel-title">Settings</span>
+                    <button class="settings-panel-reset" title="Reset to defaults" @onclick="ResetSettings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="1 4 1 10 7 10" />
+                            <path d="M3.51 15a9 9 0 1 0 .49-4.5" />
+                        </svg>
+                        Reset
+                    </button>
+                </div>
+                <div class="settings-panel-body">
+
+                    <div class="settings-group">
+                        <div class="settings-group-title">Grid</div>
+                        <div class="settings-row">
+                            <span class="settings-row-label">Align to grid</span>
+                            <label class="settings-toggle">
+                                <input type="checkbox" checked="@Settings.GridEnabled"
+                                       @onchange="e => ApplySetting(s => s.GridEnabled = e.Value is bool b && b)" />
+                                <span class="settings-toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <span class="settings-row-label">Grid size</span>
+                            <div class="settings-stepper">
+                                <button @onclick="() => ApplySetting(s => s.GridSize = Math.Max(5, s.GridSize - 5))">−</button>
+                                <span>@((int)Settings.GridSize)</span>
+                                <button @onclick="() => ApplySetting(s => s.GridSize = Math.Min(100, s.GridSize + 5))">+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
             </div>
 
             <!-- Analysis result toast -->
@@ -357,11 +432,15 @@
     private List<TransitionNode> _navTransitions = new();
     private List<PetriLinkModel> _navArcs = new();
 
-    private const double BaseGrid = 20.0;
+    private bool _settingsOpen = false;
 
-    private string GridSize => (BaseGrid * Manager.Diagram.Zoom).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-    private string GridOffsetX => (Manager.Diagram.Pan.X % (BaseGrid * Manager.Diagram.Zoom)).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-    private string GridOffsetY => (Manager.Diagram.Pan.Y % (BaseGrid * Manager.Diagram.Zoom)).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private double EffectiveGridSize => Math.Max(5.0, Settings.GridSize) * Manager.Diagram.Zoom;
+    private string GridSize => EffectiveGridSize.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private string GridOffsetX => (Manager.Diagram.Pan.X % EffectiveGridSize).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private string GridOffsetY => (Manager.Diagram.Pan.Y % EffectiveGridSize).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+    private string GridBackgroundImage => Settings.GridEnabled
+        ? "radial-gradient(circle, #d4d4d4 1px, transparent 1px)"
+        : "none";
 
     private DotNetObjectReference<Home>? _dotNetRef;
     private bool _jsRegistered = false;
@@ -381,6 +460,7 @@
         Manager.Diagram.ZoomChanged += OnZoomChanged;
         Manager.Diagram.PanChanged += OnPanChanged;
         Manager.History.HistoryChanged += OnHistoryChanged;
+        Settings.Changed += OnSettingsChanged;
         RebuildNavLists();
     }
 
@@ -390,9 +470,16 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerGlobalKeyHandler", _dotNetRef);
-            await JS.InvokeVoidAsync("installPanBlockerOnce");
+            await JS.InvokeVoidAsync("setupPanHandlerOnce");
             _jsRegistered = true;
         }
+    }
+
+    [JSInvokable]
+    public void PanByDelta(double dx, double dy)
+    {
+        var pan = Manager.Diagram.Pan;
+        Manager.PanTo(pan.X + dx, pan.Y + dy);
     }
 
     [JSInvokable]
@@ -402,6 +489,25 @@
         {
             HandleEscape();
             InvokeAsync(StateHasChanged);
+            return;
+        }
+        if (ctrl && key == "z")
+        {
+            Manager.History.Undo();
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+        if ((ctrl && key == "y") || (ctrl && shift && key == "Z"))
+        {
+            Manager.History.Redo();
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+        if (!ctrl && (key == "Delete" || key == "Backspace"))
+        {
+            Manager.DeleteSelected();
+            InvokeAsync(StateHasChanged);
+            return;
         }
     }
 
@@ -413,6 +519,18 @@
     }
     private void OnZoomChanged() => InvokeAsync(StateHasChanged);
     private void OnPanChanged() => InvokeAsync(StateHasChanged);
+    private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
+
+    private void ApplySetting(Action<DiagramSettings> mutate)
+    {
+        mutate(Settings);
+        Settings.NotifyChanged();
+    }
+
+    private void ResetSettings()
+    {
+        Settings.ResetToDefaults();
+    }
     private void OnHistoryChanged()
     {
         RebuildNavLists();
@@ -499,6 +617,7 @@
 
     private void FlushPendingEdit()
     {
+        if (Manager.History.IsBusy) return;
         switch (SelectedModel)
         {
             case PlaceNode pn when _snapPlaceName != null:
@@ -530,9 +649,6 @@
         _ = JS.InvokeVoidAsync("setSelectToolActive", ActiveTool == "select");
     }
 
-    // No-op — pan is blocked by JS, rect is armed synchronously in OnPointerDown.
-    [JSInvokable]
-    public void OnCanvasPointerDown(double offsetX, double offsetY) { }
 
     private void SetArcType(PetriLinkModel link, ArcType type)
     {
@@ -582,25 +698,6 @@
     {
         if (e.Button != 0) return;
 
-        if (ActiveTool == "select")
-        {
-            if (model == null)
-            {
-                // Arm selection rect. JS has already stopped pan propagation.
-                // Convert client → container-relative using Diagram.Container bounds.
-                var c = Manager.Diagram.Container;
-                var ox = c != null ? e.ClientX - c.Left : e.ClientX;
-                var oy = c != null ? e.ClientY - c.Top : e.ClientY;
-                _selRectArmed = true;
-                _selRectActive = false;
-                _selStart = (ox, oy);
-                _selCurrent = (ox, oy);
-                _ = JS.InvokeVoidAsync("armPointerUpListener");
-            }
-            // model != null: let diagram handle selection normally, rect stays disarmed
-            return;
-        }
-
         if (ActiveTool is "place" or "transition" or "arc")
         {
             _pendingAction = ActiveTool;
@@ -609,10 +706,22 @@
         }
     }
 
+    // Called from JS when right-click empty canvas fires while select tool is active.
+    [JSInvokable]
+    public void OnSelRectArmed(double offsetX, double offsetY)
+    {
+        _selRectArmed = true;
+        _selRectActive = false;
+        _selStart = (offsetX, offsetY);
+        _selCurrent = (offsetX, offsetY);
+    }
+
     private void OnPointerUp(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (e.Button != 0 || _pendingAction == null) return;
+        if (e.Button != 0) return;
 
+        // Left button up — execute any pending action
+        if (_pendingAction == null) return;
         var action = _pendingAction;
         var pt = _pendingPoint!;
         _pendingAction = null;
@@ -639,14 +748,10 @@
 
     private void OnKeyDown(Blazor.Diagrams.Core.Events.KeyboardEventArgs e)
     {
-        // ESC is handled globally via JS — but also here as fallback when canvas has focus
-        if (e.Key == "Escape") { HandleEscape(); return; }
-        if (e.Key == "Delete" || e.Key == "Backspace") { Manager.DeleteSelected(); InvokeAsync(StateHasChanged); }
+        // All keyboard shortcuts are handled globally via OnGlobalKey (JS document keydown).
+        // This handler only covers zoom shortcuts which don't have a global equivalent.
         if (e.Key == "+" || e.Key == "=") { Manager.ZoomIn(); InvokeAsync(StateHasChanged); }
         if (e.Key == "-") { Manager.ZoomOut(); InvokeAsync(StateHasChanged); }
-        if (e.Key == "z" && e.CtrlKey) { Manager.History.Undo(); InvokeAsync(StateHasChanged); }
-        if ((e.Key == "y" && e.CtrlKey) ||
-            (e.Key == "Z" && e.CtrlKey && e.ShiftKey)) { Manager.History.Redo(); InvokeAsync(StateHasChanged); }
     }
 
     private void HandleEscape()
@@ -657,9 +762,8 @@
         _pendingPoint = null;
         // Cancel pending arc
         Manager.CancelPendingLink();
-        // Cancel selection rect (also clears JS pointerup listener)
+        // Cancel selection rect
         CancelSelRect();
-        _ = JS.InvokeVoidAsync("cancelPointerUpListener");
         // Unselect all
         Manager.Diagram.UnselectAll();
         // Unequip tool
@@ -688,7 +792,6 @@
     {
         _selRectArmed = false;
         _selRectActive = false;
-        _ = JS.InvokeVoidAsync("setSelRectActive", false);
     }
 
     [JSInvokable]
@@ -702,7 +805,6 @@
         {
             Manager.Diagram.UnselectAll();
             _selRectActive = true;
-            _ = JS.InvokeVoidAsync("setSelRectActive", true);
         }
         if (_selRectActive) InvokeAsync(StateHasChanged);
     }
@@ -784,7 +886,7 @@
 
     /// <summary>
     /// Returns true when the arc goes Transition → Place, meaning only Normal type is valid.
-    /// Inhibitor and Cancellation arcs are semantically restricted to Place → Transition.
+    /// Inhibitor and Reset arcs are semantically restricted to Place → Transition.
     /// </summary>
     private bool IsArcOnlyNormal(PetriLinkModel arc)
         => GetArcSourceNode(arc) is TransitionNode;
@@ -802,6 +904,20 @@
         PortModel pm => pm.Parent,
         _ => null
     };
+
+    private bool _logPanelOpen = false;
+
+    private async Task CopyLog()
+    {
+        var text = string.Join("\n", Manager.Logger.GetEntries().Select(e => e.ToString()));
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private void ClearLog()
+    {
+        Manager.Logger.Clear();
+        StateHasChanged();
+    }
 
     // ── Analysis stubs ────────────────────────────────────────────────────────
     private void RunReachability() => ShowResult("Reachability analysis: not yet implemented.", false);
@@ -828,6 +944,7 @@
         Manager.Diagram.ZoomChanged -= OnZoomChanged;
         Manager.Diagram.PanChanged -= OnPanChanged;
         Manager.History.HistoryChanged -= OnHistoryChanged;
+        Settings.Changed -= OnSettingsChanged;
         _ = JS.InvokeVoidAsync("unregisterGlobalKeyHandler");
         _dotNetRef?.Dispose();
     }
