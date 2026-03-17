@@ -1,38 +1,52 @@
 @using Microsoft.JSInterop
 @using PetriNetAnalyzer.Services
 @using Analysis
+@using Analysis.Engines
 @using PetriNetAnalyzer.DiagramModels
 @using Core.Models
+@using Blazor.Diagrams.Core.Models
+@using Blazor.Diagrams.Core.Models.Base
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
 @inject SimulationService Sim
+@inject Analysis.AnalysisService AnalysisSvc
 @implements IDisposable
 
 <!-- ── Vertical book-tab strip ── -->
-<div style="flex-shrink:0;width:36px;background:#f0f0f0;border-left:1px solid #d0d0d0;display:flex;flex-direction:column;align-items:center;padding-top:8px;z-index:120;">
-    <button title="Analysis" @onclick="ToggleOpen"
-            style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0;border:none;border-left:3px solid @(_open ? "#00897b" : "transparent");background:@(_open ? "#fff" : "transparent");cursor:pointer;color:@(_open ? "#00897b" : "#555");width:100%;transition:background 0.15s,color 0.15s;">
+<div class="ap-strip">
+    <button class="ap-book-tab @((_open && _mode == "analysis") ? "ap-book-tab--active" : "")"
+            title="Analysis"
+            @onclick='() => OpenMode("analysis")'>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;flex-shrink:0;">
+             stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
         </svg>
-        <span style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;user-select:none;">Analysis</span>
+        <span>Analysis</span>
+    </button>
+
+    <button class="ap-book-tab @((_open && _mode == "simulation") ? "ap-book-tab--active" : "")"
+            title="Simulation"
+            @onclick='() => OpenMode("simulation")'>
+        <svg viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        <span>Simulation</span>
     </button>
 </div>
 
 @if (_open)
 {
-    <div id="ap-panel" style="@PanelStyle">
+    <div id="ap-panel" class="@(_floating ? "ap-panel--floating" : "ap-panel--docked")" style="@PanelStyle">
 
         <!-- Title bar -->
-        <div id="ap-titlebar" @ondblclick="ToggleFloat"
-             style="flex-shrink:0;height:36px;background:#f5f5f5;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 6px 0 12px;gap:6px;user-select:none;cursor:@(_floating ? "grab" : "default");">
-            <span style="flex:1;font-size:12px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#999;">Analysis</span>
-            <div style="display:flex;gap:1px;">
-                <button title="@(_floating ? "Dock" : "Float")" @onclick="ToggleFloat"
-                        style="width:24px;height:24px;border:none;background:transparent;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#bbb;padding:0;">
+        <div id="ap-titlebar"
+             class="ap-titlebar"
+             @ondblclick="ToggleFloat">
+            <div class="ap-title">@(_mode == "analysis" ? "Analysis" : "Simulation")</div>
+            <div class="ap-titlebar-actions">
+                <button class="ap-tb-btn" title="@(_floating ? "Dock" : "Float")" @onclick="ToggleFloat">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                         stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                         stroke-linecap="round" stroke-linejoin="round">
                         @if (_floating)
                         {
                             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -46,9 +60,8 @@
                         }
                     </svg>
                 </button>
-                <button title="Close" @onclick="Close"
-                        style="width:24px;height:24px;border:none;background:transparent;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#bbb;padding:0;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;">
+                <button class="ap-tb-btn" title="Close" @onclick="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
                     </svg>
@@ -56,54 +69,36 @@
             </div>
         </div>
 
-        <!-- Sub-tabs -->
-        <div style="flex-shrink:0;display:flex;align-items:stretch;background:#fafafa;border-bottom:1.5px solid #e8e8e8;">
-            <button id="ap-tabs-arrow-left"
-                    onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:-120,behavior:'smooth'})"
-                    style="display:none;flex-shrink:0;width:24px;border:none;border-right:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6" /></svg>
-            </button>
-            <div id="ap-tabs-scroll" style="flex:1;display:flex;overflow-x:auto;scrollbar-width:none;">
-                @foreach (var tab in _tabs)
-                {
-                    var isActive = _activeTab == tab.Id;
-                    <button @onclick="() => _activeTab = tab.Id"
-                            style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 12px;font-size:12px;font-weight:600;color:@(isActive ? "#00897b" : "#aaa");background:transparent;border:none;border-bottom:2.5px solid @(isActive ? "#00897b" : "transparent");margin-bottom:-1.5px;cursor:pointer;white-space:nowrap;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0;">
-                            @if (tab.Id == "simulation")
-                            {
-                                <polygon points="5 3 19 12 5 21 5 3" />
-                            }
-                            else if (tab.Id == "reachability")
-                            {
-                                <circle cx="11" cy="11" r="7" />
-                                <line x1="16.5" y1="16.5" x2="22" y2="22" />
-                            }
-                            else if (tab.Id == "liveness")
-                            {
-                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                            }
-                            else if (tab.Id == "boundedness")
-                            {
-                                <rect x="3" y="3" width="18" height="18" rx="3" />
-                                <line x1="3" y1="9" x2="21" y2="9" />
-                                <line x1="9" y1="21" x2="9" y2="9" />
-                            }
-                        </svg>
-                        @tab.Label
-                    </button>
-                }
+        @* Analysis sub-tabs — only shown in analysis mode *@
+        @if (_mode == "analysis")
+        {
+            <div style="flex-shrink:0;display:flex;align-items:stretch;background:#fafafa;border-bottom:1.5px solid #e8e8e8;">
+                <button id="ap-tabs-arrow-left"
+                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:-120,behavior:'smooth'})"
+                        style="display:none;flex-shrink:0;width:24px;border:none;border-right:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6" /></svg>
+                </button>
+                <div id="ap-tabs-scroll" style="flex:1;display:flex;overflow-x:auto;scrollbar-width:none;">
+                    @foreach (var tab in _analysisTabs)
+                    {
+                        var isActive = _activeAnalysisTab == tab.Id;
+                        <button @onclick="() => _activeAnalysisTab = tab.Id"
+                                style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 11px;font-size:11px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:@(isActive ? "#e91e8c" : "#aaa");background:transparent;border:none;border-bottom:2.5px solid @(isActive ? "#e91e8c" : "transparent");margin-bottom:-1.5px;cursor:pointer;white-space:nowrap;">
+                            @tab.Label
+                        </button>
+                    }
+                </div>
+                <button id="ap-tabs-arrow-right"
+                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:120,behavior:'smooth'})"
+                        style="display:none;flex-shrink:0;width:24px;border:none;border-left:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6" /></svg>
+                </button>
             </div>
-            <button id="ap-tabs-arrow-right"
-                    onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:120,behavior:'smooth'})"
-                    style="display:none;flex-shrink:0;width:24px;border:none;border-left:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6" /></svg>
-            </button>
-        </div>
+        }
 
         <!-- Content -->
         <div style="flex:1;overflow-y:auto;overflow-x:hidden;">
-            @if (_activeTab == "simulation")
+            @if (_mode == "simulation")
             {
                 @if (!Sim.IsActive)
                 {
@@ -271,30 +266,475 @@
             }
             else
             {
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;height:100%;gap:12px;padding:32px 24px;text-align:center;">
-                    <div style="width:52px;height:52px;border-radius:14px;background:#f3f3f3;border:1.5px solid #e8e8e8;display:flex;align-items:center;justify-content:center;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;">
-                            @if (_activeTab == "reachability")
+                @* ── Analysis mode content ── *@
+                <div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+
+                    @* Run button + status *@
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <button @onclick="RunAnalysis" disabled="@_analysisRunning"
+                                style="flex:1;padding:8px 0;background:@(_analysisRunning ? "#e0e0e0" : "#00897b");color:@(_analysisRunning ? "#aaa" : "#fff");border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:@(_analysisRunning ? "default" : "pointer");display:flex;align-items:center;justify-content:center;gap:6px;">
+                            @if (_analysisRunning)
                             {
-                                <circle cx="11" cy="11" r="7" />
-                                <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                                <span style="display:inline-block;width:11px;height:11px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;"></span>
+                                <span>Running…</span>
                             }
-                            else if (_activeTab == "liveness")
+                            else
                             {
-                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                                <svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                <span>Run Analysis</span>
                             }
-                            else if (_activeTab == "boundedness")
-                            {
-                                <rect x="3" y="3" width="18" height="18" rx="3" />
-                                <line x1="3" y1="9" x2="21" y2="9" />
-                                <line x1="9" y1="21" x2="9" y2="9" />
-                            }
-                        </svg>
+                        </button>
                     </div>
-                    <p style="font-size:15px;font-weight:700;color:#555;margin:0;">@_tabs.First(t => t.Id == _activeTab).Label</p>
-                    <span style="font-size:12px;color:#aaa;line-height:1.6;max-width:220px;">@_tabs.First(t => t.Id == _activeTab).Description</span>
-                    <div style="margin-top:4px;font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#00897b;background:#e0f5f3;border-radius:20px;padding:3px 10px;">Coming soon</div>
+
+                    @if (_analysisError != null)
+                    {
+                        <div style="padding:7px 10px;background:#ffebee;border-radius:7px;font-size:11px;color:#c62828;">⚠ @_analysisError</div>
+                    }
+
+                    @if (_report is not null)
+                    {
+                        @* ── Properties tab ── *@
+                        @if (_activeAnalysisTab == "properties")
+                        {
+                            var props = new[]
+                            {
+                        (NetProperty.Liveness,        "Liveness"),
+                        (NetProperty.Boundedness,      "Boundedness"),
+                        (NetProperty.Safety,           "Safety"),
+                        (NetProperty.Conservativeness, "Conservativeness"),
+                        (NetProperty.Repetitiveness,   "Repetitiveness"),
+                        (NetProperty.DeadlockFree,     "Deadlock-Free"),
+                        (NetProperty.Reversibility,    "Reversibility"),
+                        };
+
+                            var passCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Pass);
+                            var failCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Fail);
+                            var undecidableCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Undecidable);
+
+                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;">
+                                <div style="background:#f6fbf9;border:1px solid #d9efe4;border-radius:10px;padding:10px 12px;">
+                                    <div style="font-size:22px;font-weight:800;color:#2e7d32;line-height:1;">@passCount</div>
+                                    <div style="font-size:11px;color:#67806f;margin-top:4px;">Passing</div>
+                                </div>
+                                <div style="background:#fff7f7;border:1px solid #f3d9dc;border-radius:10px;padding:10px 12px;">
+                                    <div style="font-size:22px;font-weight:800;color:#c62828;line-height:1;">@failCount</div>
+                                    <div style="font-size:11px;color:#8a6a6a;margin-top:4px;">Failing</div>
+                                </div>
+                                <div style="background:#fffaf0;border:1px solid #f2e4b8;border-radius:10px;padding:10px 12px;">
+                                    <div style="font-size:22px;font-weight:800;color:#f57f17;line-height:1;">@undecidableCount</div>
+                                    <div style="font-size:11px;color:#8f7d51;margin-top:4px;">Undecidable</div>
+                                </div>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;gap:10px;">
+                                @foreach (var (prop, label) in props)
+                                {
+                                    var r = _report.Get(prop);
+                                    var expanded = _expandedProp == prop;
+                                    var hasDetails = (r?.Reasons.Count ?? 0) > 0 || (r?.Errors.Count ?? 0) > 0;
+
+                                    <div style="border:1px solid #e6e6e6;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                        <button @onclick="() => ToggleProp(prop)"
+                                                style="width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;background:@(r?.StatusBackground ?? "#fafafa");border:none;cursor:pointer;text-align:left;">
+                                            <div style="width:10px;height:10px;border-radius:50%;background:@(r?.StatusColor ?? "#bbb");flex-shrink:0;"></div>
+                                            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
+                                                <span style="font-size:13px;font-weight:800;color:#303030;">@label</span>
+                                                <span style="font-size:11px;color:#7a7a7a;">@GetPropertySummary(r)</span>
+                                            </div>
+                                            <span style="font-size:11px;font-weight:800;color:@(r?.StatusColor ?? "#888");background:#fff;padding:4px 10px;border-radius:999px;border:1px solid @(r?.StatusColor ?? "#ddd");white-space:nowrap;">@(r?.StatusLabel ?? "–")</span>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;transform:@(expanded ? "rotate(180deg)" : "rotate(0deg)");transition:transform 0.15s;">
+                                                <polyline points="6 9 12 15 18 9" />
+                                            </svg>
+                                        </button>
+
+                                        @if (expanded && r != null)
+                                        {
+                                            <div style="padding:12px 14px;background:#fff;border-top:1px solid #f1f1f1;display:flex;flex-direction:column;gap:12px;">
+                                                @if (r.Reasons.Count > 0)
+                                                {
+                                                    <div>
+                                                        <div style="font-size:10px;font-weight:800;color:#9a9a9a;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Why</div>
+                                                        <div style="display:flex;flex-direction:column;gap:7px;">
+                                                            @foreach (var reason in r.Reasons)
+                                                            {
+                                                                <div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:#fafafa;border:1px solid #efefef;border-radius:9px;">
+                                                                    <span style="color:@(r.StatusColor);font-size:12px;line-height:1.4;">•</span>
+                                                                    <span style="font-size:12px;color:#4d4d4d;line-height:1.55;">@reason</span>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+
+                                                @if (r.Errors.Count > 0)
+                                                {
+                                                    <div>
+                                                        <div style="font-size:10px;font-weight:800;color:#c62828;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Technical details</div>
+                                                        <div style="display:flex;flex-direction:column;gap:7px;">
+                                                            @foreach (var err in r.Errors)
+                                                            {
+                                                                <div style="padding:9px 10px;background:#fff5f5;border:1px solid #f0c8c8;border-radius:9px;font-size:12px;color:#a12626;line-height:1.5;">
+                                                                    ⚠ @err
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+
+                                                @if (!hasDetails)
+                                                {
+                                                    <div style="font-size:12px;color:#7c7c7c;line-height:1.5;">No extra details are available for this property.</div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @* ── Classification tab ── *@
+                        else if (_activeAnalysisTab == "classification")
+                        {
+                            var cls = _report.Classification;
+                            @* Net type badge *@
+                            <div style="background:#f7f7f7;border:1.5px solid #ebebeb;border-radius:9px;padding:12px;margin-bottom:8px;">
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Net Type</div>
+                                <div style="font-size:15px;font-weight:700;color:#00897b;">@_report.ClassificationSummary</div>
+                            </div>
+
+                            @* Structural counts *@                        
+                                                var inhibCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Inhibitor);
+                            var resetCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Reset);
+                            var normalCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Normal);
+
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+                                @foreach (var (label, value, color) in new[]{
+                                ("Places",      _report.Net.Places.Count.ToString(),      "#00897b"),
+                                ("Transitions", _report.Net.Transitions.Count.ToString(), "#00897b"),
+                                ("Normal Arcs", normalCount.ToString(),                   "#00897b"),
+                                ("Inhibitor",   inhibCount.ToString(),                    inhibCount > 0 ? "#e65100" : "#bbb"),
+                                ("Reset Arcs",  resetCount.ToString(),                    resetCount > 0 ? "#6a1b9a" : "#bbb"),
+                                ("Init Tokens", _report.Net.Places.Sum(p => p.Tokens).ToString(), "#00897b"),
+                                })
+                                {
+                                    <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:7px 10px;">
+                                        <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
+                                        <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (cls != null && !cls.HasErrors)
+                            {
+                                var checks = new[]
+                                {
+                        (NetSubclass.Ordinary,           "Ordinary",             "All arcs are ordinary unit-weight arcs (weight 1, no inhibitor/reset arcs)."),
+                        (NetSubclass.StateMachine,       "State Machine",        "Each transition has exactly one input and one output place."),
+                        (NetSubclass.MarkedGraph,        "Marked Graph",         "Each place has exactly one input and one output transition."),
+                        (NetSubclass.FreeChoice,         "Free Choice",          "If two transitions share an input place, they share all input places."),
+                        (NetSubclass.ExtendedFreeChoice, "Extended Free Choice", "If two transitions share an input place, each has exactly one input place."),
+                        };
+                                <div style="display:flex;flex-direction:column;gap:5px;">
+                                    @foreach (var (sub, name, desc) in checks)
+                                    {
+                                        bool has = cls.IsOfType(sub);
+                                        <div style="display:flex;align-items:flex-start;gap:8px;padding:7px 10px;background:@(has ? "#e8f5e9" : "#fafafa");border:1px solid @(has ? "#a5d6a7" : "#ebebeb");border-radius:7px;">
+                                            <span style="font-size:14px;color:@(has ? "#2e7d32" : "#ccc");flex-shrink:0;margin-top:1px;">@(has ? "✓" : "✗")</span>
+                                            <div>
+                                                <div style="font-size:12px;font-weight:700;color:@(has ? "#2e7d32" : "#999");">@name</div>
+                                                <div style="font-size:11px;color:#aaa;margin-top:1px;">@desc</div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+
+                        @* ── Cycles tab ── *@
+                        else if (_activeAnalysisTab == "cycles")
+                        {
+                            var cyc = _report.Cycles;
+                            @if (cyc == null || cyc.HasErrors)
+                            {
+                                <div style="font-size:12px;color:#e53935;">@(cyc?.ErrorMsg ?? "Cycle analysis not available.")</div>
+                            }
+                            else
+                            {
+                                var placeCoverage = cyc.PlaceCoverageCount(_report.Net);
+                                var transitionCoverage = cyc.TransitionCoverageCount(_report.Net);
+                                <div style="display:flex;flex-direction:column;gap:14px;">
+                                    <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
+                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">Net cycle coverage</div>
+                                        <div style="display:flex;flex-direction:column;gap:12px;color:#666;font-size:12px;line-height:1.55;">
+                                            <div>
+                                                @if (placeCoverage == _report.Net.Places.Count)
+                                                {
+                                                    <span>Each place belongs to some elementary cycle carrier</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@placeCoverage of @_report.Net.Places.Count place(s) belong to some elementary cycle carrier</span>
+                                                }
+                                            </div>
+                                            <div>
+                                                @if (transitionCoverage == _report.Net.Transitions.Count)
+                                                {
+                                                    <span>Each transition belongs to some elementary cycle carrier</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@transitionCoverage of @_report.Net.Transitions.Count transition(s) belong to some elementary cycle carrier</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">
+                                            <div style="font-size:14px;font-weight:800;color:#00897b;">Elementary cycles</div>
+                                            <div style="font-size:11px;color:#8b8b8b;">@cyc.Cycles.Count cycle(s)</div>
+                                        </div>
+
+                                        @if (!cyc.Cycles.Any())
+                                        {
+                                            <div style="font-size:12px;color:#999;line-height:1.6;">No cycles found in this net.</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="display:flex;flex-direction:column;gap:12px;">
+                                                @for (int ci = 0; ci < cyc.Cycles.Count; ci++)
+                                                {
+                                                    var cycle = cyc.Cycles[ci];
+                                                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+                                                        <div style="font-size:12px;color:#666;line-height:1.7;min-width:0;">
+                                                            <span style="font-weight:700;color:#666;">C<sub>@(ci + 1)</sub></span>
+                                                            <span> = @((MarkupString)FormatCycleMarkup(cycle, _report))</span>
+                                                        </div>
+                                                        <div style="white-space:nowrap;font-size:11px;color:@(cycle.TokensInCycle > 0 ? "#2e7d32" : "#9a9a9a");font-weight:600;">@cycle.TokensInCycle token(s)</div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+
+                        @* ── Invariant tab ── *@
+                        else if (_activeAnalysisTab == "invariant")
+                        {
+                            var inv = _report.Invariants;
+                            @if (inv == null || inv.HasErrors)
+                            {
+                                <div style="font-size:12px;color:#e53935;">@(inv?.ErrorMsg ?? "Invariant analysis not available.")</div>
+                            }
+                            else
+                            {
+                                <div style="display:flex;flex-direction:column;gap:14px;">
+                                    <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
+                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">P - invariants</div>
+                                        @if (!inv.PInvariants.Any())
+                                        {
+                                            <div style="font-size:12px;color:#999;line-height:1.6;">No P-invariants found.</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="display:flex;flex-direction:column;gap:12px;">
+                                                @for (int i = 0; i < inv.PInvariants.Count; i++)
+                                                {
+                                                    var pInv = inv.PInvariants[i];
+                                                    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
+                                                        <div>
+                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
+                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> = @((MarkupString)FormatInvariantMarkup(pInv, _report))</span>
+                                                            </div>
+                                                        </div>
+                                                        <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
+                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
+                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> · M<sup>0</sup> = @ComputeInvariantConstant(pInv, _report.Net)</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
+                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">T - invariants</div>
+                                        @if (!inv.TInvariants.Any())
+                                        {
+                                            <div style="font-size:12px;color:#999;line-height:1.6;">No T-invariants found.</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="display:flex;flex-direction:column;gap:12px;">
+                                                @for (int i = 0; i < inv.TInvariants.Count; i++)
+                                                {
+                                                    var tInv = inv.TInvariants[i];
+                                                    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
+                                                        <div>
+                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
+                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                <span>X<sup>T</sup><sub>@(i + 1)</sub> = @((MarkupString)FormatInvariantMarkup(tInv, _report))</span>
+                                                            </div>
+                                                        </div>
+                                                        <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
+                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
+                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                <span>σ<sub>@(i + 1)</sub> = Not evaluated</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+
+                        @* ── State Space tab ── *@
+                        else if (_activeAnalysisTab == "statespace")
+                        {
+                            var ss = _report.StateSpace;
+                            @if (ss == null || ss.HasErrors)
+                            {
+                                <div style="padding:8px 10px;background:#ffebee;border-radius:7px;font-size:11px;color:#c62828;">
+                                    ⚠ @(ss?.ErrorMsg ?? "State space analysis not available.")
+                                </div>
+                            }
+                            else
+                            {
+                                @* Summary stats *@
+                                var unboundedIds = _report.UnboundedPlaceIds();
+                                var isBounded = ss.IsBounded();
+                                var sccs = ss.FindSCCs();
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">
+                                    @foreach (var (label, value, color) in new[]{
+                                ("Reachable States", _report.StateCount.ToString(), "#00897b"),
+                                ("Places",           _report.Net.Places.Count.ToString(), "#00897b"),
+                                ("Transitions",      _report.Net.Transitions.Count.ToString(), "#00897b"),
+                                ("SCCs",             sccs.Count.ToString(), "#00897b"),
+                                ("Bounded",          isBounded ? "Yes" : "No", isBounded ? "#2e7d32" : "#c62828"),
+                                ("Coverability",     isBounded ? "Reachability" : "Coverability", isBounded ? "#2e7d32" : "#e65100"),
+                                })
+                                    {
+                                        <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:8px 10px;">
+                                            <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
+                                            <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
+                                        </div>
+                                    }
+                                </div>
+
+                                @* Unbounded places *@
+                                @if (!isBounded && unboundedIds.Any())
+                                {
+                                    <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Unbounded Places (ω)</div>
+                                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
+                                        @foreach (var pid in unboundedIds)
+                                        {
+                                            <span style="padding:2px 8px;background:#fff3e0;border:1px solid #ffb74d;border-radius:10px;font-size:11px;color:#e65100;font-weight:600;">@_report.ResolveName(pid)</span>
+                                        }
+                                    </div>
+                                }
+
+                                @* Initial marking *@
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Initial Marking</div>
+                                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
+                                    @foreach (var pl in _report.Net.Places)
+                                    {
+                                        <span style="padding:2px 8px;background:@(pl.Tokens > 0 ? "#e8f5e9" : "#f7f7f7");border:1px solid @(pl.Tokens > 0 ? "#a5d6a7" : "#ebebeb");border-radius:10px;font-size:11px;color:@(pl.Tokens > 0 ? "#2e7d32" : "#aaa");font-weight:600;">
+                                            @pl.Name = @pl.Tokens
+                                        </span>
+                                    }
+                                </div>
+
+                                @* SCC info *@
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Strongly Connected Components</div>
+                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                    @for (int si = 0; si < Math.Min(sccs.Count, 20); si++)
+                                    {
+                                        var scc = sccs[si];
+                                        var sccSize = scc.Count;
+                                        <div style="padding:5px 8px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:6px;font-size:11px;color:#555;">
+                                            <span style="font-weight:700;color:#888;">SCC @(si + 1)</span>
+                                            <span style="margin-left:6px;color:#aaa;">@sccSize state(s)</span>
+                                        </div>
+                                    }
+                                    @if (sccs.Count > 20)
+                                    {
+                                        <div style="font-size:11px;color:#aaa;padding:4px 0;">… and @(sccs.Count - 20) more SCCs</div>
+                                    }
+                                </div>
+                            }
+                        }
+
+                        @* ── Traps tab ── *@
+                        else if (_activeAnalysisTab == "traps")
+                        {
+                            var tc = _report.TrapCotrap;
+                            @if (tc == null || tc.HasErrors)
+                            {
+                                <div style="font-size:12px;color:#e53935;">@(tc?.ErrorMsg ?? "Trap/co-trap analysis not available.")</div>
+                            }
+                            else
+                            {
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Traps (@tc.Traps.Count)</div>
+                                @if (!tc.Traps.Any())
+                                {
+                                    <div style="font-size:12px;color:#aaa;margin-bottom:10px;">None found.</div>
+                                }
+                                @foreach (var trap in tc.Traps)
+                                {
+                                    <div style="padding:5px 8px;background:@(trap.HasToken ? "#e8f5e9" : "#fafafa");border:1px solid @(trap.HasToken ? "#a5d6a7" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
+                                        { @string.Join(", ", trap.PlaceIds.Select(id => _report.ResolveName(id))) }
+                                        @if (trap.HasToken)
+                                        {
+                                            <span style="color:#2e7d32;font-weight:700;"> ● marked</span>
+                                        }
+                                    </div>
+                                }
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin:8px 0 4px;">Siphons / Co-traps (@tc.Cotraps.Count)</div>
+                                @if (!tc.Cotraps.Any())
+                                {
+                                    <div style="font-size:12px;color:#aaa;">None found.</div>
+                                }
+                                @foreach (var ct in tc.Cotraps)
+                                {
+                                    var isDangerous = !tc.Traps.Any(trap => trap.HasToken && ct.PlaceIds.IsSupersetOf(trap.PlaceIds));
+                                    <div style="padding:5px 8px;background:@(isDangerous ? "#fff3e0" : "#fafafa");border:1px solid @(isDangerous ? "#ffb74d" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
+                                        { @string.Join(", ", ct.PlaceIds.Select(id => _report.ResolveName(id))) }
+                                        @if (isDangerous)
+                                        {
+                                            <span style="color:#e65100;font-weight:700;"> ⚠ no marked trap inside this siphon/co-trap</span>
+                                        }
+                                        @if (isDangerous)
+                                        {
+                                            <div style="margin-top:4px;color:#9a6a00;font-size:10px;line-height:1.5;">This means the set does not currently contain any trap that already has a token. If this siphon/co-trap becomes empty, the net may not be able to mark it again.</div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        }
+                    }
+                    else if (!_analysisRunning)
+                    {
+                        <p style="font-size:12px;color:#bbb;text-align:center;padding:20px 0;">Press Run Analysis to compute results.</p>
+                    }
+
                 </div>
+
+                @* CSS for spinner *@
+                <style>
+                    @@keyframes spin {
+                        to {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
             }
         </div>
 
@@ -320,40 +760,220 @@
 @code {
     private bool _open = false;
     private bool _floating = false;
-    private string _activeTab = "simulation";
+    private string _mode = "simulation";  // "analysis" | "simulation"
+    private string _activeAnalysisTab = "properties";
 
     private double _dockedWidth = 320;
     private const double DockedMin = 200, DockedMax = 700;
-    private double _floatX = 100, _floatY = 80, _floatW = 380, _floatH = 500;
-    private const double FloatMinW = 240, FloatMinH = 200;
+    private double _floatX = 100, _floatY = 80, _floatW = 420, _floatH = 520;
+    private const double FloatMinW = 280, FloatMinH = 200;
 
     private record TabDef(string Id, string Label, string Description);
-    private readonly TabDef[] _tabs =
+    private readonly TabDef[] _analysisTabs =
     [
-        new("simulation",   "Simulation",   "Step through token firing one transition at a time."),
-        new("reachability", "Reachability", "Build the reachability graph and check for deadlocks."),
-        new("liveness",     "Liveness",     "Verify that every transition can eventually fire."),
-        new("boundedness",  "Boundedness",  "Check whether token counts stay within a finite bound."),
+        new("properties",     "Properties",     "Check liveness, boundedness, safeness and reversibility."),
+        new("classification", "Classification", "Classify the net type: free-choice, state machine, etc."),
+        new("cycles",         "Cycles",         "Detect cycles and siphons in the net structure."),
+        new("invariant",      "Invariant",      "Compute P-invariants and T-invariants."),
+        new("statespace",     "State Space",    "Build the full reachability / coverability graph."),
+        new("traps",          "Traps & Co-traps","Find traps, siphons and co-traps in the net."),
     ];
+
+    // ── Analysis state ────────────────────────────────────────────────────
+    private AnalysisReport? _report;
+    private bool _analysisRunning = false;
+    private string? _analysisError;
+    private NetProperty? _expandedProp;
+    private CancellationTokenSource? _analysisCts;
+
+    // Stable JS interop reference — created once, disposed in Dispose()
+    private DotNetObjectReference<AnalysisPanel>? _dotNetRef;
+
+    private void OpenMode(string mode)
+    {
+        if (_mode == mode)
+        {
+            _open = true;
+            _ = SetupJsAsync();
+            return;
+        }
+
+        if (_mode == "simulation" && mode == "analysis" && Sim.IsActive)
+            Sim.Stop();
+
+        _mode = mode;
+        _open = true;
+        _ = SetupJsAsync();
+    }
+
+    private void ToggleProp(NetProperty prop)
+        => _expandedProp = _expandedProp == prop ? null : prop;
+
+    private static string GetPropertySummary(PropertyTestResult? result)
+    {
+        if (result is null)
+            return "No result yet.";
+
+        if (result.Reasons.Count > 0)
+            return $"{result.Reasons.Count} note(s).";
+
+        if (result.Errors.Count > 0)
+            return "This result is unavailable because the algorithm hit an internal error.";
+
+        return result.Status switch
+        {
+            TestResultStatus.Pass => "No issues detected.",
+            TestResultStatus.Fail => "This property does not hold.",
+            _ => "The result could not be decided."
+        };
+    }
+
+    private static string FormatCycleMarkup(PnCycle cycle, AnalysisReport report)
+    {
+        return string.Join(" → ", cycle.NodeIds.Select(id => report.ResolveName(id)));
+    }
+
+    private static string FormatInvariantMarkup(Invariant invariant, AnalysisReport report)
+    {
+        var parts = invariant.Structure.Select(kv => kv.Value == 1
+            ? report.ResolveName(kv.Key)
+            : $"{kv.Value}{report.ResolveName(kv.Key)}");
+
+        return $"({string.Join(", ", parts)})";
+    }
+
+    private static int ComputeInvariantConstant(Invariant invariant, PetriNetSnapshot net)
+    {
+        var total = 0;
+        foreach (var kv in invariant.Structure)
+        {
+            if (net.PlaceById.TryGetValue(kv.Key, out var place))
+                total += kv.Value * place.Tokens;
+        }
+        return total;
+    }
+
+    private static PetriNetSnapshot BuildSnapshot(
+        IEnumerable<PlaceNode> places,
+        IEnumerable<TransitionNode> transitions,
+        IEnumerable<PetriLinkModel> arcs)
+    {
+        var pnPlaces = places
+            .Select(p => new PnPlace(p.Data.Id, p.Data.Name, p.Data.Tokens))
+            .ToList();
+
+        var pnTransitions = transitions
+            .Select(t => new PnTransition(t.Data.Id, t.Data.Name))
+            .ToList();
+
+        var validIds = new HashSet<string>(
+            pnPlaces.Select(p => p.Id)
+                .Concat(pnTransitions.Select(t => t.Id)));
+
+        var pnArcs = arcs
+            .Where(a => !a.IsDraggingEndpoint && a.Target != null)
+            .Select(a =>
+            {
+                var sourceId = GetNodeId(a.Source?.Model);
+                var targetId = GetNodeId(a.Target?.Model);
+
+                if (sourceId is null || targetId is null)
+                    return null;
+
+                if (!validIds.Contains(sourceId) || !validIds.Contains(targetId))
+                    return null;
+
+                var arcType = a.ArcType switch
+                {
+                    ArcType.Inhibitor => PnArcType.Inhibitor,
+                    ArcType.Reset => PnArcType.Reset,
+                    _ => PnArcType.Normal
+                };
+
+                return new PnArc(sourceId, targetId, Math.Max(1, a.Weight), arcType);
+            })
+            .OfType<PnArc>()
+            .ToList();
+
+        return new PetriNetSnapshot(pnPlaces, pnTransitions, pnArcs);
+    }
+
+    private static string? GetNodeId(object? model) => model switch
+    {
+        PlaceNode p => p.Data.Id,
+        TransitionNode t => t.Data.Id,
+        PortModel port => port.Parent switch
+        {
+            PlaceNode p => p.Data.Id,
+            TransitionNode t => t.Data.Id,
+            _ => null
+        },
+        _ => null
+    };
+
+
+    private async Task RunAnalysis()
+    {
+        if (_analysisRunning) return;
+        _analysisCts?.Cancel();
+        _analysisCts = new CancellationTokenSource();
+        _analysisRunning = true;
+        _analysisError = null;
+        _report = null;
+        StateHasChanged();
+
+        try
+        {
+            var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+            var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
+            var arcs = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
+
+            var snapshot = BuildSnapshot(places, transitions, arcs);
+            _report = await AnalysisSvc.RunAsync(snapshot, _analysisCts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _analysisError = ex.Message; }
+        finally
+        {
+            _analysisRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     protected override void OnInitialized()
     {
-        Sim.OnChanged += StateHasChanged;
+        _dotNetRef = DotNetObjectReference.Create(this);
+        Sim.OnChanged += OnDiagramChanged;
+        Manager.Diagram.Nodes.Added += OnDiagramChanged;
+        Manager.Diagram.Nodes.Removed += OnDiagramChanged;
+        Manager.Diagram.Links.Added += OnDiagramChanged;
+        Manager.Diagram.Links.Removed += OnDiagramChanged;
+        Manager.History.HistoryChanged += OnDiagramChanged;
     }
 
     public void Dispose()
     {
-        Sim.OnChanged -= StateHasChanged;
+        Sim.OnChanged -= OnDiagramChanged;
+        Manager.Diagram.Nodes.Added -= OnDiagramChanged;
+        Manager.Diagram.Nodes.Removed -= OnDiagramChanged;
+        Manager.Diagram.Links.Added -= OnDiagramChanged;
+        Manager.Diagram.Links.Removed -= OnDiagramChanged;
+        Manager.History.HistoryChanged -= OnDiagramChanged;
+        _analysisCts?.Cancel();
+        _analysisCts?.Dispose();
+        _dotNetRef?.Dispose();
     }
+
+    private void OnDiagramChanged() => InvokeAsync(StateHasChanged);
+    // Adapter overloads so event subscriptions with NodeModel / BaseLinkModel args also compile
+    private void OnDiagramChanged(NodeModel _) => InvokeAsync(StateHasChanged);
+    private void OnDiagramChanged(BaseLinkModel _) => InvokeAsync(StateHasChanged);
 
     // ── Panel state ───────────────────────────────────────────────────────
 
     private string PanelStyle => _floating
-        ? $"position:fixed;left:{F(_floatX)}px;top:{F(_floatY)}px;width:{F(_floatW)}px;height:{F(_floatH)}px;" +
-          "background:#fff;border:1.5px solid #d0d0d0;border-radius:10px;box-shadow:0 8px 36px rgba(0,0,0,0.20);" +
-          "display:flex;flex-direction:column;overflow:hidden;z-index:500;"
-        : $"flex-shrink:0;width:{F(_dockedWidth)}px;height:100%;background:#fff;" +
-          "border-left:1.5px solid #e0e0e0;display:flex;flex-direction:column;overflow:hidden;position:relative;";
+        ? $"left:{F(_floatX)}px;top:{F(_floatY)}px;width:{F(_floatW)}px;height:{F(_floatH)}px;"
+        : $"width:{F(_dockedWidth)}px;";
 
     private static string F(double v) =>
         v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
@@ -374,7 +994,7 @@
             await JS.InvokeVoidAsync("analysisPanel.setup",
                 _floating, _dockedWidth, DockedMin, DockedMax,
                 _floatX, _floatY, _floatW, _floatH, FloatMinW, FloatMinH,
-                DotNetObjectReference.Create(this));
+                _dotNetRef);
             await JS.InvokeVoidAsync("analysisPanel.setupTabScroll");
         }
         catch { }

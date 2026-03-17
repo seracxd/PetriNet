@@ -354,6 +354,9 @@
                         <rect x="@rx" y="@ry" width="@rw" height="@rh" class="sel-rect" />
                     </svg>
                 }
+
+                @* Ghost preview shown while holding mouse during place/transition placement *@
+                <div id="placement-ghost" style="display:none;pointer-events:none;position:absolute;z-index:200;"></div>
             </div>
 
             @* Navigator panel *@
@@ -363,6 +366,10 @@
                     <span class="navigator-counts">@_navPlaces.Count P &nbsp; @_navTransitions.Count T &nbsp; @_navArcs.Count A</span>
                 </div>
 
+                @{
+                    var selectedSet = Manager.Diagram.GetSelectedModels().ToHashSet();
+                }
+
                 @if (_navPlaces.Any())
                 {
                     <div class="nav-group-label">
@@ -371,7 +378,7 @@
                     </div>
                     @foreach (var place in _navPlaces)
                     {
-                        var placeSelected = Manager.Diagram.GetSelectedModels().Contains(place);
+                        var placeSelected = selectedSet.Contains(place);
                         <button class="nav-item @(placeSelected ? "nav-item-selected" : "")"
                                 @onclick="() => FocusElement(place)">
                             <svg class="nav-item-icon nav-icon-place" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -394,7 +401,7 @@
                     </div>
                     @foreach (var trans in _navTransitions)
                     {
-                        var transSelected = Manager.Diagram.GetSelectedModels().Contains(trans);
+                        var transSelected = selectedSet.Contains(trans);
                         <button class="nav-item @(transSelected ? "nav-item-selected" : "")"
                                 @onclick="() => FocusElement(trans)">
                             <svg class="nav-item-icon nav-icon-transition" viewBox="0 0 16 16" fill="currentColor">
@@ -420,7 +427,7 @@
                     </div>
                     @foreach (var navArc in _navArcs)
                     {
-                        var arcSelected = Manager.Diagram.GetSelectedModels().Contains(navArc);
+                        var arcSelected = selectedSet.Contains(navArc);
                         var arcLabel = GetArcLabel(navArc);
                         <button class="nav-item @(arcSelected ? "nav-item-selected" : "")"
                                 @onclick="() => FocusArc(navArc)">
@@ -614,12 +621,17 @@
         }
     }
 
-    // ── Grid / zoom / pan ─────────────────────────────────────────────────────
-    private void OnPendingLinkChanged()
+    private void RebuildNavLists()
     {
-        RebuildNavLists();
-        InvokeAsync(StateHasChanged);
+        _navPlaces = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+        _navTransitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
+        _navArcs = Manager.Diagram.Links
+                            .OfType<PetriLinkModel>()
+                            .Where(l => !l.IsDraggingEndpoint && l.Target != null)
+                            .ToList();
     }
+
+    // ── Grid / zoom / pan ─────────────────────────────────────────────────────
     private void OnZoomChanged() => InvokeAsync(StateHasChanged);
     private void OnPanChanged() => InvokeAsync(StateHasChanged);
     private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
@@ -630,15 +642,7 @@
         Settings.NotifyChanged();
     }
 
-    private void ResetSettings()
-    {
-        Settings.ResetToDefaults();
-    }
-    private void OnHistoryChanged()
-    {
-        RebuildNavLists();
-        InvokeAsync(StateHasChanged);
-    }
+    private void ResetSettings() => Settings.ResetToDefaults();
 
     private void Undo() { Manager.History.Undo(); StateHasChanged(); }
     private void Redo() { Manager.History.Redo(); StateHasChanged(); }
@@ -656,41 +660,26 @@
     }
 
     // ── Structure changes → rebuild navigator lists ───────────────────────────
-    private void OnNodeAdded(NodeModel _)
+    private void OnStructureChanged()
     {
         RebuildNavLists();
         InvokeAsync(StateHasChanged);
     }
 
-    private void OnLinkAdded(BaseLinkModel _)
-    {
-        RebuildNavLists();
-        InvokeAsync(StateHasChanged);
-    }
-
+    private void OnNodeAdded(NodeModel _) => OnStructureChanged();
+    private void OnLinkAdded(BaseLinkModel _) => OnStructureChanged();
     private void OnNodeRemoved(NodeModel model)
     {
         if (SelectedModel == model) SelectedModel = null;
-        RebuildNavLists();
-        InvokeAsync(StateHasChanged);
+        OnStructureChanged();
     }
-
     private void OnLinkRemoved(BaseLinkModel model)
     {
         if (SelectedModel == model) SelectedModel = null;
-        RebuildNavLists();
-        InvokeAsync(StateHasChanged);
+        OnStructureChanged();
     }
-
-    private void RebuildNavLists()
-    {
-        _navPlaces = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-        _navTransitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
-        _navArcs = Manager.Diagram.Links
-                            .OfType<PetriLinkModel>()
-                            .Where(l => !l.IsDraggingEndpoint && l.Target != null)
-                            .ToList();
-    }
+    private void OnPendingLinkChanged() => OnStructureChanged();
+    private void OnHistoryChanged() => OnStructureChanged();
 
     // ── Property-edit snapshots ───────────────────────────────────────────────
     private string? _snapPlaceName;
@@ -756,12 +745,13 @@
 
     private void SetArcType(PetriLinkModel link, ArcType type)
     {
+        if (link.ArcType == type) return;
         FlushPendingEdit();
-        SnapshotSelected();
         link.ArcType = type;
-        UpdateDiagram(link);
-        FlushPendingEdit();
+        link.Refresh();
+        Manager.History.Record(new EditLinkCommand(link, _snapLinkWeight, _snapLinkArcType, link.Weight, link.ArcType));
         SnapshotSelected();
+        InvokeAsync(StateHasChanged);
     }
 
     private void UpdateDiagram(Model? model = null)
@@ -769,7 +759,6 @@
         SyncRenderedText(model);
         if (model is NodeModel node) node.Refresh();
         else if (model is PetriLinkModel lnk) lnk.Refresh();
-        Manager.Diagram.Refresh();
         InvokeAsync(StateHasChanged);
     }
 
@@ -801,11 +790,26 @@
         if (e.Button != 0) return;
         if (StateService.IsSimulating) return;
 
+        // Only intercept placement and arc tools.
+        // Select tool (and no-tool) let Blazor.Diagrams handle everything
+        // natively — it manages selection, drag, and multi-select on its own.
         if (ActiveTool is "place" or "transition" or "arc")
         {
             _pendingAction = ActiveTool;
             _pendingModel = model;
             _pendingPoint = new Point(e.ClientX, e.ClientY);
+
+            // Show placement ghost while button is held
+            if (ActiveTool is "place" or "transition")
+            {
+                double placeSize = Settings.PlaceSize > 0 ? Settings.PlaceSize : 60;
+                double transW = Settings.TransitionWidth > 0 ? Settings.TransitionWidth : 36;
+                double transH = Settings.TransitionHeight > 0 ? Settings.TransitionHeight : 72;
+                double nodeW = (ActiveTool == "place" ? placeSize : transW) * Manager.Diagram.Zoom;
+                double nodeH = (ActiveTool == "place" ? placeSize : transH) * Manager.Diagram.Zoom;
+                _ = JS.InvokeVoidAsync("ghostStart", ActiveTool, EffectiveGridSize,
+                    Settings.GridEnabled, nodeW, nodeH, e.ClientX, e.ClientY);
+            }
         }
     }
 
@@ -828,6 +832,10 @@
         _pendingAction = null;
         _pendingModel = null;
         _pendingPoint = null;
+
+        // Always hide ghost on release
+        if (action is "place" or "transition")
+            _ = JS.InvokeVoidAsync("ghostStop");
 
         if (action == "arc")
         {
@@ -855,6 +863,9 @@
 
     private void HandleEscape()
     {
+        // Hide ghost if placement was in progress
+        if (_pendingAction is "place" or "transition")
+            _ = JS.InvokeVoidAsync("ghostStop");
         _pendingAction = null;
         _pendingModel = null;
         _pendingPoint = null;
@@ -1008,23 +1019,9 @@
     // ── Simulation ────────────────────────────────────────────────────────────
     private void OnSimulationStateChanged() => InvokeAsync(StateHasChanged);
 
-    private void StopSimulation()
-    {
-        Sim.Stop();
-        StateHasChanged();
-    }
-
-    private void ResetSimulation()
-    {
-        Sim.Reset();
-        StateHasChanged();
-    }
-
-    private void StepOnce()
-    {
-        Sim.StepAuto();
-        StateHasChanged();
-    }
+    private void StopSimulation() => Sim.Stop();
+    private void ResetSimulation() => Sim.Reset();
+    private void StepOnce() => Sim.StepAuto();
 
     // ── Dispose ───────────────────────────────────────────────────────────────
     public void Dispose()

@@ -1,10 +1,93 @@
 ﻿// ── Global keyboard handler ───────────────────────────────────────────────
 window.registerGlobalKeyHandler = (dotnetRef) => {
     document.addEventListener('keydown', (e) => {
+        // Don't steal keys while the user is typing in an input field
+        const tag = e.target?.tagName;
+        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+            || e.target?.isContentEditable;
+        if (isEditable) {
+            // Still allow Escape to blur/cancel, but nothing else
+            if (e.key !== 'Escape') return;
+        }
         dotnetRef.invokeMethodAsync('OnGlobalKey', e.key, e.ctrlKey, e.shiftKey, e.altKey);
     });
     window._dotNetRef = dotnetRef;
 };
+
+window.unregisterGlobalKeyHandler = () => {
+    // dotNetRef disposed — nothing further needed; the keydown listener
+    // will stop invoking because the ref is gone.
+    window._dotNetRef = null;
+};
+
+// Called by Blazor when the select tool is activated / deactivated
+window.setSelectToolActive = (active) => {
+    window._selectToolActive = active;
+};
+
+// ── Placement ghost ───────────────────────────────────────────────────────
+// nodeW, nodeH: actual rendered node dimensions in diagram-space pixels
+// initClientX/Y: pointer position at mousedown — show ghost immediately
+window.ghostStart = (type, gridSize, gridEnabled, nodeW, nodeH, initClientX, initClientY) => {
+    window._ghost = { type, gridSize, gridEnabled, nodeW, nodeH };
+    window._lastMouseX = initClientX;
+    window._lastMouseY = initClientY;
+    _updateGhost(initClientX, initClientY);
+};
+window.ghostStop = () => {
+    window._ghost = null;
+    const el = document.getElementById('placement-ghost');
+    if (el) el.style.display = 'none';
+};
+
+function _updateGhost(clientX, clientY) {
+    const g = window._ghost;
+    if (!g) return;
+    const ghostEl = document.getElementById('placement-ghost');
+    const cont = document.getElementById('diagram-container');
+    if (!ghostEl || !cont) return;
+
+    const b = cont.getBoundingClientRect();
+    const rawX = clientX - b.left;
+    const rawY = clientY - b.top;
+    // Only snap when grid is enabled
+    let sx = rawX, sy = rawY;
+    if (g.gridEnabled) {
+        const gs = Math.max(4, g.gridSize || 20);
+        sx = Math.round(rawX / gs) * gs;
+        sy = Math.round(rawY / gs) * gs;
+    }
+
+    if (g.type === 'place') {
+        const w = g.nodeW || 60;
+        const h = g.nodeH || 60;
+        const hw = w / 2, hh = h / 2;
+        const r = hw - 2;
+        ghostEl.style.width = w + 'px';
+        ghostEl.style.height = h + 'px';
+        ghostEl.style.left = (sx - hw) + 'px';
+        ghostEl.style.top = (sy - hh) + 'px';
+        ghostEl.innerHTML =
+            `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible;display:block;">` +
+            `<circle cx="${hw}" cy="${hh}" r="${r}" ` +
+            `fill="rgba(0,137,123,0.15)" stroke="#00897b" stroke-width="2" stroke-dasharray="6 3"/>` +
+            `</svg>`;
+    } else {
+        const w = g.nodeW || 36;
+        const h = g.nodeH || 72;
+        const hw = w / 2, hh = h / 2;
+        ghostEl.style.width = w + 'px';
+        ghostEl.style.height = h + 'px';
+        ghostEl.style.left = (sx - hw) + 'px';
+        ghostEl.style.top = (sy - hh) + 'px';
+        ghostEl.innerHTML =
+            `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible;display:block;">` +
+            `<rect x="1" y="1" width="${w - 2}" height="${h - 2}" rx="3" ` +
+            `fill="rgba(0,137,123,0.15)" stroke="#00897b" stroke-width="2" stroke-dasharray="6 3"/>` +
+            `</svg>`;
+    }
+    ghostEl.style.display = 'block';
+}
 
 // ── One-time setup: pan + selection — called after first render ───────────
 window.setupPanHandlerOnce = () => {
@@ -23,10 +106,10 @@ function setupOnContainer(container) {
     // Suppress right-click context menu
     container.addEventListener('contextmenu', (e) => e.preventDefault(), true);
 
-    // ── Capture-phase pointerdown — decides pan vs sel-rect vs pass-through ──
+    // ── Capture-phase pointerdown ─────────────────────────────────────────
     container.addEventListener('pointerdown', (e) => {
 
-        // ── Right button → pan ───────────────────────────────────────────────
+        // ── Right button → pan ───────────────────────────────────────────
         if (e.button === 2) {
             e.preventDefault();
             e.stopPropagation();
@@ -41,40 +124,44 @@ function setupOnContainer(container) {
             return;
         }
 
-        // ── Left button, select tool, empty canvas → sel-rect ────────────────
+        // ── Left button, select tool ─────────────────────────────────────
         if (e.button === 0 && window._selectToolActive) {
-            // Walk up from target — if we hit a petri-node or petri-link-group
-            // let the event fall through to the diagram normally.
+            // Walk up from target to see if we landed on a diagram model.
             let el = e.target;
             let onModel = false;
             while (el && el !== container) {
                 if (el.classList &&
                     (el.classList.contains('petri-node') ||
                         el.classList.contains('petri-link-group'))) {
-                    onModel = true; break;
+                    onModel = true;
+                    break;
                 }
                 el = el.parentElement;
             }
-            if (!onModel) {
-                // Empty canvas click — arm the selection rect.
-                // Don't stopPropagation; Blazor still sees it (model==null) which
-                // is fine since OnPointerDown only primes _pendingAction for
-                // place/transition/arc tools, and returns early for "select".
-                const bounds = container.getBoundingClientRect();
-                window._selDrag = {
-                    armed: true,
-                    active: false,
-                    startX: e.clientX - bounds.left,
-                    startY: e.clientY - bounds.top,
-                    pointerId: e.pointerId,
-                };
-                // Notify Blazor so it can initialise _selStart/_selCurrent
-                if (window._dotNetRef)
-                    window._dotNetRef.invokeMethodAsync(
-                        'OnSelRectArmed',
-                        window._selDrag.startX,
-                        window._selDrag.startY);
+
+            if (onModel) {
+                // Clicked a node/link — let Blazor.Diagrams handle it
+                // completely (selection + drag). Do NOT stopPropagation,
+                // do NOT arm the sel-rect.
+                return;
             }
+
+            // Empty canvas — arm the selection rect.
+            // We do NOT stopPropagation so Blazor still receives model==null.
+            const bounds = container.getBoundingClientRect();
+            window._selDrag = {
+                armed: true,
+                active: false,
+                startX: e.clientX - bounds.left,
+                startY: e.clientY - bounds.top,
+                pointerId: e.pointerId,
+                rafPending: false,
+            };
+            if (window._dotNetRef)
+                window._dotNetRef.invokeMethodAsync(
+                    'OnSelRectArmed',
+                    window._selDrag.startX,
+                    window._selDrag.startY);
         }
 
     }, true); // capture phase
@@ -103,12 +190,17 @@ function setupOnContainer(container) {
             return;
         }
 
+        // ── Placement ghost — always track mouse, update ghost if active ───
+        window._lastMouseX = e.clientX;
+        window._lastMouseY = e.clientY;
+        if (window._ghost) _updateGhost(e.clientX, e.clientY);
+
         // Sel-rect
         const s = window._selDrag;
         if (!s || !s.armed) return;
-        const container = document.getElementById('diagram-container');
-        if (!container) return;
-        const bounds = container.getBoundingClientRect();
+        const cont = document.getElementById('diagram-container');
+        if (!cont) return;
+        const bounds = cont.getBoundingClientRect();
         const cx = e.clientX - bounds.left;
         const cy = e.clientY - bounds.top;
         if (!s.rafPending) {
@@ -143,8 +235,7 @@ window.analysisPanel = (() => {
     let _dockedW = 300, _dockedMin = 200, _dockedMax = 600;
     let _fx = 80, _fy = 80, _fw = 360, _fh = 480, _fMinW = 220, _fMinH = 200;
 
-    // Active pointer state
-    let _drag = null; // { type: 'move'|'resize', dir, startX, startY, origX, origY, origW, origH }
+    let _drag = null;
 
     function setup(floating, dockedW, dockedMin, dockedMax,
         fx, fy, fw, fh, fMinW, fMinH, dotnet) {
@@ -153,7 +244,6 @@ window.analysisPanel = (() => {
         _fx = fx; _fy = fy; _fw = fw; _fh = fh; _fMinW = fMinW; _fMinH = fMinH;
         _dotnet = dotnet;
 
-        // Small delay so Blazor has painted the new DOM
         requestAnimationFrame(() => {
             _unbind();
             if (_floating) {
@@ -164,7 +254,6 @@ window.analysisPanel = (() => {
         });
     }
 
-    // ── Docked resize (left edge) ─────────────────────────────────────────
     function _bindDocked() {
         const handle = document.getElementById('ap-resize-left');
         if (!handle) return;
@@ -188,7 +277,6 @@ window.analysisPanel = (() => {
 
     function _onDockedResizeMove(e) {
         if (!_drag) return;
-        // Dragging left handle leftward = wider
         const delta = _drag.startX - e.clientX;
         const newW = Math.max(_dockedMin, Math.min(_dockedMax, _drag.origW + delta));
         _dotnet.invokeMethodAsync('UpdateDockedWidth', newW);
@@ -200,13 +288,11 @@ window.analysisPanel = (() => {
         document.removeEventListener('pointerup', _onDockedResizeUp);
     }
 
-    // ── Floating drag + resize ────────────────────────────────────────────
     function _bindFloating() {
         const titlebar = document.getElementById('ap-titlebar');
         if (titlebar) {
             titlebar.addEventListener('pointerdown', _onMoveDown, { passive: false });
         }
-        // All resize handles
         const dirs = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
         for (const dir of dirs) {
             const h = document.getElementById(`ap-resize-${dir}`);
@@ -216,7 +302,6 @@ window.analysisPanel = (() => {
 
     function _onMoveDown(e) {
         if (e.button !== 0) return;
-        // Don't start drag on buttons inside titlebar
         if (e.target.closest('.ap-tb-btn')) return;
         e.preventDefault();
         e.stopPropagation();
@@ -229,7 +314,6 @@ window.analysisPanel = (() => {
         if (!_drag || _drag.type !== 'move') return;
         _fx = _drag.origX + (e.clientX - _drag.startX);
         _fy = _drag.origY + (e.clientY - _drag.startY);
-        // Clamp so titlebar stays on screen
         _fx = Math.max(-_fw + 60, _fx);
         _fy = Math.max(0, _fy);
         _dotnet.invokeMethodAsync('UpdateFloating', _fx, _fy, _fw, _fh);
@@ -275,14 +359,10 @@ window.analysisPanel = (() => {
         document.removeEventListener('pointerup', _onResizeUp);
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────
     function _unbind() {
-        // Remove old listeners by replacing elements isn't practical here;
-        // instead we rely on setup() always being called after DOM rebuild,
-        // so stale listeners on removed elements are GC'd automatically.
+        // Stale listeners on removed elements are GC'd automatically
     }
 
-    // ── Tab scroll arrows ─────────────────────────────────────────────────
     function setupTabScroll() {
         requestAnimationFrame(() => {
             const scroll = document.getElementById('ap-tabs-scroll');

@@ -39,6 +39,8 @@ public class SimulationService : IDisposable
     public enum FireMode { HighestPriority, Random }
     public FireMode Mode { get; set; } = FireMode.HighestPriority;
 
+    private readonly Random _rng = new();
+
     public IReadOnlyList<PetriNetSimulator.TransitionInfo> Transitions => _sim.Transitions;
     public IReadOnlyList<PetriNetSimulator.PlaceInfo> Places => _sim.Places;
     public IReadOnlyList<string> History => _sim.FiringHistory;
@@ -177,10 +179,10 @@ public class SimulationService : IDisposable
                     .GroupBy(t => t.Priority)
                     .OrderByDescending(g => g.Key)
                     .First()
-                    .OrderBy(_ => Guid.NewGuid())
+                    .OrderBy(_ => _rng.Next())
                     .First().Id,
             FireMode.Random =>
-                candidates[new Random().Next(candidates.Count)].Id,
+                candidates[_rng.Next(candidates.Count)].Id,
             _ => null
         };
 

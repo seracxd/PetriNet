@@ -1,3 +1,4 @@
+using Analysis;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using PetriNetAnalyzer;
@@ -15,5 +16,6 @@ builder.Services.AddScoped<SimulationService>();
 builder.Services.Configure<DiagramSettingsOptions>(builder.Configuration.GetSection(DiagramSettingsOptions.Section));
 builder.Services.AddSingleton<DiagramSettings>();
 builder.Services.AddSingleton<IDiagramLogger, AspNetDiagramLogger>();
+builder.Services.AddScoped<AnalysisService>();
 
 await builder.Build().RunAsync();

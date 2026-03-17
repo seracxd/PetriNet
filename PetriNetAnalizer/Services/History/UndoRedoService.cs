@@ -345,7 +345,8 @@ public class AddNodeCommand : IDiagramCommand
                 Width = _place.Size,
                 Height = _place.Size
             };
-            var node = new PlaceNode(place, BuildPlaceSettings(_place.Size));
+            var node = new PlaceNode(place, _settings);
+            node.Size = new Blazor.Diagrams.Core.Geometry.Size(_place.Size, _place.Size);
             node.SetPosition(_place.X, _place.Y);
             _diagram.Nodes.Add(node);
             return;
@@ -367,7 +368,8 @@ public class AddNodeCommand : IDiagramCommand
                 Width = _transition.Width,
                 Height = _transition.Height
             };
-            var node = new TransitionNode(transition, BuildTransitionSettings(_transition.Width, _transition.Height));
+            var node = new TransitionNode(transition, _settings);
+            node.Size = new Blazor.Diagrams.Core.Geometry.Size(_transition.Width, _transition.Height);
             node.SetPosition(_transition.X, _transition.Y);
             _diagram.Nodes.Add(node);
         }
@@ -386,54 +388,6 @@ public class AddNodeCommand : IDiagramCommand
     }
 
     private NodeModel? FindNode(string id) => _diagram.Nodes.FirstOrDefault(n => LinkHelpers.GetDataId(n) == id);
-
-    private DiagramSettings? BuildPlaceSettings(double size)
-    {
-        if (_settings == null)
-            return null;
-        return new DiagramSettings(new Microsoft.Extensions.Options.OptionsWrapper<DiagramSettingsOptions>(new DiagramSettingsOptions
-        {
-            ArcColor = _settings.ArcColor,
-            ArcSelectedColor = _settings.ArcSelectedColor,
-            ArcPendingColor = _settings.ArcPendingColor,
-            PlaceSize = size,
-            TransitionWidth = _settings.TransitionWidth,
-            TransitionHeight = _settings.TransitionHeight,
-            ZoomMin = _settings.ZoomMin,
-            ZoomMax = _settings.ZoomMax,
-            ZoomStep = _settings.ZoomStep,
-            LinkSnappingRadius = _settings.LinkSnappingRadius,
-            EndpointDragHitPadding = _settings.EndpointDragHitPadding,
-            GridSize = _settings.GridSize,
-            PanBound = _settings.PanBound,
-            DragDeadzone = _settings.DragDeadzone,
-            LogBufferCapacity = _settings.LogBufferCapacity,
-        }));
-    }
-
-    private DiagramSettings? BuildTransitionSettings(double width, double height)
-    {
-        if (_settings == null)
-            return null;
-        return new DiagramSettings(new Microsoft.Extensions.Options.OptionsWrapper<DiagramSettingsOptions>(new DiagramSettingsOptions
-        {
-            ArcColor = _settings.ArcColor,
-            ArcSelectedColor = _settings.ArcSelectedColor,
-            ArcPendingColor = _settings.ArcPendingColor,
-            PlaceSize = _settings.PlaceSize,
-            TransitionWidth = width,
-            TransitionHeight = height,
-            ZoomMin = _settings.ZoomMin,
-            ZoomMax = _settings.ZoomMax,
-            ZoomStep = _settings.ZoomStep,
-            LinkSnappingRadius = _settings.LinkSnappingRadius,
-            EndpointDragHitPadding = _settings.EndpointDragHitPadding,
-            GridSize = _settings.GridSize,
-            PanBound = _settings.PanBound,
-            DragDeadzone = _settings.DragDeadzone,
-            LogBufferCapacity = _settings.LogBufferCapacity,
-        }));
-    }
 
     private static string Short(string id) => id[..Math.Min(8, id.Length)] + "…";
 }
@@ -490,36 +444,13 @@ public class RemovePlaceCommand : IDiagramCommand
             Width = _snap.Size,
             Height = _snap.Size
         };
-        var node = new PlaceNode(data, BuildPlaceSettings(_snap.Size));
+        var node = new PlaceNode(data, _settings);
+        node.Size = new Blazor.Diagrams.Core.Geometry.Size(_snap.Size, _snap.Size);
         node.SetPosition(_snap.X, _snap.Y);
         _diagram.Nodes.Add(node);
 
         foreach (var ls in _linkSnaps)
             LinkHelpers.Restore(_diagram, _registry, ls, _log, _settings);
-    }
-
-    private DiagramSettings? BuildPlaceSettings(double size)
-    {
-        if (_settings == null)
-            return null;
-        return new DiagramSettings(new Microsoft.Extensions.Options.OptionsWrapper<DiagramSettingsOptions>(new DiagramSettingsOptions
-        {
-            ArcColor = _settings.ArcColor,
-            ArcSelectedColor = _settings.ArcSelectedColor,
-            ArcPendingColor = _settings.ArcPendingColor,
-            PlaceSize = size,
-            TransitionWidth = _settings.TransitionWidth,
-            TransitionHeight = _settings.TransitionHeight,
-            ZoomMin = _settings.ZoomMin,
-            ZoomMax = _settings.ZoomMax,
-            ZoomStep = _settings.ZoomStep,
-            LinkSnappingRadius = _settings.LinkSnappingRadius,
-            EndpointDragHitPadding = _settings.EndpointDragHitPadding,
-            GridSize = _settings.GridSize,
-            PanBound = _settings.PanBound,
-            DragDeadzone = _settings.DragDeadzone,
-            LogBufferCapacity = _settings.LogBufferCapacity,
-        }));
     }
 
     private static string Short(string id) => id[..Math.Min(8, id.Length)] + "…";
@@ -578,36 +509,13 @@ public class RemoveTransitionCommand : IDiagramCommand
             Width = _snap.Width,
             Height = _snap.Height,
         };
-        var node = new TransitionNode(data, BuildTransitionSettings(_snap.Width, _snap.Height));
+        var node = new TransitionNode(data, _settings);
+        node.Size = new Blazor.Diagrams.Core.Geometry.Size(_snap.Width, _snap.Height);
         node.SetPosition(_snap.X, _snap.Y);
         _diagram.Nodes.Add(node);
 
         foreach (var ls in _linkSnaps)
             LinkHelpers.Restore(_diagram, _registry, ls, _log, _settings);
-    }
-
-    private DiagramSettings? BuildTransitionSettings(double width, double height)
-    {
-        if (_settings == null)
-            return null;
-        return new DiagramSettings(new Microsoft.Extensions.Options.OptionsWrapper<DiagramSettingsOptions>(new DiagramSettingsOptions
-        {
-            ArcColor = _settings.ArcColor,
-            ArcSelectedColor = _settings.ArcSelectedColor,
-            ArcPendingColor = _settings.ArcPendingColor,
-            PlaceSize = _settings.PlaceSize,
-            TransitionWidth = width,
-            TransitionHeight = height,
-            ZoomMin = _settings.ZoomMin,
-            ZoomMax = _settings.ZoomMax,
-            ZoomStep = _settings.ZoomStep,
-            LinkSnappingRadius = _settings.LinkSnappingRadius,
-            EndpointDragHitPadding = _settings.EndpointDragHitPadding,
-            GridSize = _settings.GridSize,
-            PanBound = _settings.PanBound,
-            DragDeadzone = _settings.DragDeadzone,
-            LogBufferCapacity = _settings.LogBufferCapacity,
-        }));
     }
 
     private static string Short(string id) => id[..Math.Min(8, id.Length)] + "…";

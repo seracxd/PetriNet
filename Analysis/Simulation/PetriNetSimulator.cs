@@ -18,6 +18,11 @@ public class PetriNetSimulator
     public IReadOnlyList<TransitionInfo> Transitions { get; private set; } = [];
     public IReadOnlyList<ArcInfo> Arcs { get; private set; } = [];
 
+    // Arcs indexed by transition ID for O(1) lookup in IsEnabled / Fire
+    private Dictionary<string, List<ArcInfo>> _arcsByTransition = [];
+    private Dictionary<string, string> _placeNames = [];
+    private Dictionary<string, string> _transitionNames = [];
+
     // ── Simulation state ──────────────────────────────────────────────────
 
     /// <summary>Current marking: PlaceId → token count.</summary>
@@ -45,6 +50,13 @@ public class PetriNetSimulator
         Transitions = transitions.ToList();
         Arcs = arcs.ToList();
 
+        _arcsByTransition = Arcs
+            .GroupBy(a => a.TransitionId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        _placeNames = Places.ToDictionary(p => p.Id, p => p.Name);
+        _transitionNames = Transitions.ToDictionary(t => t.Id, t => t.Name);
+
         _initialMarking = Places.ToDictionary(p => p.Id, p => p.InitialTokens);
         Marking = new Dictionary<string, int>(_initialMarking);
         FiringHistory.Clear();
@@ -58,8 +70,10 @@ public class PetriNetSimulator
 
     public bool IsEnabled(string transitionId)
     {
-        foreach (var arc in Arcs.Where(a => a.TransitionId == transitionId && a.PlaceIsSource))
+        if (!_arcsByTransition.TryGetValue(transitionId, out var arcs)) return true;
+        foreach (var arc in arcs)
         {
+            if (!arc.PlaceIsSource) continue;          // output arcs don't affect enabledness
             int tokens = Marking.GetValueOrDefault(arc.PlaceId, 0);
             switch (arc.Type)
             {
@@ -82,8 +96,15 @@ public class PetriNetSimulator
     public bool Fire(string transitionId)
     {
         if (!IsEnabled(transitionId)) return false;
+        ApplyFiring(transitionId);
+        FiringHistory.Add(transitionId);
+        return true;
+    }
 
-        foreach (var arc in Arcs.Where(a => a.TransitionId == transitionId))
+    private void ApplyFiring(string transitionId)
+    {
+        if (!_arcsByTransition.TryGetValue(transitionId, out var arcs)) return;
+        foreach (var arc in arcs)
         {
             int current = Marking.GetValueOrDefault(arc.PlaceId, 0);
             if (arc.PlaceIsSource)
@@ -92,19 +113,15 @@ public class PetriNetSimulator
                 {
                     ArcType.Normal => current - arc.Weight,
                     ArcType.Reset => 0,
-                    ArcType.Inhibitor => current, // consumes nothing
+                    ArcType.Inhibitor => current,   // consumes nothing
                     _ => current
                 };
             }
             else
             {
-                // Output arc — produce tokens
                 Marking[arc.PlaceId] = current + arc.Weight;
             }
         }
-
-        FiringHistory.Add(transitionId);
-        return true;
     }
 
     // ── Reset / Stop ──────────────────────────────────────────────────────
@@ -122,6 +139,9 @@ public class PetriNetSimulator
         Places = [];
         Transitions = [];
         Arcs = [];
+        _arcsByTransition = [];
+        _placeNames = [];
+        _transitionNames = [];
     }
 
     /// <summary>Truncates history to stepIndex+1 and replays marking from scratch.</summary>
@@ -143,30 +163,13 @@ public class PetriNetSimulator
             ReplayFire(id);
     }
 
-    private void ReplayFire(string transitionId)
-    {
-        foreach (var arc in Arcs.Where(a => a.TransitionId == transitionId))
-        {
-            int current = Marking.GetValueOrDefault(arc.PlaceId, 0);
-            if (arc.PlaceIsSource)
-            {
-                Marking[arc.PlaceId] = arc.Type switch
-                {
-                    ArcType.Normal => current - arc.Weight,
-                    ArcType.Reset => 0,
-                    ArcType.Inhibitor => current,
-                    _ => current
-                };
-            }
-            else
-            {
-                Marking[arc.PlaceId] = current + arc.Weight;
-            }
-        }
-    }
+    private void ReplayFire(string transitionId) => ApplyFiring(transitionId);
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    public string GetPlaceName(string id) => Places.FirstOrDefault(p => p.Id == id)?.Name ?? id;
-    public string GetTransitionName(string id) => Transitions.FirstOrDefault(t => t.Id == id)?.Name ?? id;
+    public string GetPlaceName(string id) =>
+        _placeNames.TryGetValue(id, out var n) ? n : id;
+
+    public string GetTransitionName(string id) =>
+        _transitionNames.TryGetValue(id, out var n) ? n : id;
 }
