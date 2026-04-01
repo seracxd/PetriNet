@@ -1,0 +1,13 @@
+<Router AppAssembly="@typeof(PetriEditor.Client._Imports).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData"
+                   DefaultLayout="@typeof(PetriEditor.Client.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not found</PageTitle>
+        <LayoutView Layout="@typeof(PetriEditor.Client.Layout.MainLayout)">
+            <p role="alert">Sorry, this page could not be found.</p>
+        </LayoutView>
+    </NotFound>
+</Router>

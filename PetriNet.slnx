@@ -1,6 +1,6 @@
 <Solution>
-  <Project Path="Analysis/Analysis.csproj" />
-  <Project Path="Core/Core.csproj" />
-  <Project Path="Infrastructure/Infrastructure.csproj" />
-  <Project Path="PetriNetAnalizer/PetriNetAnalyzer.csproj" />
+  <Project Path="PetriEditor.Shared/PetriEditor.Shared.csproj" />
+  <Project Path="PetriEditor.Analysis/PetriEditor.Analysis.csproj" />
+  <Project Path="PetriEditor.Server/PetriEditor.Server.csproj" />
+  <Project Path="PetriEditor.Client/PetriEditor.Client.csproj" />
 </Solution>
