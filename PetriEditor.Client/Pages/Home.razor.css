@@ -21,18 +21,19 @@ html, body {
 /* ── Top bar ────────────────────────────────────────────────────────────── */
 .topbar {
     flex-shrink: 0;
-    height: 58px;
-    background: #00897b;
+    height: 52px;
+    background: linear-gradient(135deg, #00b8ab 0%, #00a499 60%, #009688 100%);
     display: flex;
     align-items: center;
-    padding: 0 24px;
+    padding: 0 22px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.08), 0 2px 8px rgba(0,164,153,0.18);
 }
 
 .topbar-title {
     color: #fff;
-    font-size: 20px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
 }
 
 /* ── Body row ───────────────────────────────────────────────────────────── */
@@ -47,7 +48,7 @@ html, body {
     width: clamp(200px, 22vw, 300px);
     flex-shrink: 0;
     background: #ffffff;
-    border-right: 1px solid #e8e8e8;
+    border-right: 1px solid #e4e6ea;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -101,16 +102,16 @@ html, body {
 
     .tool-btn:hover {
         background: #f0faf9;
-        border-color: #00897b;
-        color: #00897b;
-        box-shadow: 0 2px 8px rgba(0,137,123,0.15);
+        border-color: #00a499;
+        color: #00a499;
+        box-shadow: 0 2px 8px rgba(0,164,153,0.15);
     }
 
     .tool-btn.active {
-        background: #00897b;
-        border-color: #00897b;
+        background: #00a499;
+        border-color: #00a499;
         color: #fff;
-        box-shadow: 0 2px 12px rgba(0,137,123,0.35);
+        box-shadow: 0 2px 12px rgba(0,164,153,0.35);
     }
 
     .tool-btn.pending {
@@ -119,11 +120,11 @@ html, body {
 
 @keyframes pulse-pending {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(0,137,123,0.4);
+        box-shadow: 0 0 0 0 rgba(0,164,153,0.4);
     }
 
     50% {
-        box-shadow: 0 0 0 8px rgba(0,137,123,0);
+        box-shadow: 0 0 0 8px rgba(0,164,153,0);
     }
 }
 
@@ -171,7 +172,7 @@ html, body {
 }
 
     .prop-input:focus {
-        border-bottom-color: #00897b;
+        border-bottom-color: #00a499;
     }
 
 .prop-empty {
@@ -201,13 +202,13 @@ html, body {
 }
 
     .arc-type-btn:hover {
-        border-color: #00897b;
-        color: #00897b;
+        border-color: #00a499;
+        color: #00a499;
     }
 
     .arc-type-btn.active {
-        background: #00897b;
-        border-color: #00897b;
+        background: #00a499;
+        border-color: #00a499;
         color: #fff;
     }
 
@@ -268,7 +269,7 @@ html, body {
 
 .sel-rect {
     fill: rgba(0, 137, 123, 0.08);
-    stroke: #00897b;
+    stroke: #00a499;
     stroke-width: 1.5px;
     stroke-dasharray: 5 3;
 }
@@ -302,16 +303,16 @@ html, body {
 
     .navigator-toggle:hover {
         background: #fff;
-        border-color: #00897b;
-        color: #00897b;
-        box-shadow: 0 2px 12px rgba(0,137,123,0.20);
+        border-color: #00a499;
+        color: #00a499;
+        box-shadow: 0 2px 12px rgba(0,164,153,0.20);
     }
 
     .navigator-toggle.active {
-        background: #00897b;
-        border-color: #00897b;
+        background: #00a499;
+        border-color: #00a499;
         color: #fff;
-        box-shadow: 0 2px 12px rgba(0,137,123,0.35);
+        box-shadow: 0 2px 12px rgba(0,164,153,0.35);
     }
 
 .navigator-panel {
@@ -518,9 +519,9 @@ html, body {
 
     .analysis-btn:hover {
         background: #fff;
-        border-color: #00897b;
-        color: #00897b;
-        box-shadow: 0 2px 10px rgba(0,137,123,0.18);
+        border-color: #00a499;
+        color: #00a499;
+        box-shadow: 0 2px 10px rgba(0,164,153,0.18);
     }
 
 /* ── Zoom controls — bottom right overlay ───────────────────────────────── */
@@ -558,7 +559,7 @@ html, body {
 
     .zoom-btn:hover {
         background: #f0faf9;
-        color: #00897b;
+        color: #00a499;
     }
 
 .zoom-label {
@@ -723,10 +724,10 @@ html, body {
     }
 
     .analysis-btn-icon.active {
-        background: #00897b;
-        border-color: #00897b;
+        background: #00a499;
+        border-color: #00a499;
         color: #fff;
-        box-shadow: 0 2px 10px rgba(0,137,123,0.30);
+        box-shadow: 0 2px 10px rgba(0,164,153,0.30);
     }
 
         .analysis-btn-icon.active:hover {
@@ -803,8 +804,8 @@ html, body {
     }
 
     .settings-panel-reset:hover {
-        border-color: #00897b;
-        color: #00897b;
+        border-color: #00a499;
+        color: #00a499;
     }
 
 .settings-panel-body {
@@ -854,7 +855,7 @@ html, body {
 }
 
     .settings-color-input:hover {
-        border-color: #00897b;
+        border-color: #00a499;
     }
 
 .settings-stepper {
@@ -887,7 +888,7 @@ html, body {
 
         .settings-stepper button:hover {
             background: #e0f5f3;
-            color: #00897b;
+            color: #00a499;
         }
 
     .settings-stepper span {
@@ -942,7 +943,7 @@ html, body {
     }
 
 .settings-toggle input:checked + .settings-toggle-slider {
-    background: #00897b;
+    background: #00a499;
 }
 
     .settings-toggle input:checked + .settings-toggle-slider::after {

@@ -27,7 +27,7 @@ public sealed class InvariantAnalysis
             int p = net.Places.Count, t = net.Transitions.Count;
 
             // P-invariants: y · W = 0  →  solve W^T · y = 0
-            var pVecs = ComputeInvariants(Transpose(W, t, p), p);
+            var pVecs = ComputeInvariants(Transpose(W, p, t), p);
             PInvariants = pVecs.Select(vec =>
                 new Invariant(
                     net.Places.Select((pl, i) => (pl.Id, vec[i]))

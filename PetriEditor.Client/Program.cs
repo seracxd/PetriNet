@@ -29,7 +29,8 @@ builder.Services.AddScoped<BrowserFileService>();
 // DiagramAnalyzer: builds DTOs from diagram state and runs local analysis
 builder.Services.AddScoped<DiagramAnalyzer>();
 // IAnalysisService: sends requests to server over SignalR (default)
-builder.Services.AddScoped<IAnalysisService, ClientAnalysisService>();
+builder.Services.AddScoped<ClientAnalysisService>();
+builder.Services.AddScoped<IAnalysisService>(sp => sp.GetRequiredService<ClientAnalysisService>());
 
 // ── Export & serialization ────────────────────────────────────────────────
 builder.Services.AddScoped<IExportService, ClientExportService>();

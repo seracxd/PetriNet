@@ -1,7 +1,5 @@
 @using Microsoft.JSInterop
 @using PetriNetAnalyzer.Services
-@using Analysis
-@using Analysis.Engines
 @using PetriNetAnalyzer.DiagramModels
 @using Core.Models
 @using Blazor.Diagrams.Core.Models
@@ -12,7 +10,9 @@
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
 @inject SimulationService Sim
+@inject DiagramStateService StateService
 @inject DiagramAnalyzer Analyzer
+@inject ClientAnalysisService ServerAnalysis
 @inject CytoscapeInterop Cy
 @inject IExportService ExportSvc
 @inject BrowserFileService FileSvc
@@ -78,34 +78,34 @@
         @* Analysis sub-tabs — only shown in analysis mode *@
         @if (_mode == "analysis")
         {
-            <div style="flex-shrink:0;display:flex;align-items:stretch;background:#fafafa;border-bottom:1.5px solid #e8e8e8;">
+            <div class="ap-tabs-wrap">
                 <button id="ap-tabs-arrow-left"
-                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:-120,behavior:'smooth'})"
-                        style="display:none;flex-shrink:0;width:24px;border:none;border-right:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6" /></svg>
+                        class="ap-tabs-arrow ap-tabs-arrow--left"
+                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:-120,behavior:'smooth'})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
                 </button>
-                <div id="ap-tabs-scroll" style="flex:1;display:flex;overflow-x:auto;scrollbar-width:none;">
+                <div id="ap-tabs-scroll" class="ap-tabs">
                     @foreach (var tab in _analysisTabs)
                     {
-                        var isActive = _activeAnalysisTab == tab.Id;
-                        <button @onclick="() => _activeAnalysisTab = tab.Id"
-                                style="flex-shrink:0;display:flex;align-items:center;gap:5px;padding:7px 11px;font-size:11px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:@(isActive ? "#e91e8c" : "#aaa");background:transparent;border:none;border-bottom:2.5px solid @(isActive ? "#e91e8c" : "transparent");margin-bottom:-1.5px;cursor:pointer;white-space:nowrap;">
+                        <button @onclick="() => SelectTab(tab.Id)"
+                                class="ap-tab @(_activeAnalysisTab == tab.Id ? "ap-tab--active" : "")">
                             @tab.Label
                         </button>
                     }
                 </div>
                 <button id="ap-tabs-arrow-right"
-                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:120,behavior:'smooth'})"
-                        style="display:none;flex-shrink:0;width:24px;border:none;border-left:1px solid #e8e8e8;background:#fafafa;color:#999;cursor:pointer;align-items:center;justify-content:center;padding:0;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6" /></svg>
+                        class="ap-tabs-arrow ap-tabs-arrow--right"
+                        onclick="document.getElementById('ap-tabs-scroll').scrollBy({left:120,behavior:'smooth'})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                 </button>
             </div>
         }
 
         <!-- Content -->
-        <div style="flex:1;overflow-y:auto;overflow-x:hidden;">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:#fff;font-family:'Inter','Segoe UI',system-ui,sans-serif;">
             @if (_mode == "simulation")
             {
+                <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;">
                 @if (!Sim.IsActive)
                 {
                     var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
@@ -120,10 +120,10 @@
                         <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Net Statistics</div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
                             @foreach (var (label, value, color) in new[]{
-                                ("Places",      places.Count.ToString(),      "#00897b"),
-                                ("Transitions", transitions.Count.ToString(), "#00897b"),
-                                ("Arcs",        arcs.Count.ToString(),        "#00897b"),
-                                ("Tokens",      totalTokens.ToString(),       "#00897b"),
+                                ("Places",      places.Count.ToString(),      "#00a499"),
+                                ("Transitions", transitions.Count.ToString(), "#00a499"),
+                                ("Arcs",        arcs.Count.ToString(),        "#00a499"),
+                                ("Tokens",      totalTokens.ToString(),       "#00a499"),
                                 ("Inhibitor",   inhibArcs.ToString(),         inhibArcs>0?"#e65100":"#bbb"),
                                 ("Reset",       resetArcs.ToString(),         resetArcs>0?"#6a1b9a":"#bbb"),
                                 })
@@ -143,7 +143,7 @@
                                 {
                                     <div style="display:flex;align-items:center;gap:5px;padding:4px 8px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:7px;font-size:12px;">
                                         <span style="color:#888;font-weight:600;">@p.Data.Name</span>
-                                        <span style="min-width:18px;text-align:center;background:@(p.Data.Tokens > 0 ? "#00897b" : "#ddd");color:@(p.Data.Tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@p.Data.Tokens</span>
+                                        <span style="min-width:18px;text-align:center;background:@(p.Data.Tokens > 0 ? "#00a499" : "#ddd");color:@(p.Data.Tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@p.Data.Tokens</span>
                                     </div>
                                 }
                             </div>
@@ -158,7 +158,7 @@
 
                         <button @onclick="() => Sim.Start()"
                                 disabled="@(!places.Any() || !transitions.Any())"
-                                style="width:100%;padding:9px 0;background:@(places.Any() && transitions.Any() ? "#00897b" : "#e0e0e0");color:@(places.Any() && transitions.Any() ? "#fff" : "#aaa");border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:@(places.Any() && transitions.Any() ? "pointer" : "default");display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:14px;">
+                                style="width:100%;padding:9px 0;background:@(places.Any() && transitions.Any() ? "#00a499" : "#e0e0e0");color:@(places.Any() && transitions.Any() ? "#fff" : "#aaa");border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:@(places.Any() && transitions.Any() ? "pointer" : "default");display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:14px;">
                             <svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                             Start Simulation
                         </button>
@@ -169,7 +169,7 @@
                     <div style="padding:12px 14px;display:flex;flex-direction:column;gap:12px;">
 
                         <div style="display:flex;align-items:center;gap:6px;">
-                            <div style="font-size:13px;color:#00897b;font-weight:700;flex:1;">
+                            <div style="font-size:13px;color:#00a499;font-weight:700;flex:1;">
                                 Step @Sim.StepCount
                                 @if (Sim.IsViewingHistory)
                                 {
@@ -178,7 +178,7 @@
                             </div>
                             @if (Sim.IsAutoFiring)
                             {
-                                <div style="font-size:10px;background:#e0f5f3;color:#00897b;border-radius:10px;padding:2px 8px;font-weight:600;">● Auto</div>
+                                <div style="font-size:10px;background:#e0f5f3;color:#00a499;border-radius:10px;padding:2px 8px;font-weight:600;">● Auto</div>
                             }
                             @if (Sim.IsDeadlock)
                             {
@@ -196,7 +196,7 @@
                                     var delta = tokens - initial;
                                     <div style="display:flex;align-items:center;gap:5px;padding:4px 8px;background:#f7f7f7;border:1.5px solid @(tokens > initial ? "#a5d6a7" : tokens < initial ? "#ffcdd2" : "#ebebeb");border-radius:7px;font-size:12px;">
                                         <span style="color:#888;font-weight:600;">@place.Name</span>
-                                        <span style="min-width:18px;text-align:center;background:@(tokens > 0 ? "#00897b" : "#ddd");color:@(tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@tokens</span>
+                                        <span style="min-width:18px;text-align:center;background:@(tokens > 0 ? "#00a499" : "#ddd");color:@(tokens > 0 ? "#fff" : "#999");border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;">@tokens</span>
                                         @if (delta != 0)
                                         {
                                             <span style="font-size:10px;color:@(delta > 0 ? "#388e3c" : "#e53935");font-weight:700;">@(delta > 0 ? "+" : "")@delta</span>
@@ -223,8 +223,8 @@
                                         var isEnabled = enabled.Contains(t.Id);
                                         var fired = Sim.FiringCounts.GetValueOrDefault(t.Id, 0);
                                         <button @onclick="() => Sim.StepManual(t.Id)" disabled="@(!isEnabled)"
-                                                style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;border:1.5px solid @(isEnabled ? "#00897b" : "#ebebeb");background:@(isEnabled ? "#f0faf8" : "#fafafa");color:@(isEnabled ? "#00897b" : "#bbb");cursor:@(isEnabled ? "pointer" : "default");font-size:12px;font-weight:600;text-align:left;">
-                                            <svg viewBox="0 0 24 24" fill="@(isEnabled ? "#00897b" : "#ccc")" style="width:10px;height:10px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                                style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;border:1.5px solid @(isEnabled ? "#00a499" : "#ebebeb");background:@(isEnabled ? "#f0faf8" : "#fafafa");color:@(isEnabled ? "#00a499" : "#bbb");cursor:@(isEnabled ? "pointer" : "default");font-size:12px;font-weight:600;text-align:left;">
+                                            <svg viewBox="0 0 24 24" fill="@(isEnabled ? "#00a499" : "#ccc")" style="width:10px;height:10px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                                             @t.Name
                                             @if (t.Priority > 0)
                                             {
@@ -255,10 +255,10 @@
                                         <div style="font-size:12px;">
                                             <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
                                                 <span style="color:#555;font-weight:600;">@tname</span>
-                                                <span style="color:#00897b;font-weight:700;">@kv.Value</span>
+                                                <span style="color:#00a499;font-weight:700;">@kv.Value</span>
                                             </div>
                                             <div style="height:4px;background:#f0f0f0;border-radius:2px;overflow:hidden;">
-                                                <div style="height:100%;width:@(pct)%;background:#00897b;border-radius:2px;transition:width 0.3s;"></div>
+                                                <div style="height:100%;width:@(pct)%;background:#00a499;border-radius:2px;transition:width 0.3s;"></div>
                                             </div>
                                         </div>
                                     }
@@ -269,16 +269,23 @@
 
                     </div>
                 }
+                </div>
             }
             else
             {
                 @* ── Analysis mode content ── *@
+                <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;">
+                @{
+                    bool _isGraphTab = _activeAnalysisTab == "graph";
+                }
+                @* Scrollable controls (hidden on graph tab) *@
+                <div style="@(_isGraphTab ? "display:none;" : "flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;")">
                 <div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
 
-                    @* Run button + status *@
-                    <div style="display:flex;align-items:center;gap:8px;">
+                    @* Run / Cancel button *@
+                    <div style="display:flex;align-items:center;gap:6px;">
                         <button @onclick="RunAnalysis" disabled="@_analysisRunning"
-                                style="flex:1;padding:8px 0;background:@(_analysisRunning ? "#e0e0e0" : "#00897b");color:@(_analysisRunning ? "#aaa" : "#fff");border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:@(_analysisRunning ? "default" : "pointer");display:flex;align-items:center;justify-content:center;gap:6px;">
+                                style="flex:1;padding:8px 0;background:@(_analysisRunning ? "#f0f0f0" : "#00a499");color:@(_analysisRunning ? "#aaa" : "#fff");border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:@(_analysisRunning ? "default" : "pointer");display:flex;align-items:center;justify-content:center;gap:6px;">
                             @if (_analysisRunning)
                             {
                                 <span style="display:inline-block;width:11px;height:11px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;"></span>
@@ -290,6 +297,13 @@
                                 <span>Run Analysis</span>
                             }
                         </button>
+                        @if (_analysisRunning)
+                        {
+                            <button @onclick="CancelAnalysis"
+                                    style="padding:8px 12px;background:#fff0f0;color:#e53935;border:1.5px solid #ffcdd2;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+                                Cancel
+                            </button>
+                        }
                     </div>
 
                     @if (_analysisRunning && _progressMessage != null)
@@ -300,7 +314,7 @@
                                 <span>@_progressMessage.Percent%</span>
                             </div>
                             <div style="height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;">
-                                <div style="height:100%;width:@(_progressMessage.Percent)%;background:#00897b;border-radius:2px;transition:width 0.3s;"></div>
+                                <div style="height:100%;width:@(_progressMessage.Percent)%;background:#00a499;border-radius:2px;transition:width 0.3s;"></div>
                             </div>
                         </div>
                     }
@@ -311,55 +325,86 @@
                     }
 
                     @* ── Export section ── *@
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                        <div style="font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#aaa;">Export</div>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <button @onclick='() => ExportAsync(ExportFormat.TikZ, "petri.tex", "text/plain")'
-                                    disabled="@_exportRunning"
-                                    style="flex:1;min-width:70px;padding:6px 4px;background:#f3f3f3;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                TikZ
-                            </button>
-                            <button @onclick='() => ExportAsync(ExportFormat.Pnml, "petri.pnml", "application/xml")'
-                                    disabled="@_exportRunning"
-                                    style="flex:1;min-width:70px;padding:6px 4px;background:#f3f3f3;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                PNML
-                            </button>
-                            <button @onclick="() => ExportPdfAsync(false)"
-                                    disabled="@_exportRunning"
-                                    style="flex:1;min-width:70px;padding:6px 4px;background:#f3f3f3;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                PDF
-                            </button>
-                            <button @onclick="() => ExportPdfAsync(true)"
-                                    disabled="@(_exportRunning || _report is null)"
-                                    style="flex:1;min-width:70px;padding:6px 4px;background:@(_report is null ? "#f3f3f3" : "#e8f5e9");border:1px solid @(_report is null ? "#e0e0e0" : "#a5d6a7");border-radius:6px;font-size:11px;font-weight:600;color:@(_report is null ? "#bbb" : "#2e7d32");cursor:@(_report is null ? "default" : "pointer");">
-                                PDF + Analysis
-                            </button>
-                        </div>
-                        @if (_exportError != null)
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <button @onclick="() => _exportOpen = !_exportOpen"
+                                style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:#666;cursor:pointer;width:100%;">
+                            <span style="display:flex;align-items:center;gap:6px;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                Export
+                            </span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;transition:transform 0.15s;transform:rotate(@(_exportOpen ? "180deg" : "0deg"))">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </button>
+                        @if (_exportOpen)
                         {
-                            <div style="padding:5px 8px;background:#ffebee;border-radius:6px;font-size:10px;color:#c62828;">⚠ @_exportError</div>
+                            <div style="display:flex;flex-direction:column;gap:4px;padding:4px 0 2px 0;">
+                                <div style="display:flex;gap:5px;">
+                                    <button @onclick='() => ExportAsync(ExportFormat.TikZ, "petri.tex", "text/plain")'
+                                            disabled="@_exportRunning"
+                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
+                                        TikZ
+                                    </button>
+                                    <button @onclick='() => ExportAsync(ExportFormat.Pnml, "petri.pnml", "application/xml")'
+                                            disabled="@_exportRunning"
+                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
+                                        PNML
+                                    </button>
+                                    <button @onclick="() => ExportPdfAsync(false)"
+                                            disabled="@_exportRunning"
+                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
+                                        PDF
+                                    </button>
+                                </div>
+                                <button @onclick="() => ExportPdfAsync(true)"
+                                        disabled="@(_exportRunning || _result is null)"
+                                        style="padding:6px 8px;background:@(_result is null ? "#f5f5f5" : "#e8f5e9");border:1px solid @(_result is null ? "#e0e0e0" : "#a5d6a7");border-radius:6px;font-size:11px;font-weight:600;color:@(_result is null ? "#bbb" : "#2e7d32");cursor:@(_result is null ? "default" : "pointer");width:100%;">
+                                    PDF + Analysis @(_result is null ? "(run analysis first)" : "")
+                                </button>
+                                @if (_exportError != null)
+                                {
+                                    <div style="padding:5px 8px;background:#ffebee;border-radius:6px;font-size:10px;color:#c62828;">⚠ @_exportError</div>
+                                }
+                            </div>
                         }
                     </div>
 
-                    @if (_report is not null)
+                    @if (_result is not null)
                     {
                         @* ── Properties tab ── *@
-                        @if (_activeAnalysisTab == "properties")
+                        @if (!_isGraphTab && _activeAnalysisTab == "properties")
                         {
-                            var props = new[]
+                            // Behavioural properties (always shown)
+                            var behaviouralProps = new[]
                             {
-                        (NetProperty.Liveness,        "Liveness"),
-                        (NetProperty.Boundedness,      "Boundedness"),
-                        (NetProperty.Safety,           "Safety"),
-                        (NetProperty.Conservativeness, "Conservativeness"),
-                        (NetProperty.Repetitiveness,   "Repetitiveness"),
-                        (NetProperty.DeadlockFree,     "Deadlock-Free"),
-                        (NetProperty.Reversibility,    "Reversibility"),
-                        };
+                                ("Reversibility", "Reversibility"),
+                                ("Liveness",      "Liveness"),
+                                ("Boundedness",   "Boundedness"),
+                                ("Safety",        "Safety"),
+                                ("DeadlockFree",  "Deadlock-Free"),
+                            };
 
-                            var passCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Pass);
-                            var failCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Fail);
-                            var undecidableCount = props.Count(x => _report.Get(x.Item1)?.Status == TestResultStatus.Undecidable);
+                            // Structural properties (only meaningful for plain P/T nets)
+                            var structuralProps = new[]
+                            {
+                                ("Conservativeness", "Conservativeness"),
+                                ("Repetitiveness",   "Repetitiveness"),
+                            };
+
+                            bool isPlainNet = _result.NetStructure.InhibitorArcCount == 0
+                                          && _result.NetStructure.ResetArcCount == 0;
+
+                            var allShownProps = isPlainNet
+                                ? behaviouralProps.Concat(structuralProps).ToArray()
+                                : behaviouralProps;
+
+                            var passCount        = allShownProps.Count(x => _result.PropertyResults.FirstOrDefault(r => r.Property == x.Item1)?.Status == "Pass");
+                            var failCount        = allShownProps.Count(x => _result.PropertyResults.FirstOrDefault(r => r.Property == x.Item1)?.Status == "Fail");
+                            var undecidableCount = allShownProps.Count(x => { var s = _result.PropertyResults.FirstOrDefault(r => r.Property == x.Item1)?.Status; return s != null && s != "Pass" && s != "Fail"; });
 
                             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;">
                                 <div style="background:#f6fbf9;border:1px solid #d9efe4;border-radius:10px;padding:10px 12px;">
@@ -376,68 +421,79 @@
                                 </div>
                             </div>
 
+                            var shownGroups = isPlainNet
+                                ? new[] { ("", behaviouralProps), ("STRUCTURAL", structuralProps) }
+                                : new[] { ("", behaviouralProps) };
+
                             <div style="display:flex;flex-direction:column;gap:10px;">
-                                @foreach (var (prop, label) in props)
+                                @foreach (var (groupLabel, group) in shownGroups)
                                 {
-                                    var r = _report.Get(prop);
-                                    var expanded = _expandedProp == prop;
-                                    var hasDetails = (r?.Reasons.Count ?? 0) > 0 || (r?.Errors.Count ?? 0) > 0;
-
-                                    <div style="border:1px solid #e6e6e6;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                        <button @onclick="() => ToggleProp(prop)"
-                                                style="width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;background:@(r?.StatusBackground ?? "#fafafa");border:none;cursor:pointer;text-align:left;">
-                                            <div style="width:10px;height:10px;border-radius:50%;background:@(r?.StatusColor ?? "#bbb");flex-shrink:0;"></div>
-                                            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
-                                                <span style="font-size:13px;font-weight:800;color:#303030;">@label</span>
-                                                <span style="font-size:11px;color:#7a7a7a;">@GetPropertySummary(r)</span>
-                                            </div>
-                                            <span style="font-size:11px;font-weight:800;color:@(r?.StatusColor ?? "#888");background:#fff;padding:4px 10px;border-radius:999px;border:1px solid @(r?.StatusColor ?? "#ddd");white-space:nowrap;">@(r?.StatusLabel ?? "–")</span>
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;transform:@(expanded ? "rotate(180deg)" : "rotate(0deg)");transition:transform 0.15s;">
-                                                <polyline points="6 9 12 15 18 9" />
-                                            </svg>
-                                        </button>
-
-                                        @if (expanded && r != null)
-                                        {
-                                            <div style="padding:12px 14px;background:#fff;border-top:1px solid #f1f1f1;display:flex;flex-direction:column;gap:12px;">
-                                                @if (r.Reasons.Count > 0)
-                                                {
-                                                    <div>
-                                                        <div style="font-size:10px;font-weight:800;color:#9a9a9a;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Why</div>
-                                                        <div style="display:flex;flex-direction:column;gap:7px;">
-                                                            @foreach (var reason in r.Reasons)
-                                                            {
-                                                                <div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:#fafafa;border:1px solid #efefef;border-radius:9px;">
-                                                                    <span style="color:@(r.StatusColor);font-size:12px;line-height:1.4;">•</span>
-                                                                    <span style="font-size:12px;color:#4d4d4d;line-height:1.55;">@reason</span>
-                                                                </div>
-                                                            }
+                                    @if (!string.IsNullOrEmpty(groupLabel))
+                                    {
+                                        <div style="display:flex;align-items:center;gap:8px;margin:2px 0 0;">
+                                            <div style="flex:1;height:1px;background:#e8e8e8;"></div>
+                                            <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">@groupLabel</span>
+                                            <div style="flex:1;height:1px;background:#e8e8e8;"></div>
+                                        </div>
+                                    }
+                                    @foreach (var (propName, label) in group)
+                                    {
+                                        var r = _result.PropertyResults.FirstOrDefault(pr => pr.Property == propName);
+                                        var expanded = _expandedProp == propName;
+                                        var hasDetails = (r?.Reasons.Count ?? 0) > 0 || (r?.Errors.Count ?? 0) > 0;
+                                        <div style="border:1px solid #e6e6e6;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                            <button @onclick="() => ToggleProp(propName)"
+                                                    style="width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;background:@(r?.StatusBackground ?? "#fafafa");border:none;cursor:pointer;text-align:left;">
+                                                <div style="width:10px;height:10px;border-radius:50%;background:@(r?.StatusColor ?? "#bbb");flex-shrink:0;"></div>
+                                                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
+                                                    <span style="font-size:13px;font-weight:800;color:#303030;">@label</span>
+                                                    <span style="font-size:11px;color:#7a7a7a;">@GetPropertySummary(r)</span>
+                                                </div>
+                                                <span style="font-size:11px;font-weight:800;color:@(r?.StatusColor ?? "#888");background:#fff;padding:4px 10px;border-radius:999px;border:1px solid @(r?.StatusColor ?? "#ddd");white-space:nowrap;">@(r?.StatusLabel ?? "–")</span>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;transform:@(expanded ? "rotate(180deg)" : "rotate(0deg)");transition:transform 0.15s;">
+                                                    <polyline points="6 9 12 15 18 9" />
+                                                </svg>
+                                            </button>
+                                            @if (expanded && r != null)
+                                            {
+                                                <div style="padding:12px 14px;background:#fff;border-top:1px solid #f1f1f1;display:flex;flex-direction:column;gap:12px;">
+                                                    @if (r.Reasons.Count > 0)
+                                                    {
+                                                        <div>
+                                                            <div style="font-size:10px;font-weight:800;color:#9a9a9a;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Why</div>
+                                                            <div style="display:flex;flex-direction:column;gap:7px;">
+                                                                @foreach (var reason in r.Reasons)
+                                                                {
+                                                                    <div style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:#fafafa;border:1px solid #efefef;border-radius:9px;">
+                                                                        <span style="color:@(r.StatusColor);font-size:12px;line-height:1.4;">•</span>
+                                                                        <span style="font-size:12px;color:#4d4d4d;line-height:1.55;">@reason</span>
+                                                                    </div>
+                                                                }
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                }
-
-                                                @if (r.Errors.Count > 0)
-                                                {
-                                                    <div>
-                                                        <div style="font-size:10px;font-weight:800;color:#c62828;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Technical details</div>
-                                                        <div style="display:flex;flex-direction:column;gap:7px;">
-                                                            @foreach (var err in r.Errors)
-                                                            {
-                                                                <div style="padding:9px 10px;background:#fff5f5;border:1px solid #f0c8c8;border-radius:9px;font-size:12px;color:#a12626;line-height:1.5;">
-                                                                    ⚠ @err
-                                                                </div>
-                                                            }
+                                                    }
+                                                    @if (r.Errors.Count > 0)
+                                                    {
+                                                        <div>
+                                                            <div style="font-size:10px;font-weight:800;color:#c62828;text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Technical details</div>
+                                                            <div style="display:flex;flex-direction:column;gap:7px;">
+                                                                @foreach (var err in r.Errors)
+                                                                {
+                                                                    <div style="padding:9px 10px;background:#fff5f5;border:1px solid #f0c8c8;border-radius:9px;font-size:12px;color:#a12626;line-height:1.5;">
+                                                                        ⚠ @err
+                                                                    </div>
+                                                                }
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                }
-
-                                                @if (!hasDetails)
-                                                {
-                                                    <div style="font-size:12px;color:#7c7c7c;line-height:1.5;">No extra details are available for this property.</div>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
+                                                    }
+                                                    @if (!hasDetails)
+                                                    {
+                                                        <div style="font-size:12px;color:#7c7c7c;line-height:1.5;">No extra details are available for this property.</div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                 }
                             </div>
                         }
@@ -445,27 +501,30 @@
                         @* ── Classification tab ── *@
                         else if (_activeAnalysisTab == "classification")
                         {
-                            var cls = _report.Classification;
-                            @* Net type badge *@
+                            var ns = _result.NetStructure;
+                            var subclasses = _result.ClassificationSubclasses;
+                            var clsChecks = new[]
+                            {
+                                ("Ordinary",           "Ordinary",             "All arcs are ordinary unit-weight arcs (weight 1, no inhibitor/reset arcs)."),
+                                ("StateMachine",       "State Machine",        "Each transition has exactly one input and one output place."),
+                                ("MarkedGraph",        "Marked Graph",         "Each place has exactly one input and one output transition."),
+                                ("FreeChoice",         "Free Choice",          "If two transitions share an input place, they share all input places."),
+                                ("ExtendedFreeChoice", "Extended Free Choice", "If two transitions share an input place, each has exactly one input place."),
+                            };
                             <div style="background:#f7f7f7;border:1.5px solid #ebebeb;border-radius:9px;padding:12px;margin-bottom:8px;">
                                 <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Net Type</div>
-                                <div style="font-size:15px;font-weight:700;color:#00897b;">@_report.ClassificationSummary</div>
+                                <div style="font-size:15px;font-weight:700;color:#00a499;">@_result.ClassificationSummary</div>
                             </div>
-
-                            @* Structural counts *@                        
-                                                var inhibCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Inhibitor);
-                            var resetCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Reset);
-                            var normalCount = _report.Net.Arcs.Count(a => a.ArcType == PnArcType.Normal);
 
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
                                 @foreach (var (label, value, color) in new[]{
-                                ("Places",      _report.Net.Places.Count.ToString(),      "#00897b"),
-                                ("Transitions", _report.Net.Transitions.Count.ToString(), "#00897b"),
-                                ("Normal Arcs", normalCount.ToString(),                   "#00897b"),
-                                ("Inhibitor",   inhibCount.ToString(),                    inhibCount > 0 ? "#e65100" : "#bbb"),
-                                ("Reset Arcs",  resetCount.ToString(),                    resetCount > 0 ? "#6a1b9a" : "#bbb"),
-                                ("Init Tokens", _report.Net.Places.Sum(p => p.Tokens).ToString(), "#00897b"),
-                                })
+                                    ("Places",      ns.PlaceCount.ToString(),      "#00a499"),
+                                    ("Transitions", ns.TransitionCount.ToString(), "#00a499"),
+                                    ("Normal Arcs", ns.NormalArcCount.ToString(),  "#00a499"),
+                                    ("Inhibitor",   ns.InhibitorArcCount.ToString(), ns.InhibitorArcCount > 0 ? "#e65100" : "#bbb"),
+                                    ("Reset Arcs",  ns.ResetArcCount.ToString(),   ns.ResetArcCount > 0 ? "#6a1b9a" : "#bbb"),
+                                    ("Init Tokens", ns.InitialTokenCount.ToString(), "#00a499"),
+                                    })
                                 {
                                     <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:7px 10px;">
                                         <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
@@ -474,66 +533,56 @@
                                 }
                             </div>
 
-                            @if (cls != null && !cls.HasErrors)
-                            {
-                                var checks = new[]
+                            <div style="display:flex;flex-direction:column;gap:5px;">
+                                @foreach (var (sub, name, desc) in clsChecks)
                                 {
-                        (NetSubclass.Ordinary,           "Ordinary",             "All arcs are ordinary unit-weight arcs (weight 1, no inhibitor/reset arcs)."),
-                        (NetSubclass.StateMachine,       "State Machine",        "Each transition has exactly one input and one output place."),
-                        (NetSubclass.MarkedGraph,        "Marked Graph",         "Each place has exactly one input and one output transition."),
-                        (NetSubclass.FreeChoice,         "Free Choice",          "If two transitions share an input place, they share all input places."),
-                        (NetSubclass.ExtendedFreeChoice, "Extended Free Choice", "If two transitions share an input place, each has exactly one input place."),
-                        };
-                                <div style="display:flex;flex-direction:column;gap:5px;">
-                                    @foreach (var (sub, name, desc) in checks)
-                                    {
-                                        bool has = cls.IsOfType(sub);
-                                        <div style="display:flex;align-items:flex-start;gap:8px;padding:7px 10px;background:@(has ? "#e8f5e9" : "#fafafa");border:1px solid @(has ? "#a5d6a7" : "#ebebeb");border-radius:7px;">
-                                            <span style="font-size:14px;color:@(has ? "#2e7d32" : "#ccc");flex-shrink:0;margin-top:1px;">@(has ? "✓" : "✗")</span>
-                                            <div>
-                                                <div style="font-size:12px;font-weight:700;color:@(has ? "#2e7d32" : "#999");">@name</div>
-                                                <div style="font-size:11px;color:#aaa;margin-top:1px;">@desc</div>
-                                            </div>
+                                    bool has = subclasses.Contains(sub);
+                                    <div style="display:flex;align-items:flex-start;gap:8px;padding:7px 10px;background:@(has ? "#e8f5e9" : "#fafafa");border:1px solid @(has ? "#a5d6a7" : "#ebebeb");border-radius:7px;">
+                                        <span style="font-size:14px;color:@(has ? "#2e7d32" : "#ccc");flex-shrink:0;margin-top:1px;">@(has ? "✓" : "✗")</span>
+                                        <div>
+                                            <div style="font-size:12px;font-weight:700;color:@(has ? "#2e7d32" : "#999");">@name</div>
+                                            <div style="font-size:11px;color:#aaa;margin-top:1px;">@desc</div>
                                         </div>
-                                    }
-                                </div>
-                            }
+                                    </div>
+                                }
+                            </div>
                         }
 
                         @* ── Cycles tab ── *@
                         else if (_activeAnalysisTab == "cycles")
                         {
-                            var cyc = _report.Cycles;
+                            var cyc = _result.Cycles;
                             @if (cyc == null || cyc.HasErrors)
                             {
                                 <div style="font-size:12px;color:#e53935;">@(cyc?.ErrorMsg ?? "Cycle analysis not available.")</div>
                             }
                             else
                             {
-                                var placeCoverage = cyc.PlaceCoverageCount(_report.Net);
-                                var transitionCoverage = cyc.TransitionCoverageCount(_report.Net);
+                                var nameById = BuildNameById();
+                                string Resolve(string id) => nameById.GetValueOrDefault(id, id);
+                                var ns2 = _result.NetStructure;
                                 <div style="display:flex;flex-direction:column;gap:14px;">
                                     <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
-                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">Net cycle coverage</div>
+                                        <div style="font-size:14px;font-weight:800;color:#00a499;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">Net cycle coverage</div>
                                         <div style="display:flex;flex-direction:column;gap:12px;color:#666;font-size:12px;line-height:1.55;">
                                             <div>
-                                                @if (placeCoverage == _report.Net.Places.Count)
+                                                @if (cyc.PlaceCoverage == ns2.PlaceCount)
                                                 {
                                                     <span>Each place belongs to some elementary cycle carrier</span>
                                                 }
                                                 else
                                                 {
-                                                    <span>@placeCoverage of @_report.Net.Places.Count place(s) belong to some elementary cycle carrier</span>
+                                                    <span>@cyc.PlaceCoverage of @ns2.PlaceCount place(s) belong to some elementary cycle carrier</span>
                                                 }
                                             </div>
                                             <div>
-                                                @if (transitionCoverage == _report.Net.Transitions.Count)
+                                                @if (cyc.TransitionCoverage == ns2.TransitionCount)
                                                 {
                                                     <span>Each transition belongs to some elementary cycle carrier</span>
                                                 }
                                                 else
                                                 {
-                                                    <span>@transitionCoverage of @_report.Net.Transitions.Count transition(s) belong to some elementary cycle carrier</span>
+                                                    <span>@cyc.TransitionCoverage of @ns2.TransitionCount transition(s) belong to some elementary cycle carrier</span>
                                                 }
                                             </div>
                                         </div>
@@ -541,7 +590,7 @@
 
                                     <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">
-                                            <div style="font-size:14px;font-weight:800;color:#00897b;">Elementary cycles</div>
+                                            <div style="font-size:14px;font-weight:800;color:#00a499;">Elementary cycles</div>
                                             <div style="font-size:11px;color:#8b8b8b;">@cyc.Cycles.Count cycle(s)</div>
                                         </div>
 
@@ -555,10 +604,11 @@
                                                 @for (int ci = 0; ci < cyc.Cycles.Count; ci++)
                                                 {
                                                     var cycle = cyc.Cycles[ci];
+                                                    var cycleMarkup = string.Join(" → ", cycle.NodeIds.Select(id => Resolve(id)));
                                                     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
                                                         <div style="font-size:12px;color:#666;line-height:1.7;min-width:0;">
                                                             <span style="font-weight:700;color:#666;">C<sub>@(ci + 1)</sub></span>
-                                                            <span> = @((MarkupString)FormatCycleMarkup(cycle, _report))</span>
+                                                            <span> = @cycleMarkup</span>
                                                         </div>
                                                         <div style="white-space:nowrap;font-size:11px;color:@(cycle.TokensInCycle > 0 ? "#2e7d32" : "#9a9a9a");font-weight:600;">@cycle.TokensInCycle token(s)</div>
                                                     </div>
@@ -573,37 +623,61 @@
                         @* ── Invariant tab ── *@
                         else if (_activeAnalysisTab == "invariant")
                         {
-                            var inv = _report.Invariants;
-                            @if (inv == null || inv.HasErrors)
+                            var nameById2 = BuildNameById();
+                            string Resolve2(string id) => nameById2.GetValueOrDefault(id, id);
+
+                            string FormatInvariant(InvariantDto inv)
                             {
-                                <div style="font-size:12px;color:#e53935;">@(inv?.ErrorMsg ?? "Invariant analysis not available.")</div>
+                                var parts = inv.Structure.Select(kv => kv.Value == 1
+                                    ? Resolve2(kv.Key)
+                                    : $"{kv.Value}{Resolve2(kv.Key)}");
+                                return $"({string.Join(", ", parts)})";
+                            }
+
+                            int ComputePInvariantConstant(InvariantDto inv)
+                            {
+                                var total = 0;
+                                if (_lastDto != null)
+                                {
+                                    foreach (var kv in inv.Structure)
+                                    {
+                                        var pl = _lastDto.Places.FirstOrDefault(p => p.Id == kv.Key);
+                                        if (pl != null) total += kv.Value * pl.Tokens;
+                                    }
+                                }
+                                return total;
+                            }
+
+                            @if (!_result.PInvariants.Any() && !_result.TInvariants.Any())
+                            {
+                                <div style="font-size:12px;color:#e53935;">Invariant analysis not available.</div>
                             }
                             else
                             {
                                 <div style="display:flex;flex-direction:column;gap:14px;">
                                     <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
-                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">P - invariants</div>
-                                        @if (!inv.PInvariants.Any())
+                                        <div style="font-size:14px;font-weight:800;color:#00a499;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">P - invariants</div>
+                                        @if (!_result.PInvariants.Any())
                                         {
                                             <div style="font-size:12px;color:#999;line-height:1.6;">No P-invariants found.</div>
                                         }
                                         else
                                         {
                                             <div style="display:flex;flex-direction:column;gap:12px;">
-                                                @for (int i = 0; i < inv.PInvariants.Count; i++)
+                                                @for (int i = 0; i < _result.PInvariants.Count; i++)
                                                 {
-                                                    var pInv = inv.PInvariants[i];
+                                                    var pInv = _result.PInvariants[i];
                                                     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
                                                         <div>
                                                             <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
                                                             <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> = @((MarkupString)FormatInvariantMarkup(pInv, _report))</span>
+                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(pInv)</span>
                                                             </div>
                                                         </div>
                                                         <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
                                                             <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
                                                             <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> · M<sup>0</sup> = @ComputeInvariantConstant(pInv, _report.Net)</span>
+                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> · M<sup>0</sup> = @ComputePInvariantConstant(pInv)</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -613,22 +687,22 @@
                                     </div>
 
                                     <div style="background:#fff;border:1px solid #e3e3e3;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:18px 18px 16px;">
-                                        <div style="font-size:14px;font-weight:800;color:#00897b;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">T - invariants</div>
-                                        @if (!inv.TInvariants.Any())
+                                        <div style="font-size:14px;font-weight:800;color:#00a499;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #e5e5e5;">T - invariants</div>
+                                        @if (!_result.TInvariants.Any())
                                         {
                                             <div style="font-size:12px;color:#999;line-height:1.6;">No T-invariants found.</div>
                                         }
                                         else
                                         {
                                             <div style="display:flex;flex-direction:column;gap:12px;">
-                                                @for (int i = 0; i < inv.TInvariants.Count; i++)
+                                                @for (int i = 0; i < _result.TInvariants.Count; i++)
                                                 {
-                                                    var tInv = inv.TInvariants[i];
+                                                    var tInv = _result.TInvariants[i];
                                                     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
                                                         <div>
                                                             <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
                                                             <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>X<sup>T</sup><sub>@(i + 1)</sub> = @((MarkupString)FormatInvariantMarkup(tInv, _report))</span>
+                                                                <span>X<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(tInv)</span>
                                                             </div>
                                                         </div>
                                                         <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
@@ -646,124 +720,18 @@
                             }
                         }
 
-                        @* ── State Space tab ── *@
-                        else if (_activeAnalysisTab == "statespace")
-                        {
-                            var ss = _report.StateSpace;
-                            @if (ss == null || ss.HasErrors)
-                            {
-                                <div style="padding:8px 10px;background:#ffebee;border-radius:7px;font-size:11px;color:#c62828;">
-                                    ⚠ @(ss?.ErrorMsg ?? "State space analysis not available.")
-                                </div>
-                            }
-                            else
-                            {
-                                @* Summary stats *@
-                                var unboundedIds = _report.UnboundedPlaceIds();
-                                var isBounded = ss.IsBounded();
-                                var sccs = ss.FindSCCs();
-                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">
-                                    @foreach (var (label, value, color) in new[]{
-                                ("Reachable States", _report.StateCount.ToString(), "#00897b"),
-                                ("Places",           _report.Net.Places.Count.ToString(), "#00897b"),
-                                ("Transitions",      _report.Net.Transitions.Count.ToString(), "#00897b"),
-                                ("SCCs",             sccs.Count.ToString(), "#00897b"),
-                                ("Bounded",          isBounded ? "Yes" : "No", isBounded ? "#2e7d32" : "#c62828"),
-                                ("Coverability",     isBounded ? "Reachability" : "Coverability", isBounded ? "#2e7d32" : "#e65100"),
-                                })
-                                    {
-                                        <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:8px 10px;">
-                                            <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
-                                            <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
-                                        </div>
-                                    }
-                                </div>
-
-                                @* Unbounded places *@
-                                @if (!isBounded && unboundedIds.Any())
-                                {
-                                    <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Unbounded Places (ω)</div>
-                                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
-                                        @foreach (var pid in unboundedIds)
-                                        {
-                                            <span style="padding:2px 8px;background:#fff3e0;border:1px solid #ffb74d;border-radius:10px;font-size:11px;color:#e65100;font-weight:600;">@_report.ResolveName(pid)</span>
-                                        }
-                                    </div>
-                                }
-
-                                @* Initial marking *@
-                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Initial Marking</div>
-                                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
-                                    @foreach (var pl in _report.Net.Places)
-                                    {
-                                        <span style="padding:2px 8px;background:@(pl.Tokens > 0 ? "#e8f5e9" : "#f7f7f7");border:1px solid @(pl.Tokens > 0 ? "#a5d6a7" : "#ebebeb");border-radius:10px;font-size:11px;color:@(pl.Tokens > 0 ? "#2e7d32" : "#aaa");font-weight:600;">
-                                            @pl.Name = @pl.Tokens
-                                        </span>
-                                    }
-                                </div>
-
-                                @* SCC info *@
-                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Strongly Connected Components</div>
-                                <div style="display:flex;flex-direction:column;gap:3px;">
-                                    @for (int si = 0; si < Math.Min(sccs.Count, 20); si++)
-                                    {
-                                        var scc = sccs[si];
-                                        var sccSize = scc.Count;
-                                        <div style="padding:5px 8px;background:#f7f7f7;border:1px solid #ebebeb;border-radius:6px;font-size:11px;color:#555;">
-                                            <span style="font-weight:700;color:#888;">SCC @(si + 1)</span>
-                                            <span style="margin-left:6px;color:#aaa;">@sccSize state(s)</span>
-                                        </div>
-                                    }
-                                    @if (sccs.Count > 20)
-                                    {
-                                        <div style="font-size:11px;color:#aaa;padding:4px 0;">… and @(sccs.Count - 20) more SCCs</div>
-                                    }
-                                </div>
-                            }
-                        }
-
-                        @* ── Reachability graph tab ── *@
-                        else if (_activeAnalysisTab == "reachgraph")
-                        {
-                            var reachDto = BuildReachabilityGraphDto();
-                            @if (reachDto is null)
-                            {
-                                <div style="padding:8px 10px;background:#fff8e1;border-radius:7px;font-size:11px;color:#f57f17;">
-                                    ⚠ Reachability tree not available. Run analysis first, or the net may be unbounded (use Cover. Tree tab instead).
-                                </div>
-                            }
-                            else
-                            {
-                                <ReachabilityGraphView Graph="@reachDto" />
-                            }
-                        }
-
-                        @* ── Coverability tree tab ── *@
-                        else if (_activeAnalysisTab == "covertree")
-                        {
-                            var coverDto = BuildCoverabilityTreeDto();
-                            @if (coverDto is null)
-                            {
-                                <div style="padding:8px 10px;background:#fff8e1;border-radius:7px;font-size:11px;color:#f57f17;">
-                                    ⚠ Coverability tree not available. Run analysis first.
-                                </div>
-                            }
-                            else
-                            {
-                                <CoverabilityTreeView Tree="@coverDto" />
-                            }
-                        }
-
                         @* ── Traps tab ── *@
                         else if (_activeAnalysisTab == "traps")
                         {
-                            var tc = _report.TrapCotrap;
+                            var tc = _result.Traps;
                             @if (tc == null || tc.HasErrors)
                             {
                                 <div style="font-size:12px;color:#e53935;">@(tc?.ErrorMsg ?? "Trap/co-trap analysis not available.")</div>
                             }
                             else
                             {
+                                var nameById3 = BuildNameById();
+                                string Resolve3(string id) => nameById3.GetValueOrDefault(id, id);
                                 <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">Traps (@tc.Traps.Count)</div>
                                 @if (!tc.Traps.Any())
                                 {
@@ -772,23 +740,24 @@
                                 @foreach (var trap in tc.Traps)
                                 {
                                     <div style="padding:5px 8px;background:@(trap.HasToken ? "#e8f5e9" : "#fafafa");border:1px solid @(trap.HasToken ? "#a5d6a7" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
-                                        { @string.Join(", ", trap.PlaceIds.Select(id => _report.ResolveName(id))) }
+                                        { @string.Join(", ", trap.PlaceIds.Select(id => Resolve3(id))) }
                                         @if (trap.HasToken)
                                         {
                                             <span style="color:#2e7d32;font-weight:700;"> ● marked</span>
                                         }
                                     </div>
                                 }
-                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin:8px 0 4px;">Siphons / Co-traps (@tc.Cotraps.Count)</div>
-                                @if (!tc.Cotraps.Any())
+                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin:8px 0 4px;">Siphons / Co-traps (@tc.Siphons.Count)</div>
+                                @if (!tc.Siphons.Any())
                                 {
                                     <div style="font-size:12px;color:#aaa;">None found.</div>
                                 }
-                                @foreach (var ct in tc.Cotraps)
+                                @foreach (var siphon in tc.Siphons)
                                 {
-                                    var isDangerous = !tc.Traps.Any(trap => trap.HasToken && ct.PlaceIds.IsSupersetOf(trap.PlaceIds));
+                                    var siphonPlaceSet = new HashSet<string>(siphon.PlaceIds);
+                                    var isDangerous = !tc.Traps.Any(trap => trap.HasToken && trap.PlaceIds.All(pid => siphonPlaceSet.Contains(pid)));
                                     <div style="padding:5px 8px;background:@(isDangerous ? "#fff3e0" : "#fafafa");border:1px solid @(isDangerous ? "#ffb74d" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
-                                        { @string.Join(", ", ct.PlaceIds.Select(id => _report.ResolveName(id))) }
+                                        { @string.Join(", ", siphon.PlaceIds.Select(id => Resolve3(id))) }
                                         @if (isDangerous)
                                         {
                                             <span style="color:#e65100;font-weight:700;"> ⚠ no marked trap inside this siphon/co-trap</span>
@@ -808,6 +777,189 @@
                     }
 
                 </div>
+                </div>@* end scrollable controls *@
+
+                @* ── Graph / Tree tab (always mounted, shown/hidden via CSS) ── *@
+                <div style="@(_activeAnalysisTab == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+
+                    @* toolbar *@
+                    <div style="flex-shrink:0;display:flex;flex-direction:column;gap:0;border-bottom:1px solid #e4e6ea;background:#f7f8fa;">
+
+                        @* row 1: mode selector *@
+                        @{
+                            bool? _knownBounded = _graphStateSpace?.IsBounded;
+                        }
+                        <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 5px;">
+                            <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">MODE</span>
+                            <div style="display:flex;border:1px solid #e4e6ea;border-radius:7px;overflow:hidden;flex:1;">
+                                <button @onclick='() => SetGraphMode("reachability")'
+                                        title="@(_knownBounded == false ? "Net is unbounded — use Coverability" : "Exact graph for bounded nets")"
+                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;
+                                               background:@(_graphMode == "reachability" ? "#00a499" : "#fff");
+                                               color:@(_graphMode == "reachability" ? "#fff" : _knownBounded == false ? "#e0a0a0" : "#8a94a6");
+                                               text-decoration:@(_knownBounded == false ? "line-through" : "none");">
+                                    Reachability
+                                </button>
+                                <button @onclick='() => SetGraphMode("coverability")'
+                                        title="@(_knownBounded == true ? "Net is bounded — Reachability is exact" : "Works for bounded and unbounded nets (ω = unbounded)")"
+                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;white-space:nowrap;
+                                               background:@(_graphMode == "coverability" ? "#00a499" : "#fff");
+                                               color:@(_graphMode == "coverability" ? "#fff" : "#8a94a6");">
+                                    Coverability
+                                </button>
+                                <button @onclick='() => SetGraphMode("statespace")'
+                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;white-space:nowrap;
+                                               background:@(_graphMode == "statespace" ? "#00a499" : "#fff");
+                                               color:@(_graphMode == "statespace" ? "#fff" : "#8a94a6");">
+                                    State Space
+                                </button>
+                            </div>
+                        </div>
+
+                        @* row 2: view toggle + compute (only when not statespace) *@
+                        @if (_graphMode != "statespace")
+                        {
+                            <div style="display:flex;align-items:center;gap:6px;padding:0 10px 6px;">
+                                <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">VIEW</span>
+                                <div style="display:flex;border:1px solid #e4e6ea;border-radius:7px;overflow:hidden;">
+                                    <button @onclick='() => _viewMode = "graph"'
+                                            style="padding:4px 12px;font-size:11px;font-weight:600;border:none;cursor:pointer;
+                                                   background:@(_viewMode == "graph" ? "#e8f5f3" : "#fff");
+                                                   color:@(_viewMode == "graph" ? "#00796b" : "#8a94a6");">
+                                        Graph
+                                    </button>
+                                    <button @onclick='() => _viewMode = "tree"'
+                                            style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;
+                                                   background:@(_viewMode == "tree" ? "#e8f5f3" : "#fff");
+                                                   color:@(_viewMode == "tree" ? "#00796b" : "#8a94a6");">
+                                        Tree
+                                    </button>
+                                </div>
+                                <div style="flex:1;"></div>
+                                @if (_graphRunning)
+                                {
+                                    <button @onclick="CancelGraph"
+                                            style="padding:4px 10px;font-size:11px;font-weight:700;border:1.5px solid #ffcdd2;border-radius:7px;background:#fff0f0;color:#e53935;cursor:pointer;white-space:nowrap;">
+                                        Cancel
+                                    </button>
+                                }
+                                @if (_graphError != null && !_graphRunning)
+                                {
+                                    <span style="font-size:10px;color:#e53935;white-space:nowrap;" title="@_graphError">⚠ Error</span>
+                                }
+                                <button @onclick="ComputeGraph" disabled="@_graphRunning"
+                                        style="padding:4px 14px;font-size:11px;font-weight:700;border:none;border-radius:7px;white-space:nowrap;
+                                               cursor:@(_graphRunning ? "default" : "pointer");
+                                               background:@(_graphRunning ? "#f0f0f0" : "#00a499");
+                                               color:@(_graphRunning ? "#aaa" : "#fff");display:flex;align-items:center;gap:5px;">
+                                    @if (_graphRunning)
+                                    {
+                                        <span style="display:inline-block;width:10px;height:10px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;"></span>
+                                        <span>Computing…</span>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:10px;height:10px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                        <span>Compute</span>
+                                    }
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    @* content area — use CSS show/hide to avoid destroying Cytoscape instances *@
+                    @if (_graphMode == "statespace")
+                    {
+                        <div style="flex:1;overflow-y:auto;padding:12px 14px;">
+                        @if (_graphStateSpace == null)
+                        {
+                            <p style="font-size:12px;color:#bbb;text-align:center;padding:20px 0;">
+                                Compute Reachability or Coverability first — state space facts are derived automatically.
+                            </p>
+                        }
+                        else
+                        {
+                            var ss = _graphStateSpace;
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">
+                                @foreach (var (label, value, color) in new[]{
+                                    ("States",        ss.StateCount.ToString(),               "#00a499"),
+                                    ("Bounded",       ss.IsBounded     ? "Yes" : "No",        ss.IsBounded     ? "#2e7d32" : "#c62828"),
+                                    ("Safe",          ss.IsSafe        ? "Yes" : "No",        ss.IsSafe        ? "#2e7d32" : "#c62828"),
+                                    ("Deadlock-Free", ss.IsDeadlockFree? "Yes" : "No",        ss.IsDeadlockFree? "#2e7d32" : "#c62828"),
+                                    ("Reversible",    ss.IsReversible  ? "Yes" : "No",        ss.IsReversible  ? "#2e7d32" : "#c62828"),
+                                    ("Graph type",    ss.IsBounded ? "Reachability" : "Coverability", ss.IsBounded ? "#2e7d32" : "#e65100"),
+                                })
+                                {
+                                    <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:8px 10px;">
+                                        <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
+                                        <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
+                                    </div>
+                                }
+                            </div>
+                            @if (ss.ExceededLimit)
+                            {
+                                <div style="padding:7px 10px;background:#fff8e1;border-radius:7px;font-size:11px;color:#f57f17;">
+                                    State space exceeded the 50 000-state limit. Results may be incomplete.
+                                </div>
+                            }
+                        }
+                        </div>
+                    }
+
+                    @* ── Reachability graph (Cytoscape) — keep alive with CSS ── *@
+                    @if (_graphReach != null)
+                    {
+                        <div style="@(_graphMode == "reachability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <ReachabilityGraphView Graph="@_graphReach" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                        </div>
+                    }
+
+                    @* ── Reachability tree (SVG) — keep alive with CSS ── *@
+                    @if (_graphReachTree != null)
+                    {
+                        <div style="@(_graphMode == "reachability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <ReachabilityTreeView Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                        </div>
+                    }
+
+                    @* ── Coverability graph (Cytoscape) — keep alive with CSS ── *@
+                    @if (_graphCover != null)
+                    {
+                        <div style="@(_graphMode == "coverability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <CoverabilityTreeView Tree="@_graphCover" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                        </div>
+                    }
+
+                    @* ── Coverability tree (SVG) — keep alive with CSS ── *@
+                    @if (_graphCoverTree != null)
+                    {
+                        <div style="@(_graphMode == "coverability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <CoverabilityTreeViewSvg Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                        </div>
+                    }
+
+                    @* ── Loading overlay ── *@
+                    @if (_graphRunning)
+                    {
+                        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
+                            <div style="width:28px;height:28px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+                            <span style="font-size:12px;color:#9aa0ad;">Computing...</span>
+                        </div>
+                    }
+
+                    @* ── Empty state ── *@
+                    @if (!_graphRunning && _graphMode != "statespace" && !_HasVisibleContent())
+                    {
+                        <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+                            <p style="font-size:12px;color:#bbb;text-align:center;">
+                                @if (_graphMode == "reachability" && _graphReach != null && _viewMode == "tree" && _graphReachTree == null)
+                                { <span>Reachability tree not available (state space may have exceeded limit).</span> }
+                                else
+                                { <span>Press Compute to build the @(_graphMode == "coverability" ? "coverability tree" : "reachability graph").</span> }
+                            </p>
+                        </div>
+                    }
+                </div>
 
                 @* CSS for spinner *@
                 <style>
@@ -817,6 +969,7 @@
                         }
                     }
                 </style>
+                </div>@* end analysis flex column *@
             }
         </div>
 
@@ -845,6 +998,8 @@
     private string _mode = "simulation";  // "analysis" | "simulation"
     private string _activeAnalysisTab = "properties";
 
+    private void SelectTab(string id) { _activeAnalysisTab = id; StateHasChanged(); }
+
     private double _dockedWidth = 320;
     private const double DockedMin = 200, DockedMax = 700;
     private double _floatX = 100, _floatY = 80, _floatW = 420, _floatH = 520;
@@ -857,22 +1012,22 @@
         new("classification", "Classification", "Classify the net type: free-choice, state machine, etc."),
         new("cycles",         "Cycles",         "Detect cycles and siphons in the net structure."),
         new("invariant",      "Invariant",      "Compute P-invariants and T-invariants."),
-        new("statespace",     "State Space",    "Build the full reachability / coverability graph."),
-        new("reachgraph",     "Reach. Graph",   "Interactive reachability tree visualization."),
-        new("covertree",      "Cover. Tree",    "Interactive Karp-Miller coverability tree (ω nodes for unbounded places)."),
+        new("graph",          "Graph / Tree",   "Interactive reachability graph, coverability tree, or state space summary."),
         new("traps",          "Traps & Co-traps","Find traps, siphons and co-traps in the net."),
     ];
 
     // ── Analysis state ────────────────────────────────────────────────────
-    private AnalysisReport? _report;
+    private AnalysisResultDto? _result;
+    private PetriNetDto? _lastDto;
     private bool _analysisRunning = false;
     private string? _analysisError;
-    private NetProperty? _expandedProp;
+    private string? _expandedProp;
     private CancellationTokenSource? _analysisCts;
     private AnalysisProgressMessage? _progressMessage;
 
     // ── Export state ──────────────────────────────────────────────────────
     private bool _exportRunning = false;
+    private bool _exportOpen = false;
     private string? _exportError;
 
     // Stable JS interop reference — created once, disposed in Dispose()
@@ -880,10 +1035,9 @@
 
     private void OpenMode(string mode)
     {
-        if (_mode == mode)
+        if (_mode == mode && _open)
         {
-            _open = true;
-            _ = SetupJsAsync();
+            _open = false;
             return;
         }
 
@@ -895,89 +1049,31 @@
         _ = SetupJsAsync();
     }
 
-    private void ToggleProp(NetProperty prop)
+    private void ToggleProp(string prop)
         => _expandedProp = _expandedProp == prop ? null : prop;
 
-    private static string GetPropertySummary(PropertyTestResult? result)
+    private static string GetPropertySummary(PropertyResultDto? r)
     {
-        if (result is null)
-            return "No result yet.";
-
-        if (result.Reasons.Count > 0)
-            return $"{result.Reasons.Count} note(s).";
-
-        if (result.Errors.Count > 0)
-            return "This result is unavailable because the algorithm hit an internal error.";
-
-        return result.Status switch
+        if (r is null) return "No result yet.";
+        if (r.Reasons.Count > 0) return $"{r.Reasons.Count} note(s).";
+        if (r.Errors.Count > 0) return "This result is unavailable because the algorithm hit an internal error.";
+        return r.Status switch
         {
-            TestResultStatus.Pass => "No issues detected.",
-            TestResultStatus.Fail => "This property does not hold.",
+            "Pass" => "No issues detected.",
+            "Fail" => "This property does not hold.",
             _ => "The result could not be decided."
         };
     }
 
-    private static string FormatCycleMarkup(PnCycle cycle, AnalysisReport report)
+    private Dictionary<string, string> BuildNameById()
     {
-        return string.Join(" → ", cycle.NodeIds.Select(id => report.ResolveName(id)));
-    }
-
-    private static string FormatInvariantMarkup(Invariant invariant, AnalysisReport report)
-    {
-        var parts = invariant.Structure.Select(kv => kv.Value == 1
-            ? report.ResolveName(kv.Key)
-            : $"{kv.Value}{report.ResolveName(kv.Key)}");
-
-        return $"({string.Join(", ", parts)})";
-    }
-
-    private static int ComputeInvariantConstant(Invariant invariant, PetriNetSnapshot net)
-    {
-        var total = 0;
-        foreach (var kv in invariant.Structure)
-        {
-            if (net.PlaceById.TryGetValue(kv.Key, out var place))
-                total += kv.Value * place.Tokens;
-        }
-        return total;
-    }
-
-
-
-    // ── Tree DTO builders (for Cytoscape components) ──────────────────────
-
-    private ReachabilityGraphDto? BuildReachabilityGraphDto()
-    {
-        var rt = _report?.ReachabilityTree;
-        if (rt == null || rt.HasErrors || rt.Nodes.Count == 0) return null;
-
-        var net        = _report!.Net;
-        var placeNames = net.Places.Select(p => p.Name).ToList();
-
-        var nodes = rt.Nodes.Select(n => new ReachNodeDto(
-            n.Id, n.Marking, n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
-        var edges = rt.Edges.Select(e => new ReachEdgeDto(
-            e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
-
-        return new ReachabilityGraphDto(nodes, edges, placeNames);
-    }
-
-    private CoverabilityTreeDto? BuildCoverabilityTreeDto()
-    {
-        var cb = _report?.CoverabilityTree;
-        if (cb == null || cb.HasErrors || cb.Nodes.Count == 0) return null;
-
-        var net        = _report!.Net;
-        var placeNames = net.Places.Select(p => p.Name).ToList();
-
-        var nodes = cb.Nodes.Select(n => new CoverNodeDto(
-            n.Id,
-            n.Marking.Select(v => v == Analysis.Algorithms.CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
-            n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
-        var edges = cb.Edges.Select(e => new CoverEdgeDto(
-            e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
-
-        return new CoverabilityTreeDto(nodes, edges, placeNames);
+        var dict = new Dictionary<string, string>();
+        if (_lastDto is null) return dict;
+        foreach (var p in _lastDto.Places)
+            dict[p.Id] = p.Name;
+        foreach (var t in _lastDto.Transitions)
+            dict[t.Id] = t.Name;
+        return dict;
     }
 
     private async Task ExportAsync(ExportFormat format, string filename, string mimeType)
@@ -1012,7 +1108,9 @@
             var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
             var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
             var dto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
-            var options = new ExportOptions(IncludeAnalysis: includeAnalysis);
+            var options = new ExportOptions(
+                IncludeAnalysis: includeAnalysis,
+                AnalysisResult: includeAnalysis ? _result : null);
             var request = new ExportRequestDto(dto, ExportFormat.Pdf, options);
             var bytes = await ExportSvc.ExportAsync(request);
             await FileSvc.DownloadAsync("petri.pdf", bytes, "application/pdf");
@@ -1028,8 +1126,14 @@
         _analysisCts = new CancellationTokenSource();
         _analysisRunning = true;
         _analysisError = null;
-        _report = null;
+        _result = null;
         _progressMessage = null;
+        _graphReach     = null;
+        _graphReachTree = null;
+        _graphCover     = null;
+        _graphCoverTree = null;
+        _graphStateSpace = null;
+        _graphError = null;
         StateHasChanged();
 
         try
@@ -1039,16 +1143,18 @@
             var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
 
             var dto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
+            _lastDto = dto;
 
+            var ct = _analysisCts.Token;
             var progress = new Progress<AnalysisProgressMessage>(msg =>
             {
                 _progressMessage = msg;
                 _ = InvokeAsync(StateHasChanged);
             });
 
-            _report = await Analyzer.RunLocalAsync(dto, _analysisCts.Token);
+            _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
         catch (Exception ex) { _analysisError = ex.Message; }
         finally
         {
@@ -1082,6 +1188,132 @@
         _dotNetRef?.Dispose();
     }
 
+    private void CancelAnalysis() => _analysisCts?.Cancel();
+
+    // ── Graph / Tree tab (lazy, on-demand) ────────────────────────────────
+
+    private string                     _graphMode    = "reachability"; // "reachability" | "coverability" | "statespace"
+    private string                     _viewMode     = "graph";        // "graph" | "tree"
+    private bool                       _graphRunning = false;
+    private string?                    _graphError;
+    private ReachabilityGraphDto?      _graphReach;
+    private ReachabilityGraphDto?      _graphReachTree;
+    private CoverabilityTreeDto?       _graphCover;
+    private CoverabilityTreeDto?       _graphCoverTree;   // same data, used by SVG tree view
+    private StateSpaceSummaryDto?      _graphStateSpace;
+    private CancellationTokenSource?   _graphCts;
+
+    private void SetGraphMode(string mode)
+    {
+        if (_graphMode == mode) return;
+        _graphMode = mode;
+        StateHasChanged();
+    }
+
+    private async Task ComputeGraph()
+    {
+        if (_graphRunning) return;
+        // Build DTO from diagram if analysis hasn't been run yet
+        if (_lastDto == null)
+        {
+            var places      = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+            var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
+            var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
+            if (!places.Any() && !transitions.Any()) return;
+            _lastDto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
+        }
+        _graphCts?.Cancel();
+        _graphCts = new CancellationTokenSource();
+        _graphRunning = true;
+        _graphError   = null;
+        StateHasChanged();
+        try
+        {
+            var coverability = _graphMode == "coverability";
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token);
+            if (result.ErrorMessage != null)
+                _graphError = result.ErrorMessage;
+            else if (coverability)
+            {
+                _graphCover     = result.CoverabilityTree;
+                _graphCoverTree = result.CoverabilityTree; // same DTO, SVG tree renders it
+            }
+            else
+            {
+                _graphReach     = result.ReachabilityGraph;
+                _graphReachTree = result.ReachabilityTree;
+            }
+            if (result.StateSpace != null)
+            {
+                _graphStateSpace = result.StateSpace;
+                // Auto-switch mode: bounded → reachability, unbounded → coverability
+                if (!coverability && !result.StateSpace.IsBounded && _graphReach == null)
+                    _graphMode = "coverability";
+                else if (coverability && result.StateSpace.IsBounded && _graphCover == null)
+                    _graphMode = "reachability";
+            }
+        }
+        catch (OperationCanceledException) { _graphError = "Cancelled."; }
+        catch (Exception ex) { _graphError = ex.Message; }
+        finally
+        {
+            _graphRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CancelGraph() => _graphCts?.Cancel();
+
+    private bool _HasVisibleContent()
+    {
+        if (_graphMode == "reachability" && _viewMode == "graph" && _graphReach != null) return true;
+        if (_graphMode == "reachability" && _viewMode == "tree" && _graphReachTree != null) return true;
+        if (_graphMode == "coverability" && _viewMode == "graph" && _graphCover != null) return true;
+        if (_graphMode == "coverability" && _viewMode == "tree" && _graphCoverTree != null) return true;
+        return false;
+    }
+
+    // Original tokens saved when preview starts, restored on clear
+    private Dictionary<string, int>? _previewSaved;
+
+    private void PreviewMarking(IReadOnlyList<int?> marking)
+    {
+        if (_lastDto == null) return;
+        var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+        var placeList = _lastDto.Places.ToList();
+
+        // Save originals once (on first hover of a session)
+        if (_previewSaved == null)
+        {
+            _previewSaved = places.ToDictionary(p => p.Data.Id, p => p.Data.Tokens);
+        }
+
+        for (int idx = 0; idx < placeList.Count && idx < marking.Count; idx++)
+        {
+            var node = places.FirstOrDefault(p => p.Data.Id == placeList[idx].Id);
+            if (node == null) continue;
+            // null = ω (unbounded); use int.MaxValue as sentinel so PlaceComponent can render ω
+            node.Data.Tokens = marking[idx] is int tokens ? tokens : int.MaxValue;
+        }
+
+        StateService.IsPreviewingMarking = true;
+        foreach (var p in places) p.Refresh();
+    }
+
+    private void ClearPreview()
+    {
+        if (_previewSaved == null) return;
+        var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
+        foreach (var p in places)
+        {
+            if (_previewSaved.TryGetValue(p.Data.Id, out int orig))
+                p.Data.Tokens = orig;
+        }
+        _previewSaved = null;
+        StateService.IsPreviewingMarking = false;
+        foreach (var p in places) p.Refresh();
+    }
+
     private void OnDiagramChanged() => InvokeAsync(StateHasChanged);
     // Adapter overloads so event subscriptions with NodeModel / BaseLinkModel args also compile
     private void OnDiagramChanged(NodeModel _) => InvokeAsync(StateHasChanged);
@@ -1097,7 +1329,7 @@
         v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
 
     private void ToggleOpen() { _open = !_open; if (_open) _ = SetupJsAsync(); }
-    private void Close() => _open = false;
+    public void Close() { ClearPreview(); _open = false; InvokeAsync(StateHasChanged); }
     private void ToggleFloat() { _floating = !_floating; _ = SetupJsAsync(); }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

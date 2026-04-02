@@ -159,16 +159,24 @@ public class PetriNetManager : IDisposable
         {
             var from = _dragStartPos;
             var actualTo = _draggingNode.Position;
-            var to = SnapToGrid(actualTo);
 
-            if (Math.Abs(actualTo.X - to.X) > 0.001 || Math.Abs(actualTo.Y - to.Y) > 0.001)
-                _draggingNode.SetPosition(to.X, to.Y);
+            bool movedBeyondDeadzone =
+                Math.Abs(actualTo.X - from.X) > _settings.DragDeadzone ||
+                Math.Abs(actualTo.Y - from.Y) > _settings.DragDeadzone;
 
-            if (Math.Abs(to.X - from.X) > _settings.DragDeadzone ||
-                Math.Abs(to.Y - from.Y) > _settings.DragDeadzone)
+            if (movedBeyondDeadzone)
             {
+                var to = SnapToGrid(actualTo);
+                if (Math.Abs(actualTo.X - to.X) > 0.001 || Math.Abs(actualTo.Y - to.Y) > 0.001)
+                    _draggingNode.SetPosition(to.X, to.Y);
+
                 if (!History.IsBusy)
                     History.Record(new MoveNodeCommand(_draggingNode, from, to));
+            }
+            else
+            {
+                // Click without drag — snap back to start so no jitter occurs
+                _draggingNode.SetPosition(from.X, from.Y);
             }
         }
         _draggingNode = null;
@@ -303,11 +311,32 @@ public class PetriNetManager : IDisposable
             return;
         }
 
-        bool duplicate = Diagram.Links.OfType<LinkModel>()
-            .Any(o => o != _pendingLink
-                   && GetParentNode(o.Source) == sourceNode
-                   && GetParentNode(o.Target) == targetNode);
-        if (duplicate) { CancelPendingLink(); return; }
+        // Check for existing arcs between the same pair of nodes
+        var existingArcs = Diagram.Links.OfType<PetriLinkModel>()
+            .Where(o => o != _pendingLink
+                     && GetParentNode(o.Source) == sourceNode
+                     && GetParentNode(o.Target) == targetNode)
+            .ToList();
+
+        if (existingArcs.Count > 0)
+        {
+            // Allow a second arc only if the two arc types are complementary
+            // (one Normal + one Inhibitor). If the pair already exists, cancel.
+            bool hasNormal    = existingArcs.Any(a => a.ArcType == ArcType.Normal);
+            bool hasInhibitor = existingArcs.Any(a => a.ArcType == ArcType.Inhibitor);
+
+            // Only Place→Transition arcs can be Inhibitor
+            bool canBeInhibitor = sourceNode is PlaceNode && targetNode is TransitionNode;
+
+            if (!canBeInhibitor || (hasNormal && hasInhibitor) || existingArcs.Count >= 2)
+            {
+                CancelPendingLink();
+                return;
+            }
+
+            // One arc already exists — set the pending link to the complementary type
+            _pendingLink.ArcType = hasNormal ? ArcType.Inhibitor : ArcType.Normal;
+        }
 
         var targetAnchor = new ShapeIntersectionAnchor(targetNode);
 
@@ -487,6 +516,8 @@ public class PetriNetManager : IDisposable
         if (baseLink is not PetriLinkModel link) return;
         if (link.IsDraggingEndpoint) return;
         await Task.Yield();
+        // Skip validation during undo/redo — the restored link is already known-good
+        if (History.IsBusy) return;
         var src = GetParentNode(link.Source);
         var tgt = GetParentNode(link.Target);
         if (src == null || tgt == null) return;

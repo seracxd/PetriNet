@@ -1,0 +1,342 @@
+@using PetriEditor.Shared.Contracts
+@inject IJSRuntime JS
+
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;">
+
+    <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+                padding:8px 12px;border-bottom:1px solid #e4e6ea;background:#f7f8fa;">
+        <span style="font-size:11px;color:#9aa0ad;font-weight:500;">
+            @(_layout?.Count ?? 0) nodes@(_truncated ? $" (showing first {MaxNodes})" : "")
+        </span>
+        <button @onclick="ResetView"
+                style="padding:3px 9px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
+                       border-radius:6px;background:#fff;color:#8a94a6;cursor:pointer;">
+            Fit
+        </button>
+        @if (_hasOmega)
+        {
+            <span style="font-size:10px;padding:2px 7px;background:#ede7f6;border-radius:8px;color:#5c35a8;font-weight:600;">purple = ω (unbounded)</span>
+        }
+        @if (_hasDuplicates)
+        {
+            <span style="font-size:10px;padding:2px 7px;background:#fff8e1;border-radius:8px;color:#f57f17;font-weight:600;">dashed = back-ref</span>
+        }
+        @if (_hasDeadlocks)
+        {
+            <span style="font-size:10px;padding:2px 7px;background:#ffebee;border-radius:8px;color:#c62828;font-weight:600;">red = deadlock</span>
+        }
+        @if (_truncated)
+        {
+            <span style="font-size:10px;padding:2px 7px;background:#fff8e1;border-radius:8px;color:#e65100;font-weight:600;">tree truncated for performance</span>
+        }
+        <span style="font-size:10px;color:#bbb;">Hover = marking preview</span>
+    </div>
+
+    <div id="@_containerId" style="flex:1;min-height:0;overflow:hidden;background:#fafbfc;cursor:grab;user-select:none;touch-action:none;">
+        @if (_layout != null && _svgW > 0)
+        {
+            <svg width="@F(_svgW)" height="@F(_svgH)"
+                 viewBox="0 0 @F(_svgW) @F(_svgH)"
+                 style="display:block;">
+
+                @* edges first (under nodes) *@
+                @foreach (var (fromNode, toNode, label, isDashed) in _edges)
+                {
+                    double x1 = fromNode.X + NodeW / 2.0;
+                    double y1 = fromNode.Y + NodeH;
+                    double x2 = toNode.X + NodeW / 2.0;
+                    double y2 = toNode.Y;
+                    double mx = (x1 + x2) / 2.0;
+                    double my = (y1 + y2) / 2.0;
+                    <g>
+                        <path d="M @F(x1) @F(y1) C @F(x1) @F(y1 + LevelH * 0.4) @F(x2) @F(y2 - LevelH * 0.4) @F(x2) @F(y2)"
+                              stroke="@(isDashed ? "#f9a825" : "#c8d0dc")"
+                              stroke-width="1.5"
+                              stroke-dasharray="@(isDashed ? "5 3" : "none")"
+                              fill="none"
+                              marker-end="url(#arr-cov)" />
+                        @if (!string.IsNullOrEmpty(label))
+                        {
+                            double lw = label.Length * 5.5 + 6;
+                            <rect x="@F(mx - lw / 2)" y="@F(my - 7)" width="@F(lw)" height="13" rx="3" fill="#f7f8fa" />
+                            <svg:text x="@F(mx)" y="@F(my)" text-anchor="middle" dominant-baseline="middle"
+                                      font-size="9" font-family="Inter,sans-serif" fill="#8a94a6"
+                                      style="pointer-events:none;">@label</svg:text>
+                        }
+                    </g>
+                }
+
+                @* arrowhead marker *@
+                <defs>
+                    <marker id="arr-cov" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+                        <path d="M 0 1 L 8 4 L 0 7 Z" fill="#c8d0dc" />
+                    </marker>
+                </defs>
+
+                @* nodes *@
+                @foreach (var n in _layout.Values)
+                {
+                    bool isRef   = n.IsReference;
+                    bool isInit  = n.Node.IsInitial;
+                    bool isDead  = n.Node.IsDeadlock;
+                    bool isOmega = n.HasOmega;
+
+                    string fill   = isRef   ? "#fffde7"
+                                  : isOmega ? "#f0f0fb"
+                                  : isInit  ? "#e8faf8"
+                                  : isDead  ? "#ffebee"
+                                  :           "#ffffff";
+                    string stroke = isRef   ? "#f9a825"
+                                  : isOmega ? "#5c6bc0"
+                                  : isInit  ? "#00a499"
+                                  : isDead  ? "#e53935"
+                                  :           "#c8d0dc";
+                    string textC  = isRef   ? "#f57f17"
+                                  : isOmega ? "#3949ab"
+                                  : isInit  ? "#00796b"
+                                  : isDead  ? "#b71c1c"
+                                  :           "#374151";
+
+                    <g class="tree-node-g"
+                       transform="translate(@F(n.X) @F(n.Y))"
+                       @onmouseenter="() => OnNodeEnter(n)"
+                       @onmouseleave="OnNodeLeave"
+                       style="cursor:default;">
+                        <rect x="0" y="0" width="@NodeW" height="@NodeH" rx="7"
+                              fill="@fill" stroke="@stroke"
+                              stroke-width="@(isInit ? 2.5 : 1.5)"
+                              stroke-dasharray="@(isRef ? "4 2" : "none")" />
+                        <svg:text x="@F(NodeW / 2.0)" y="@F(NodeH / 2.0)"
+                              text-anchor="middle" dominant-baseline="middle"
+                              font-size="11" font-weight="700" font-family="Inter,sans-serif"
+                              fill="@textC" style="pointer-events:none;">
+                            @n.Label
+                        </svg:text>
+                        @if (isRef)
+                        {
+                            <svg:text x="@F(NodeW / 2.0)" y="@F(NodeH - 3)"
+                                  text-anchor="middle" dominant-baseline="auto"
+                                  font-size="8" font-family="Inter,sans-serif"
+                                  fill="#f57f17" style="pointer-events:none;">
+                                → @n.RefLabel
+                            </svg:text>
+                        }
+                    </g>
+                }
+            </svg>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public CoverabilityTreeDto? Tree { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<int?>> OnMarkingHovered { get; set; }
+    [Parameter] public EventCallback OnMarkingCleared { get; set; }
+
+    const double NodeW  = 60;
+    const double NodeH  = 30;
+    const double LevelH = 80;
+    const double MinGapX = 16;
+    const int    MaxNodes = 500;
+
+    private readonly string _containerId = $"tree-cov-{Guid.NewGuid():N}";
+    private CoverabilityTreeDto? _lastTree;
+    private Dictionary<int, LayoutNode>? _layout;
+    private List<(LayoutNode From, LayoutNode To, string Label, bool Dashed)> _edges = new();
+    private double _svgW, _svgH;
+    private bool _hasDuplicates, _hasDeadlocks, _hasOmega, _truncated;
+    private Dictionary<int, string> _nodeLabels = new();
+
+    private sealed class LayoutNode
+    {
+        public CoverNodeDto Node;
+        public string Label  = "";
+        public string RefLabel = "";
+        public bool IsReference;
+        public bool HasOmega;
+        public double X, Y;
+        public LayoutNode(CoverNodeDto node) { Node = node; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Tree is null || ReferenceEquals(Tree, _lastTree)) return;
+        _lastTree = Tree;
+        BuildLayout();
+        StateHasChanged();
+        await Task.Yield();
+        await JS.InvokeVoidAsync("treeView.init", _containerId, _svgW, _svgH);
+    }
+
+    private void BuildLayout()
+    {
+        _layout = new();
+        _edges  = new();
+        _truncated = false;
+
+        if (Tree!.Nodes.Count == 0) { _svgW = 400; _svgH = 200; return; }
+
+        // Truncate via BFS if needed
+        IReadOnlyList<CoverNodeDto> allNodes = Tree.Nodes;
+        IReadOnlyList<CoverEdgeDto> allEdges = Tree.Edges;
+        if (allNodes.Count > MaxNodes)
+        {
+            _truncated = true;
+            var rootN = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
+            var keep = new HashSet<int>();
+            var q = new Queue<int>();
+            q.Enqueue(rootN.Id);
+            keep.Add(rootN.Id);
+            var childMap = allNodes.ToDictionary(n => n.Id, _ => new List<int>());
+            foreach (var n in allNodes)
+                if (n.ParentId >= 0 && childMap.ContainsKey(n.ParentId))
+                    childMap[n.ParentId].Add(n.Id);
+            while (q.Count > 0 && keep.Count < MaxNodes)
+            {
+                int cur = q.Dequeue();
+                foreach (int ch in childMap[cur])
+                    if (keep.Count < MaxNodes && keep.Add(ch))
+                        q.Enqueue(ch);
+            }
+            allNodes = allNodes.Where(n => keep.Contains(n.Id)).ToList();
+            allEdges = allEdges.Where(e => keep.Contains(e.From) && keep.Contains(e.To)).ToList();
+        }
+
+        _hasDuplicates = allNodes.Any(n => n.IsDuplicate);
+        _hasDeadlocks  = allNodes.Any(n => n.IsDeadlock);
+        _hasOmega      = allNodes.Any(n => n.Marking.Any(m => m is null));
+
+        var children = allNodes.ToDictionary(n => n.Id, _ => new List<int>());
+        foreach (var n in allNodes)
+            if (n.ParentId >= 0 && children.ContainsKey(n.ParentId))
+                children[n.ParentId].Add(n.Id);
+
+        // Canonical map for duplicates
+        var markingKey = new Dictionary<string, int>();
+        var canonical  = new Dictionary<int, int>();
+        foreach (var n in allNodes)
+        {
+            var key = string.Join(",", n.Marking.Select(m => m.HasValue ? m.Value.ToString() : "w"));
+            if (markingKey.TryGetValue(key, out int cId))
+                canonical[n.Id] = cId;
+            else
+            {
+                markingKey[key] = n.Id;
+                canonical[n.Id] = n.Id;
+            }
+        }
+
+        // BFS labels
+        int labelIdx = 0;
+        _nodeLabels.Clear();
+        var root = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
+        var bfsQ = new Queue<int>();
+        var bfsVisited = new HashSet<int>();
+        bfsQ.Enqueue(root.Id);
+        bfsVisited.Add(root.Id);
+        while (bfsQ.Count > 0)
+        {
+            int cur = bfsQ.Dequeue();
+            _nodeLabels[cur] = labelIdx == 0 ? "M₀" : $"M{labelIdx}";
+            labelIdx++;
+            foreach (int ch in children[cur])
+                if (canonical[ch] == ch && bfsVisited.Add(ch))
+                    bfsQ.Enqueue(ch);
+        }
+
+        foreach (var n in allNodes)
+        {
+            var ln = new LayoutNode(n);
+            bool isRef = canonical[n.Id] != n.Id;
+            ln.IsReference = isRef;
+            ln.HasOmega = n.Marking.Any(m => m is null);
+            ln.Label = _nodeLabels.GetValueOrDefault(canonical[n.Id], "M?");
+            if (isRef)
+                ln.RefLabel = _nodeLabels.GetValueOrDefault(canonical[n.Id], "");
+            _layout[n.Id] = ln;
+        }
+
+        // Y by depth
+        var depth = new Dictionary<int, int> { [root.Id] = 0 };
+        var q2 = new Queue<int>();
+        q2.Enqueue(root.Id);
+        while (q2.Count > 0)
+        {
+            int cur = q2.Dequeue();
+            foreach (int ch in children[cur])
+                if (!depth.ContainsKey(ch))
+                {
+                    depth[ch] = depth[cur] + 1;
+                    q2.Enqueue(ch);
+                }
+        }
+        foreach (var (id, ln) in _layout)
+            ln.Y = depth.GetValueOrDefault(id, 0) * LevelH;
+
+        AssignX(root.Id, children, 0, out _);
+
+        double pad = 24;
+        double minX = _layout.Values.Min(n => n.X);
+        foreach (var ln in _layout.Values) ln.X -= minX - pad;
+
+        double maxX = _layout.Values.Max(n => n.X) + NodeW + pad;
+        double maxY = _layout.Values.Max(n => n.Y) + NodeH + pad + 16;
+        _svgW = Math.Max(maxX, 300);
+        _svgH = Math.Max(maxY, 200);
+
+        var edgeLabel = new Dictionary<(int, int), string>();
+        foreach (var e in allEdges)
+            edgeLabel.TryAdd((e.From, e.To), e.TransitionName);
+
+        foreach (var n in allNodes)
+        {
+            if (n.ParentId < 0) continue;
+            if (!_layout.TryGetValue(n.ParentId, out var fromLn)) continue;
+            if (!_layout.TryGetValue(n.Id,       out var toLn))   continue;
+            string lbl = edgeLabel.GetValueOrDefault((n.ParentId, n.Id), "");
+            _edges.Add((fromLn, toLn, lbl, toLn.IsReference));
+        }
+    }
+
+    private double AssignX(int id, Dictionary<int, List<int>> children, double startX, out double subtreeW)
+    {
+        var ch = children[id];
+        if (ch.Count == 0)
+        {
+            _layout![id].X = startX;
+            subtreeW = NodeW;
+            return startX + NodeW + MinGapX;
+        }
+
+        double cursor = startX;
+        double firstChildMid = 0, lastChildMid = 0;
+        for (int i = 0; i < ch.Count; i++)
+        {
+            cursor = AssignX(ch[i], children, cursor, out double cw);
+            double mid = _layout![ch[i]].X + NodeW / 2.0;
+            if (i == 0) firstChildMid = mid;
+            lastChildMid = mid;
+        }
+
+        double parentX = (firstChildMid + lastChildMid) / 2.0 - NodeW / 2.0;
+        _layout![id].X = parentX;
+        subtreeW = cursor - startX;
+        return cursor;
+    }
+
+    private void OnNodeEnter(LayoutNode ln)
+    {
+        if (ln.IsReference) return;
+        var node = ln.Node;
+        if (!node.Marking.Any()) return;
+        _ = OnMarkingHovered.InvokeAsync(node.Marking);
+    }
+
+    private void OnNodeLeave() => _ = OnMarkingCleared.InvokeAsync();
+
+    private async Task ResetView() =>
+        await JS.InvokeVoidAsync("treeView.resetView", _containerId);
+
+    private static string F(double v) =>
+        v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+}

@@ -41,5 +41,21 @@
         }
 
         public event Action? OnSimulationChanged;
+
+        // ── Marking preview (analysis hover) ─────────────────────────────
+
+        private bool _isPreviewingMarking;
+        public bool IsPreviewingMarking
+        {
+            get => _isPreviewingMarking;
+            set
+            {
+                if (_isPreviewingMarking != value)
+                {
+                    _isPreviewingMarking = value;
+                    OnSimulationChanged?.Invoke(); // reuse same event — PlaceComponent re-renders
+                }
+            }
+        }
     }
 }

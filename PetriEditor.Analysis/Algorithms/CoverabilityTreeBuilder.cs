@@ -66,7 +66,12 @@ public sealed class CoverabilityTreeBuilder
 
         while (queue.Count > 0)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                HasErrors    = true;
+                ErrorMessage = "Analysis cancelled.";
+                return;
+            }
 
             int parentId    = queue.Dequeue();
             var parentNode  = _nodes[parentId];

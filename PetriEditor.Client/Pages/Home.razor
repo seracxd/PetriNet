@@ -32,7 +32,7 @@
             {
                 @* ── Simulation controls ── *@
                 <section class="sidebar-section">
-                    <div class="section-label" style="color:#00897b;">Simulation</div>
+                    <div class="section-label" style="color:#00a499;">Simulation</div>
 
                     @* Step counter *@
                     <div style="font-size:11px;color:#aaa;margin-bottom:8px;">Step @Sim.StepCount</div>
@@ -67,7 +67,7 @@
                     @* Auto fire toggle *@
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
                         <button @onclick="() => Sim.ToggleAuto()"
-                                style="flex:1;padding:6px 0;border-radius:7px;border:1.5px solid @(Sim.IsAutoFiring ? "#00897b" : "#e0e0e0");background:@(Sim.IsAutoFiring ? "#e0f5f3" : "#fff");color:@(Sim.IsAutoFiring ? "#00897b" : "#888");font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+                                style="flex:1;padding:6px 0;border-radius:7px;border:1.5px solid @(Sim.IsAutoFiring ? "#00a499" : "#e0e0e0");background:@(Sim.IsAutoFiring ? "#e0f5f3" : "#fff");color:@(Sim.IsAutoFiring ? "#00a499" : "#888");font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;">
                                 <polygon points="5 3 19 12 5 21 5 3" />
                             </svg>
@@ -83,7 +83,7 @@
                         <input type="range" min="100" max="3000" step="100"
                                value="@Sim.FiringDelay"
                                @oninput="e => Sim.FiringDelay = int.Parse(e.Value!.ToString()!)"
-                               style="width:100%;accent-color:#00897b;" />
+                               style="width:100%;accent-color:#00a499;" />
                     </div>
 
                     @if (Sim.IsDeadlock)
@@ -103,7 +103,7 @@
                         @if (Sim.IsViewingHistory)
                         {
                             <button @onclick="() => Sim.ReturnToPresent()"
-                                    style="font-size:10px;font-weight:700;color:#00897b;background:#e0f5f3;border:none;border-radius:10px;padding:2px 8px;cursor:pointer;white-space:nowrap;">
+                                    style="font-size:10px;font-weight:700;color:#00a499;background:#e0f5f3;border:none;border-radius:10px;padding:2px 8px;cursor:pointer;white-space:nowrap;">
                                 ↩ Present (@Sim.LiveStepCount)
                             </button>
                         }
@@ -131,8 +131,8 @@
                             <button @onclick="() => Sim.JumpToStep(stepIdx)"
                                     style="display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;background:@(isCurrent ? "#e0f5f3" : isFuture ? "#fafafa" : "transparent");font-size:12px;border:@(isFuture ? "1px dashed #e0e0e0" : "none");cursor:pointer;text-align:left;width:100%;opacity:@(isFuture ? "0.5" : "1");">
                                 <span style="color:#ccc;font-size:10px;min-width:18px;text-align:right;">@step</span>
-                                <svg viewBox="0 0 24 24" fill="@(isFuture ? "#ccc" : "#00897b")" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                                <span style="color:@(isCurrent ? "#00897b" : isFuture ? "#ccc" : "#555");font-weight:@(isCurrent ? "700" : "400");">@name</span>
+                                <svg viewBox="0 0 24 24" fill="@(isFuture ? "#ccc" : "#00a499")" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                <span style="color:@(isCurrent ? "#00a499" : isFuture ? "#ccc" : "#555");font-weight:@(isCurrent ? "700" : "400");">@name</span>
                                 @if (!isCurrent && !isFuture)
                                 {
                                     <svg viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;margin-left:auto;flex-shrink:0;">
@@ -274,33 +274,6 @@
 
                 </section>
             }
-
-            @* Debug log — small button pinned to bottom of sidebar *@
-            <div class="debug-corner">
-                <button class="debug-corner-btn @(_logPanelOpen ? "active" : "")"
-                        title="Toggle debug log"
-                        @onclick="() => { _logPanelOpen = !_logPanelOpen; StateHasChanged(); }">
-                    ◉ Debug
-                </button>
-                @if (_logPanelOpen)
-                {
-                    <div class="debug-log-panel open">
-                        <div class="debug-log-header">
-                            <span>@Manager.Logger.GetEntries().Count entries</span>
-                            <div class="debug-log-actions">
-                                <button class="debug-log-btn" @onclick="CopyLog" title="Copy to clipboard">Copy</button>
-                                <button class="debug-log-btn" @onclick="ClearLog">Clear</button>
-                            </div>
-                        </div>
-                        <div class="debug-log-body">
-                            @foreach (var entry in Manager.Logger.GetEntries().Reverse())
-                            {
-                                <div class="debug-log-line">@entry.ToString()</div>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
 
         </aside>
 
@@ -560,7 +533,7 @@
         </div>
 
         @* ── Analysis panel (docked right, collapsible / floatable) ── *@
-        <AnalysisPanel />
+        <AnalysisPanel @ref="_analysisPanel" />
 
     </div>
 </div>
@@ -570,6 +543,7 @@
     private Model? SelectedModel { get; set; }
     private string? _analysisResult;
     private bool _analysisOk;
+    private AnalysisPanel? _analysisPanel;
     private bool _navigatorOpen = false;
 
     // Navigator cached lists — rebuilt on every structural change
@@ -959,6 +933,8 @@
             _ = JS.InvokeVoidAsync("setSelectToolActive", false);
         }
         if (_navigatorOpen) _navigatorOpen = false;
+        if (_settingsOpen) _settingsOpen = false;
+        _analysisPanel?.Close();
     }
 
     // ── Selection rectangle ───────────────────────────────────────────────────
@@ -1077,20 +1053,6 @@
         PortModel pm => pm.Parent,
         _ => null
     };
-
-    private bool _logPanelOpen = false;
-
-    private async Task CopyLog()
-    {
-        var text = string.Join("\n", Manager.Logger.GetEntries().Select(e => e.ToString()));
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
-    }
-
-    private void ClearLog()
-    {
-        Manager.Logger.Clear();
-        StateHasChanged();
-    }
 
     // ── Analysis ──────────────────────────────────────────────────────────────
     private void ShowResult(string msg, bool ok) { _analysisResult = msg; _analysisOk = ok; StateHasChanged(); }

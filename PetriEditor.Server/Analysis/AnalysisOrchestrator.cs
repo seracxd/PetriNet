@@ -24,64 +24,39 @@ public sealed class AnalysisOrchestrator
         var net    = PetriNetMapper.ToSnapshot(dto);
         var report = new AnalysisReport { Net = net };
 
+        bool cancelled = false;
+
         await Task.Run(() =>
         {
-            // ── State space ───────────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageStateSpace, 5, null));
-
             var ss = new StateSpaceAnalysis();
-            ss.Build(net);
+            ss.Build(net, ct);
             report.StateSpace = ss;
 
-            // ── Invariants ────────────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
-
             var inv = new InvariantAnalysis();
             inv.Compute(net);
             report.Invariants = inv;
 
-            // ── Classification ────────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageClassification, 50, null));
-
             var cls = new ClassificationAnalysis();
             cls.Compute(net);
             report.Classification = cls;
 
-            // ── Cycles / traps ────────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageCycles, 65, null));
-
             var cyc = new CyclesAnalysis();
             cyc.Compute(net);
             report.Cycles = cyc;
-
             var tc = new TrapCotrapAnalysis();
             tc.Compute(net);
             report.TrapCotrap = tc;
 
-            // ── Reachability tree ─────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(AnalysisProgressMessage.StageReachTree, 70, null));
-
-            var rt = new ReachabilityTreeBuilder();
-            rt.Build(net, ct);
-            report.ReachabilityTree = rt;
-
-            // ── Coverability tree (Karp-Miller) ───────────────────────────
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(AnalysisProgressMessage.StageCoverTree, 76, null));
-
-            var ct2 = new CoverabilityTreeBuilder();
-            ct2.Build(net, ct);
-            report.CoverabilityTree = ct2;
-
-            // ── Property tests ────────────────────────────────────────────
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 83, null));
-
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
+            progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 70, null));
             var bundle = new AnalysisBundle
             {
                 Net            = net,
@@ -93,19 +68,84 @@ public sealed class AnalysisOrchestrator
             };
 
             var results = bundle.PropertyResults;
-            results[NetProperty.Liveness]        = SafeRun(NetProperty.Liveness,        () => new LivenessTest().Run(bundle));
-            results[NetProperty.Boundedness]     = SafeRun(NetProperty.Boundedness,     () => new BoundednessTest().Run(bundle));
-            results[NetProperty.Safety]          = SafeRun(NetProperty.Safety,          () => new SafetyTest().Run(bundle));
-            results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness, () => new ConservativenessTest().Run(bundle));
-            results[NetProperty.Repetitiveness]  = SafeRun(NetProperty.Repetitiveness,  () => new RepetitivenessTest().Run(bundle));
-            results[NetProperty.DeadlockFree]    = SafeRun(NetProperty.DeadlockFree,    () => new DeadlockFreeTest().Run(bundle));
-            results[NetProperty.Reversibility]   = SafeRun(NetProperty.Reversibility,   () => new ReversibilityTest().Run(bundle));
+            results[NetProperty.Liveness]         = SafeRun(NetProperty.Liveness,         () => new LivenessTest().Run(bundle));
+            results[NetProperty.Boundedness]      = SafeRun(NetProperty.Boundedness,       () => new BoundednessTest().Run(bundle));
+            results[NetProperty.Safety]           = SafeRun(NetProperty.Safety,            () => new SafetyTest().Run(bundle));
+            results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness,  () => new ConservativenessTest().Run(bundle));
+            results[NetProperty.Repetitiveness]   = SafeRun(NetProperty.Repetitiveness,    () => new RepetitivenessTest().Run(bundle));
+            results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
+            results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
             report.PropertyResults = results;
+        });
 
-        }, ct);
+        if (cancelled)
+            throw new OperationCanceledException(ct);
 
-        progress?.Report(new(AnalysisProgressMessage.StageComplete, 100, null));
         return AnalysisResultMapper.ToDto(report);
+    }
+
+    public async Task<GraphResultDto> RunGraphAsync(
+        PetriNetDto       dto,
+        bool              coverability,
+        CancellationToken ct)
+    {
+        var net = PetriNetMapper.ToSnapshot(dto);
+
+        ReachabilityGraphDto? reachDto     = null;
+        ReachabilityGraphDto? reachTreeDto = null;
+        CoverabilityTreeDto?  coverDto     = null;
+        StateSpaceSummaryDto? ssDto        = null;
+        string? error = null;
+
+        await Task.Run(() =>
+        {
+            try
+            {
+                if (coverability)
+                {
+                    var cb = new CoverabilityTreeBuilder();
+                    cb.Build(net, ct);
+                    if (cb.HasErrors) error = cb.ErrorMessage;
+                    else
+                    {
+                        coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
+                        ssDto = new StateSpaceSummaryDto(
+                            StateCount:     cb.Nodes.Count,
+                            IsBounded:      false,
+                            IsSafe:         false,
+                            IsDeadlockFree: cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock),
+                            IsReversible:   false,
+                            ExceededLimit:  false);
+                    }
+                }
+                else
+                {
+                    var ss = new StateSpaceAnalysis();
+                    ss.Build(net, ct);
+                    if (ss.HasErrors) { error = ss.ErrorMsg; return; }
+
+                    reachDto = AnalysisResultMapper.BuildReachabilityGraphDto(net, ss);
+                    ssDto = new StateSpaceSummaryDto(
+                        StateCount:     ss.States.Count,
+                        IsBounded:      ss.IsBounded(),
+                        IsSafe:         ss.IsSafe(),
+                        IsDeadlockFree: ss.IsDeadlockFree(),
+                        IsReversible:   ss.IsReversible(),
+                        ExceededLimit:  ss.States.Count >= StateSpaceAnalysis.MaxStates);
+
+                    if (!ct.IsCancellationRequested)
+                    {
+                        var rt = new ReachabilityTreeBuilder();
+                        rt.Build(net, ct);
+                        if (!rt.HasErrors)
+                            reachTreeDto = AnalysisResultMapper.BuildReachabilityTreeDto(net, rt);
+                    }
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+        });
+
+        return new GraphResultDto(reachDto, reachTreeDto, coverDto, error, ssDto);
     }
 
     private static PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)

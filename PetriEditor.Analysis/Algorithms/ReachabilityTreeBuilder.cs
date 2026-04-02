@@ -61,7 +61,12 @@ public sealed class ReachabilityTreeBuilder
 
         while (queue.Count > 0)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                HasErrors    = true;
+                ErrorMessage = "Analysis cancelled.";
+                return;
+            }
 
             var (parentId, marking) = queue.Dequeue();
             bool anyFired = false;

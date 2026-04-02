@@ -82,6 +82,27 @@ public sealed class AnalysisHub : Hub
         }
     }
 
+    /// <summary>Compute only the reachability graph or coverability tree on demand.</summary>
+    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, bool coverability)
+    {
+        if (_ctsByConnection.TryRemove(Context.ConnectionId, out var oldCts))
+        {
+            oldCts.Cancel();
+            oldCts.Dispose();
+        }
+        var cts = new CancellationTokenSource();
+        _ctsByConnection[Context.ConnectionId] = cts;
+        try
+        {
+            return await _orchestrator.RunGraphAsync(net, coverability, cts.Token);
+        }
+        finally
+        {
+            _ctsByConnection.TryRemove(Context.ConnectionId, out _);
+            cts.Dispose();
+        }
+    }
+
     /// <summary>Generate a PDF report for the given net and return the bytes.</summary>
     public Task<byte[]> ExportPdf(ExportRequestDto request)
     {

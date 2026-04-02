@@ -70,7 +70,7 @@ public sealed class PdfExportService
             {
                 col.Item().Element(ComposeAnalysisSummary(analysis));
                 col.Item().Element(ComposePropertyResults(analysis));
-                col.Item().Element(ComposeInvariants(analysis));
+                col.Item().Element(ComposeInvariants(analysis, request.Net));
             }
         });
 
@@ -81,6 +81,10 @@ public sealed class PdfExportService
         {
             col.Item().Text("Net Structure").Bold().FontSize(13);
             col.Spacing(8);
+
+            var nameById = net.Places.ToDictionary(p => p.Id, p => p.Name)
+                .Concat(net.Transitions.ToDictionary(t => t.Id, t => t.Name))
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
 
             // Places
             col.Item().Text($"Places ({net.Places.Count})").Bold();
@@ -176,8 +180,8 @@ public sealed class PdfExportService
 
                     foreach (var a in net.Arcs)
                     {
-                        table.Cell().Text(a.SourceId);
-                        table.Cell().Text(a.TargetId);
+                        table.Cell().Text(nameById.GetValueOrDefault(a.SourceId, a.SourceId));
+                        table.Cell().Text(nameById.GetValueOrDefault(a.TargetId, a.TargetId));
                         table.Cell().Text(a.ArcType.ToString());
                         table.Cell().AlignRight().Text(a.Weight.ToString());
                     }
@@ -253,17 +257,23 @@ public sealed class PdfExportService
 
     // ── Invariants section ────────────────────────────────────────────────
 
-    private static Action<IContainer> ComposeInvariants(AnalysisResultDto r) =>
+    private static Action<IContainer> ComposeInvariants(AnalysisResultDto r, PetriNetDto net) =>
         c => c.Column(col =>
         {
             col.Item().Text("Invariants").Bold().FontSize(13);
             col.Spacing(6);
 
+            var nameById = net.Places.ToDictionary(p => p.Id, p => p.Name)
+                .Concat(net.Transitions.ToDictionary(t => t.Id, t => t.Name))
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            string Resolve(string id) => nameById.GetValueOrDefault(id, id);
+
             col.Item().Text($"P-invariants: {r.PInvariants.Count}").Bold();
             foreach (var inv in r.PInvariants)
             {
                 var text = string.Join(" + ", inv.Structure.Select(kv =>
-                    kv.Value == 1 ? kv.Key : $"{kv.Value}·{kv.Key}"));
+                    kv.Value == 1 ? Resolve(kv.Key) : $"{kv.Value}·{Resolve(kv.Key)}"));
                 col.Item().PaddingLeft(10).Text($"• {text}").FontSize(9);
             }
 
@@ -271,7 +281,7 @@ public sealed class PdfExportService
             foreach (var inv in r.TInvariants)
             {
                 var text = string.Join(" + ", inv.Structure.Select(kv =>
-                    kv.Value == 1 ? kv.Key : $"{kv.Value}·{kv.Key}"));
+                    kv.Value == 1 ? Resolve(kv.Key) : $"{kv.Value}·{Resolve(kv.Key)}"));
                 col.Item().PaddingLeft(10).Text($"• {text}").FontSize(9);
             }
         });

@@ -79,63 +79,66 @@ public sealed class DiagramAnalyzer
         var net    = PetriNetMapper.ToSnapshot(dto);
         var report = new AnalysisReport { Net = net };
 
-        await Task.Run(() =>
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var ss = new StateSpaceAnalysis();
+        ss.Build(net, ct);
+        report.StateSpace = ss;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var inv = new InvariantAnalysis();
+        inv.Compute(net);
+        report.Invariants = inv;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var cls = new ClassificationAnalysis();
+        cls.Compute(net);
+        report.Classification = cls;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var cyc = new CyclesAnalysis();
+        cyc.Compute(net);
+        report.Cycles = cyc;
+        var tc = new TrapCotrapAnalysis();
+        tc.Compute(net);
+        report.TrapCotrap = tc;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var rt = new ReachabilityTreeBuilder();
+        rt.Build(net, ct);
+        report.ReachabilityTree = rt;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var coverBuilder = new CoverabilityTreeBuilder();
+        coverBuilder.Build(net, ct);
+        report.CoverabilityTree = coverBuilder;
+
+        ct.ThrowIfCancellationRequested();
+        await Task.Yield();
+        var bundle = new AnalysisBundle
         {
-            ct.ThrowIfCancellationRequested();
-            var ss = new StateSpaceAnalysis();
-            ss.Build(net);
-            report.StateSpace = ss;
+            Net            = net,
+            StateSpace     = ss,
+            Invariants     = inv,
+            Classification = cls,
+            Cycles         = cyc,
+            TrapCotrap     = tc,
+        };
 
-            ct.ThrowIfCancellationRequested();
-            var inv = new InvariantAnalysis();
-            inv.Compute(net);
-            report.Invariants = inv;
-
-            ct.ThrowIfCancellationRequested();
-            var cls = new ClassificationAnalysis();
-            cls.Compute(net);
-            report.Classification = cls;
-
-            ct.ThrowIfCancellationRequested();
-            var cyc = new CyclesAnalysis();
-            cyc.Compute(net);
-            report.Cycles = cyc;
-
-            var tc = new TrapCotrapAnalysis();
-            tc.Compute(net);
-            report.TrapCotrap = tc;
-
-            ct.ThrowIfCancellationRequested();
-            var rt = new ReachabilityTreeBuilder();
-            rt.Build(net, ct);
-            report.ReachabilityTree = rt;
-
-            ct.ThrowIfCancellationRequested();
-            var coverBuilder = new CoverabilityTreeBuilder();
-            coverBuilder.Build(net, ct);
-            report.CoverabilityTree = coverBuilder;
-
-            ct.ThrowIfCancellationRequested();
-            var bundle = new AnalysisBundle
-            {
-                Net            = net,
-                StateSpace     = ss,
-                Invariants     = inv,
-                Classification = cls,
-                Cycles         = cyc,
-                TrapCotrap     = tc,
-            };
-
-            var results = bundle.PropertyResults;
-            results[NetProperty.Liveness]         = SafeRun(NetProperty.Liveness,         () => new LivenessTest().Run(bundle));
-            results[NetProperty.Boundedness]      = SafeRun(NetProperty.Boundedness,       () => new BoundednessTest().Run(bundle));
-            results[NetProperty.Safety]           = SafeRun(NetProperty.Safety,            () => new SafetyTest().Run(bundle));
-            results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness,  () => new ConservativenessTest().Run(bundle));
-            results[NetProperty.Repetitiveness]   = SafeRun(NetProperty.Repetitiveness,    () => new RepetitivenessTest().Run(bundle));
-            results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
-            results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
-            report.PropertyResults = results;
-        }, ct);
+        var results = bundle.PropertyResults;
+        results[NetProperty.Liveness]         = SafeRun(NetProperty.Liveness,         () => new LivenessTest().Run(bundle));
+        results[NetProperty.Boundedness]      = SafeRun(NetProperty.Boundedness,       () => new BoundednessTest().Run(bundle));
+        results[NetProperty.Safety]           = SafeRun(NetProperty.Safety,            () => new SafetyTest().Run(bundle));
+        results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness,  () => new ConservativenessTest().Run(bundle));
+        results[NetProperty.Repetitiveness]   = SafeRun(NetProperty.Repetitiveness,    () => new RepetitivenessTest().Run(bundle));
+        results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
+        results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
+        report.PropertyResults = results;
 
         return report;
     }

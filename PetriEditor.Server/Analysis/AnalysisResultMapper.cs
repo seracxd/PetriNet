@@ -47,19 +47,59 @@ public static class AnalysisResultMapper
         // ── Coverability tree (Karp-Miller, ω = null in DTO) ─────────────
         CoverabilityTreeDto? coverTree = BuildCoverabilityTree(report);
 
+        // ── Cycles DTO ────────────────────────────────────────────────────────
+        CyclesDto? cyclesDto = null;
+        var cyc = report.Cycles;
+        if (cyc != null)
+        {
+            var cycleDtos = cyc.Cycles.Select(c => new CycleDto(
+                c.NodeIds, c.PlaceIds, c.TransitionIds, c.TokensInCycle)).ToList();
+            cyclesDto = new CyclesDto(
+                cyc.HasErrors, cyc.ErrorMsg, cycleDtos,
+                cyc.PlaceCoverageCount(net),
+                cyc.TransitionCoverageCount(net));
+        }
+
+        // ── Traps DTO ─────────────────────────────────────────────────────────
+        TrapsDto? trapsDto = null;
+        var tc = report.TrapCotrap;
+        if (tc != null)
+        {
+            var traps   = tc.Traps.Select(s => new PlaceSubsetDto(s.PlaceIds.ToList(), s.HasToken)).ToList();
+            var siphons = tc.Cotraps.Select(s => new PlaceSubsetDto(s.PlaceIds.ToList(), s.HasToken)).ToList();
+            trapsDto = new TrapsDto(tc.HasErrors, tc.ErrorMsg, traps, siphons);
+        }
+
+        // ── Classification subclasses ─────────────────────────────────────────
+        var subclasses = (report.Classification?.Classes ?? (IReadOnlySet<NetSubclass>)new HashSet<NetSubclass>())
+            .Select(c => c.ToString()).ToList();
+
+        // ── Net structure ─────────────────────────────────────────────────────
+        var netStructure = new NetStructureDto(
+            PlaceCount:       net.Places.Count,
+            TransitionCount:  net.Transitions.Count,
+            NormalArcCount:   net.Arcs.Count(a => a.ArcType == PnArcType.Normal),
+            InhibitorArcCount: net.Arcs.Count(a => a.ArcType == PnArcType.Inhibitor),
+            ResetArcCount:    net.Arcs.Count(a => a.ArcType == PnArcType.Reset),
+            InitialTokenCount: net.Places.Sum(p => p.Tokens));
+
         return new AnalysisResultDto(
-            StateCount:           report.StateCount,
-            IsBounded:            isBounded,
-            IsDeadlockFree:       isDeadlockFree,
-            IsReversible:         isReversible,
-            IsSafe:               isSafe,
-            IsLive:               isLive,
-            ClassificationSummary: report.ClassificationSummary,
-            PropertyResults:      propertyResults,
-            PInvariants:          pInvariants,
-            TInvariants:          tInvariants,
-            ReachabilityGraph:    reachTree ?? reachGraph,   // prefer tree; fall back to graph
-            CoverabilityTree:     coverTree
+            StateCount:               report.StateCount,
+            IsBounded:                isBounded,
+            IsDeadlockFree:           isDeadlockFree,
+            IsReversible:             isReversible,
+            IsSafe:                   isSafe,
+            IsLive:                   isLive,
+            ClassificationSummary:    report.ClassificationSummary,
+            ClassificationSubclasses: subclasses,
+            PropertyResults:          propertyResults,
+            PInvariants:              pInvariants,
+            TInvariants:              tInvariants,
+            ReachabilityGraph:        reachTree ?? reachGraph,
+            CoverabilityTree:         coverTree,
+            Cycles:                   cyclesDto,
+            Traps:                    trapsDto,
+            NetStructure:             netStructure
         );
     }
 
@@ -80,6 +120,46 @@ public static class AnalysisResultMapper
     /// Build the reachability graph DTO from the state-space analysis.
     /// Returns null if the state space is unavailable (unbounded / error).
     /// </summary>
+    public static ReachabilityGraphDto? BuildReachabilityGraphDto(PetriNetSnapshot net, StateSpaceAnalysis ss)
+    {
+        if (ss.HasErrors) return null;
+        var placeNames = net.Places.Select(p => p.Name).ToList();
+        var deadlocks  = new HashSet<int>(FindDeadlockIndices(ss));
+        var nodes = ss.States.Select((marking, id) => new ReachNodeDto(
+            id, marking, id == 0, deadlocks.Contains(id), false, -1)).ToList();
+        var edges = ss.GetEdges()
+            .SelectMany((edgeList, from) => edgeList.Select(e => new ReachEdgeDto(
+                from, e.To, e.TransId,
+                net.TransitionById.TryGetValue(e.TransId, out var t) ? t.Name : e.TransId)))
+            .ToList();
+        return new ReachabilityGraphDto(nodes, edges, placeNames);
+    }
+
+    public static ReachabilityGraphDto? BuildReachabilityTreeDto(PetriNetSnapshot net, ReachabilityTreeBuilder rt)
+    {
+        if (rt.HasErrors || rt.Nodes.Count == 0) return null;
+        var placeNames = net.Places.Select(p => p.Name).ToList();
+        var nodes = rt.Nodes.Select(n => new ReachNodeDto(
+            Id: n.Id, Marking: n.Marking, IsInitial: n.IsInitial,
+            IsDeadlock: n.IsDeadlock, IsDuplicate: n.IsDuplicate, ParentId: n.ParentId)).ToList();
+        var edges = rt.Edges.Select(e => new ReachEdgeDto(
+            From: e.From, To: e.To, TransitionId: e.TransitionId, TransitionName: e.TransitionName)).ToList();
+        return new ReachabilityGraphDto(nodes, edges, placeNames);
+    }
+
+    public static CoverabilityTreeDto? BuildCoverabilityTreeDto(PetriNetSnapshot net, CoverabilityTreeBuilder cb)
+    {
+        if (cb.HasErrors || cb.Nodes.Count == 0) return null;
+        var placeNames = net.Places.Select(p => p.Name).ToList();
+        var nodes = cb.Nodes.Select(n => new CoverNodeDto(
+            n.Id,
+            n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
+            n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
+        var edges = cb.Edges.Select(e => new CoverEdgeDto(
+            e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
+        return new CoverabilityTreeDto(nodes, edges, placeNames);
+    }
+
     private static ReachabilityGraphDto? BuildReachabilityGraph(AnalysisReport report)
     {
         var ss = report.StateSpace;

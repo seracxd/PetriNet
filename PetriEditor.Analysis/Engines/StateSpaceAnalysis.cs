@@ -7,7 +7,7 @@ namespace Analysis.Engines;
 /// </summary>
 public sealed class StateSpaceAnalysis
 {
-    public const int MaxStates = 50_000;
+    public const int MaxStates = 500_000;
 
     public bool HasErrors { get; private set; }
     public string? ErrorMsg { get; private set; }
@@ -27,7 +27,7 @@ public sealed class StateSpaceAnalysis
 
     // ── Build ─────────────────────────────────────────────────────────────
 
-    public void Build(Analysis.PetriNetSnapshot net)
+    public void Build(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
     {
         _states.Clear();
         _stateIdx.Clear();
@@ -54,6 +54,13 @@ public sealed class StateSpaceAnalysis
 
         while (queue.Count > 0)
         {
+            if (ct.IsCancellationRequested)
+            {
+                HasErrors = true;
+                ErrorMsg = "Analysis cancelled.";
+                return;
+            }
+
             int sIdx = queue.Dequeue();
             var marking = _states[sIdx];
 
@@ -183,56 +190,76 @@ public sealed class StateSpaceAnalysis
     public List<HashSet<int>> FindSCCs()
     {
         int n = _states.Count;
-        var index = new int[n];
-        Array.Fill(index, -1);
+        var index   = new int[n];
         var lowlink = new int[n];
         var onStack = new bool[n];
-        var stack = new Stack<int>();
-        var sccs = new List<HashSet<int>>();
-        int counter = 0;
+        Array.Fill(index, -1);
 
-        void Strongconnect(int v)
+        var tarjanStack = new Stack<int>();
+        var sccs        = new List<HashSet<int>>();
+        int counter     = 0;
+
+        // Iterative Tarjan — each work-item is (node, edgeIteratorIndex)
+        // When edgeIndex == -1 the node is being visited for the first time.
+        var workStack = new Stack<(int V, int EdgeIdx)>();
+
+        for (int start = 0; start < n; start++)
         {
-            index[v] = counter;
-            lowlink[v] = counter;
-            counter++;
+            if (index[start] != -1) continue;
 
-            stack.Push(v);
-            onStack[v] = true;
+            workStack.Push((start, -1));
 
-            foreach (var (w, _) in _edges[v])
+            while (workStack.Count > 0)
             {
-                if (index[w] == -1)
+                var (v, ei) = workStack.Pop();
+
+                if (ei == -1)
                 {
-                    Strongconnect(w);
-                    lowlink[v] = Math.Min(lowlink[v], lowlink[w]);
+                    // First visit: initialise
+                    index[v] = lowlink[v] = counter++;
+                    tarjanStack.Push(v);
+                    onStack[v] = true;
+                    ei = 0;
                 }
-                else if (onStack[w])
+                else
                 {
-                    lowlink[v] = Math.Min(lowlink[v], index[w]);
+                    // Returning from a recursive call on the previous neighbour
+                    int prev = _edges[v][ei - 1].To;
+                    lowlink[v] = Math.Min(lowlink[v], lowlink[prev]);
+                }
+
+                // Process remaining neighbours
+                bool pushed = false;
+                while (ei < _edges[v].Count)
+                {
+                    int w = _edges[v][ei].To;
+                    ei++;
+                    if (index[w] == -1)
+                    {
+                        // Suspend v, recurse into w
+                        workStack.Push((v, ei));
+                        workStack.Push((w, -1));
+                        pushed = true;
+                        break;
+                    }
+                    if (onStack[w])
+                        lowlink[v] = Math.Min(lowlink[v], index[w]);
+                }
+
+                if (!pushed && lowlink[v] == index[v])
+                {
+                    var scc = new HashSet<int>();
+                    int w;
+                    do
+                    {
+                        w = tarjanStack.Pop();
+                        onStack[w] = false;
+                        scc.Add(w);
+                    }
+                    while (w != v);
+                    sccs.Add(scc);
                 }
             }
-
-            if (lowlink[v] == index[v])
-            {
-                var scc = new HashSet<int>();
-                int w;
-                do
-                {
-                    w = stack.Pop();
-                    onStack[w] = false;
-                    scc.Add(w);
-                }
-                while (w != v);
-
-                sccs.Add(scc);
-            }
-        }
-
-        for (int i = 0; i < n; i++)
-        {
-            if (index[i] == -1)
-                Strongconnect(i);
         }
 
         return sccs;

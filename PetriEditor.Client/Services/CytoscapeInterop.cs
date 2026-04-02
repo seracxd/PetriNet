@@ -3,37 +3,47 @@ using PetriEditor.Shared.Contracts;
 
 namespace PetriEditor.Client.Services;
 
-/// <summary>
-/// Thin wrapper around the Cytoscape.js functions defined in app.js.
-/// Register as Scoped so each page/component gets its own instance.
-/// </summary>
 public sealed class CytoscapeInterop(IJSRuntime js)
 {
-    /// <summary>
-    /// Initialize (or re-initialize) a Cytoscape instance inside <paramref name="containerId"/>.
-    /// Destroys any previous instance in that container first.
-    /// </summary>
-    public ValueTask InitAsync(string containerId, IEnumerable<CyElement> elements, string layout = "breadthfirst")
-        => js.InvokeVoidAsync("petriEditor.initCytoscape", containerId, elements, layout);
+    public ValueTask InitAsync(string containerId, IEnumerable<CyElement> elements,
+        string layout = "breadthfirst", DotNetObjectReference<CytoscapeCallback>? callback = null)
+        => js.InvokeVoidAsync("petriEditor.initCytoscape", containerId, elements, layout, callback);
 
-    /// <summary>Destroy the Cytoscape instance and release its DOM reference.</summary>
     public ValueTask DestroyAsync(string containerId)
         => js.InvokeVoidAsync("petriEditor.destroyCytoscape", containerId);
 
-    /// <summary>Fit the graph to the visible area of the container.</summary>
     public ValueTask FitAsync(string containerId)
         => js.InvokeVoidAsync("petriEditor.fitCytoscape", containerId);
 }
 
-/// <summary>A Cytoscape element (node or edge) passed to <c>cytoscape({ elements })</c>.</summary>
+/// <summary>Blazor callback object passed to JS so Cytoscape node events flow back to .NET.</summary>
+public sealed class CytoscapeCallback
+{
+    private readonly Action<string> _onNodeClick;
+    private readonly Action<string> _onNodeHover;
+    private readonly Action _onNodeOut;
+
+    public CytoscapeCallback(Action<string> onNodeClick, Action<string> onNodeHover, Action onNodeOut)
+    {
+        _onNodeClick = onNodeClick;
+        _onNodeHover = onNodeHover;
+        _onNodeOut   = onNodeOut;
+    }
+
+    [JSInvokable] public void OnNodeClick(string nodeId) => _onNodeClick(nodeId);
+    [JSInvokable] public void OnNodeHover(string nodeId) => _onNodeHover(nodeId);
+    [JSInvokable] public void OnNodeOut()                => _onNodeOut();
+}
+
 public sealed record CyElement(
-    string   Group,    // "nodes" or "edges"
+    string   Group,
     CyData   Data,
     string[]? Classes = null);
 
-/// <summary>Data bag for a Cytoscape element.</summary>
 public sealed record CyData(
-    string  Id,
-    string? Label,
-    string? Source,
-    string? Target);
+    string   Id,
+    string?  Label,
+    string?  Source,
+    string?  Target,
+    int[]?   Marking    = null,
+    string[]? PlaceNames = null);

@@ -17,39 +17,54 @@
             <!-- Subtle pulse ring when simulation running -->
         }
 
+        @{
+            var _accentColor = StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue
+                ? "#5c6bc0"
+                : StateService.IsPreviewingMarking ? "#00a499" : (StateService.IsSimulating ? "#00897b" : null);
+        }
         <circle cx="@((Node.Size?.Width ?? Settings.PlaceSize) / 2)"
                 cy="@((Node.Size?.Height ?? Settings.PlaceSize) / 2)"
                 r="@(((Node.Size?.Width ?? Settings.PlaceSize) / 2) - 2)"
-                stroke="@(StateService.IsSimulating ? "#00897b" : (Node.Selected ? Settings.ArcSelectedColor : Settings.ArcColor))"
-                stroke-width="@(Node.Selected && !StateService.IsSimulating ? 3 : 2)"
-                fill="@(Node.Selected && !StateService.IsSimulating ? "#e3f2fd" : "white")"
-                style="transition: all 0.2s;" />
+                stroke="@(_accentColor ?? (Node.Selected ? Settings.ArcSelectedColor : Settings.ArcColor))"
+                stroke-width="@(Node.Selected && !StateService.IsSimulating && !StateService.IsPreviewingMarking ? 3 : 2)"
+                fill="@(StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue ? "#ede7f6" : StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens > 0 ? "#e8faf8" : (Node.Selected && !StateService.IsSimulating ? "#e3f2fd" : "white"))"
+                style="transition: stroke 0.15s, fill 0.15s;" />
 
-        @if (PlaceModel?.Data?.Tokens > 0)
+        @{
+            var _isOmegaPreview = StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue;
+        }
+        @if (_isOmegaPreview)
+        {
+            var centerX = (Node.Size?.Width ?? Settings.PlaceSize) / 2;
+            var centerY = (Node.Size?.Height ?? Settings.PlaceSize) / 2;
+            <g transform="translate(@centerX, @centerY)">
+                <text text-anchor="middle" dominant-baseline="central"
+                      font-weight="bold" fill="#5c6bc0"
+                      style="user-select:none;font-size:20px;transition:all 0.15s;">ω</text>
+            </g>
+        }
+        else if (PlaceModel?.Data?.Tokens > 0)
         {
             var tokens = PlaceModel.Data.Tokens;
             var centerX = (Node.Size?.Width ?? Settings.PlaceSize) / 2;
             var centerY = (Node.Size?.Height ?? Settings.PlaceSize) / 2;
+            var tokenColor = _accentColor ?? "black";
 
             @if (tokens <= 5)
             {
-                <g fill="@(StateService.IsSimulating ? "#00897b" : "black")">
+                <g fill="@tokenColor">
                     @foreach (var pos in GetTokenPositions(tokens, centerX, centerY))
                     {
-                        <circle cx="@pos.X" cy="@pos.Y" r="6" style="transition: all 0.3s;" />
+                        <circle cx="@pos.X" cy="@pos.Y" r="6" style="transition: all 0.15s;" />
                     }
                 </g>
             }
             else
             {
-                <g>
-                    <text x="@centerX" y="@centerY"
-                          text-anchor="middle" dominant-baseline="central"
-                          font-weight="bolder"
-                          fill="@(StateService.IsSimulating ? "#00897b" : "black")"
-                          style="user-select: none; font-size: 18px; transition: all 0.3s;">
-                        @tokens
-                    </text>
+                <g transform="translate(@centerX, @centerY)">
+                    <text text-anchor="middle" dominant-baseline="central"
+                          font-weight="bolder" fill="@tokenColor"
+                          style="user-select:none;font-size:18px;transition:all 0.15s;">@tokens</text>
                 </g>
             }
         }
@@ -120,20 +135,21 @@
         return $"position: absolute; left: {x}; top: {y}; width: 0; height: 0;";
     }
 
-    private IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
+    private static IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
     {
-        const double offset = 12;
-        const double orbitRadius = 12;
-        const double startAngle = -Math.PI / 2;
-
+        const double s = 9;
+        const double l = 13;
         return count switch
         {
-            1 => new[] { (cx, cy) },
-            2 => new[] { (cx - offset, cy), (cx + offset, cy) },
+            1 => [(cx,     cy)],
+            2 => [(cx - s, cy),     (cx + s, cy)],
+            3 => [(cx,     cy - s), (cx - s, cy + s),  (cx + s, cy + s)],
+            4 => [(cx - s, cy - s), (cx + s, cy - s),  (cx - s, cy + s), (cx + s, cy + s)],
+            5 => [(cx - s, cy - s), (cx + s, cy - s), (cx, cy), (cx - s, cy + s), (cx + s, cy + s)],
             _ => Enumerable.Range(0, count).Select(i =>
             {
-                double angle = startAngle + i * 2 * Math.PI / count;
-                return (cx + orbitRadius * Math.Cos(angle), cy + orbitRadius * Math.Sin(angle));
+                double angle = -Math.PI / 2 + i * 2 * Math.PI / count;
+                return (cx + 11 * Math.Cos(angle), cy + 11 * Math.Sin(angle));
             })
         };
     }

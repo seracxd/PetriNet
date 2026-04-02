@@ -12,11 +12,15 @@ public sealed record AnalysisResultDto(
     bool                               IsSafe,
     bool                               IsLive,
     string                             ClassificationSummary,
+    IReadOnlyList<string>              ClassificationSubclasses,
     IReadOnlyList<PropertyResultDto>   PropertyResults,
     IReadOnlyList<InvariantDto>        PInvariants,
     IReadOnlyList<InvariantDto>        TInvariants,
     ReachabilityGraphDto?              ReachabilityGraph,
-    CoverabilityTreeDto?               CoverabilityTree);
+    CoverabilityTreeDto?               CoverabilityTree,
+    CyclesDto?                         Cycles,
+    TrapsDto?                          Traps,
+    NetStructureDto                    NetStructure);
 
 /// <summary>Result of a single property test (liveness, safety, etc.).</summary>
 public sealed record PropertyResultDto(
@@ -31,6 +35,25 @@ public sealed record PropertyResultDto(
 /// <summary>A single P- or T-invariant: maps place/transition ID to coefficient.</summary>
 public sealed record InvariantDto(
     IReadOnlyDictionary<string, int> Structure);
+
+// ── On-demand graph result ────────────────────────────────────────────────────
+
+/// <summary>Result of a lazy graph/tree computation requested separately from the main analysis.</summary>
+public sealed record GraphResultDto(
+    ReachabilityGraphDto?    ReachabilityGraph,
+    ReachabilityGraphDto?    ReachabilityTree,
+    CoverabilityTreeDto?     CoverabilityTree,
+    string?                  ErrorMessage,
+    StateSpaceSummaryDto?    StateSpace = null);
+
+/// <summary>Lightweight state-space facts derived during graph computation.</summary>
+public sealed record StateSpaceSummaryDto(
+    int  StateCount,
+    bool IsBounded,
+    bool IsSafe,
+    bool IsDeadlockFree,
+    bool IsReversible,
+    bool ExceededLimit);
 
 // ── Reachability graph ────────────────────────────────────────────────────────
 
@@ -88,3 +111,40 @@ public sealed record CoverEdgeDto(
     int    To,
     string TransitionId,
     string TransitionName);
+
+// ── Cycles ────────────────────────────────────────────────────────────────────
+
+public sealed record CyclesDto(
+    bool                        HasErrors,
+    string?                     ErrorMsg,
+    IReadOnlyList<CycleDto>     Cycles,
+    int                         PlaceCoverage,
+    int                         TransitionCoverage);
+
+public sealed record CycleDto(
+    IReadOnlyList<string>   NodeIds,
+    IReadOnlyList<string>   PlaceIds,
+    IReadOnlyList<string>   TransitionIds,
+    int                     TokensInCycle);
+
+// ── Traps ─────────────────────────────────────────────────────────────────────
+
+public sealed record TrapsDto(
+    bool                          HasErrors,
+    string?                       ErrorMsg,
+    IReadOnlyList<PlaceSubsetDto> Traps,
+    IReadOnlyList<PlaceSubsetDto> Siphons);
+
+public sealed record PlaceSubsetDto(
+    IReadOnlyList<string> PlaceIds,
+    bool                  HasToken);
+
+// ── Net structure ─────────────────────────────────────────────────────────────
+
+public sealed record NetStructureDto(
+    int PlaceCount,
+    int TransitionCount,
+    int NormalArcCount,
+    int InhibitorArcCount,
+    int ResetArcCount,
+    int InitialTokenCount);

@@ -4,54 +4,72 @@
 @inject CytoscapeInterop Cy
 @implements IAsyncDisposable
 
-<div style="display:flex;flex-direction:column;gap:6px;">
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;">
 
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        <button @onclick="FitGraph"
-                style="padding:4px 10px;background:#f0faf8;border:1px solid #00897b;border-radius:6px;font-size:11px;color:#00897b;cursor:pointer;font-weight:600;">
-            Fit to screen
-        </button>
-        <span style="font-size:10px;color:#aaa;">
+    <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+                padding:8px 12px;border-bottom:1px solid #e4e6ea;background:#f7f8fa;">
+        <span style="font-size:11px;color:#9aa0ad;font-weight:500;">
             @(Tree?.Nodes.Count ?? 0) nodes · @(Tree?.Edges.Count ?? 0) edges
         </span>
+        <button @onclick="FitGraph"
+                style="padding:3px 9px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
+                       border-radius:6px;background:#fff;color:#8a94a6;cursor:pointer;">
+            Fit
+        </button>
         @if (Tree?.Nodes.Any(n => n.Marking.Any(m => m is null)) == true)
         {
-            <span style="font-size:10px;padding:2px 6px;background:#e8eaf6;border-radius:8px;color:#3949ab;">
-                blue = contains ω (unbounded)
-            </span>
+            <span style="font-size:10px;padding:2px 7px;background:#ede7f6;border-radius:8px;color:#5c35a8;font-weight:600;">blue = ω (unbounded)</span>
         }
         @if (Tree?.Nodes.Any(n => n.IsDeadlock) == true)
         {
-            <span style="font-size:10px;padding:2px 6px;background:#ffebee;border-radius:8px;color:#c62828;">
-                red = deadlock
-            </span>
+            <span style="font-size:10px;padding:2px 7px;background:#ffebee;border-radius:8px;color:#c62828;font-weight:600;">red = deadlock</span>
         }
+        <span style="font-size:10px;color:#bbb;">Hover = marking · Click = apply (no ω)</span>
     </div>
 
-    <div id="@_containerId"
-         style="width:100%;height:460px;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa;">
-    </div>
+    <div id="@_containerId" style="flex:1;min-height:0;background:#fafbfc;"></div>
 
 </div>
 
 @code {
     [Parameter] public CoverabilityTreeDto? Tree { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<int?>> OnMarkingHovered { get; set; }
+    [Parameter] public EventCallback OnMarkingCleared { get; set; }
 
     private readonly string _containerId = $"cy-cover-{Guid.NewGuid():N}";
     private CoverabilityTreeDto? _lastRendered;
+    private DotNetObjectReference<CytoscapeCallback>? _cbRef;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (Tree is null || ReferenceEquals(Tree, _lastRendered))
-            return;
-
+        if (Tree is null || ReferenceEquals(Tree, _lastRendered)) return;
         _lastRendered = Tree;
 
+        _cbRef?.Dispose();
+        _cbRef = DotNetObjectReference.Create(new CytoscapeCallback(OnNodeClicked, OnNodeHovered, OnNodeOut));
+
         var elements = CytoscapeMapper.FromCoverabilityTree(Tree, Tree.PlaceNames);
-        await Cy.InitAsync(_containerId, elements, "breadthfirst");
+        await Cy.InitAsync(_containerId, elements, "breadthfirst", _cbRef);
     }
+
+    private void OnNodeClicked(string _) { }
+
+    private void OnNodeHovered(string nodeId)
+    {
+        if (Tree == null) return;
+        if (!int.TryParse(nodeId, out int id)) return;
+        var node = Tree.Nodes.FirstOrDefault(n => n.Id == id);
+        if (node == null) return;
+        _ = OnMarkingHovered.InvokeAsync(node.Marking);
+    }
+
+    private void OnNodeOut() => _ = OnMarkingCleared.InvokeAsync();
 
     private async Task FitGraph() => await Cy.FitAsync(_containerId);
 
-    public async ValueTask DisposeAsync() => await Cy.DestroyAsync(_containerId);
+    public async ValueTask DisposeAsync()
+    {
+        _cbRef?.Dispose();
+        await Cy.DestroyAsync(_containerId);
+    }
 }
