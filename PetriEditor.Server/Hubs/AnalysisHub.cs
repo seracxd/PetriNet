@@ -1,3 +1,4 @@
+using Analysis.Engines;
 using Microsoft.AspNetCore.SignalR;
 using PetriEditor.Server.Analysis;
 using PetriEditor.Server.Services;
@@ -83,7 +84,7 @@ public sealed class AnalysisHub : Hub
     }
 
     /// <summary>Compute only the reachability graph or coverability tree on demand.</summary>
-    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, bool coverability)
+    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, bool coverability, int maxStates = StateSpaceAnalysis.MaxStates)
     {
         if (_ctsByConnection.TryRemove(Context.ConnectionId, out var oldCts))
         {
@@ -94,7 +95,7 @@ public sealed class AnalysisHub : Hub
         _ctsByConnection[Context.ConnectionId] = cts;
         try
         {
-            return await _orchestrator.RunGraphAsync(net, coverability, cts.Token);
+            return await _orchestrator.RunGraphAsync(net, coverability, cts.Token, maxStates);
         }
         finally
         {

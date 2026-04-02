@@ -417,7 +417,19 @@ window.analysisPanel = (() => {
         });
     }
 
-    return { setup, setupTabScroll };
+    function maximise() {
+        const panel = document.getElementById('ap-panel');
+        if (!panel) return;
+        const margin = 10;
+        const w = window.innerWidth  - margin * 2;
+        const h = window.innerHeight - margin * 2;
+        panel.style.left   = margin + 'px';
+        panel.style.top    = margin + 'px';
+        panel.style.width  = w + 'px';
+        panel.style.height = h + 'px';
+    }
+
+    return { setup, setupTabScroll, maximise };
 })();
 
 // ── SVG pan/zoom for tree views ───────────────────────────────────────────
@@ -444,9 +456,9 @@ window.treeView = (() => {
             wrap.removeEventListener('pointercancel',s.onPointerUp);
         }
 
-        // Zoom limits
-        const minVW = svgW * 0.05;   // zoom in up to 20×
-        const maxVW = svgW * 3;       // zoom out to 3× overview
+        // Zoom limits (in terms of viewBox width)
+        const minVW = 100;         // max zoom-in: 100px wide slice
+        const maxVW = svgW * 4;    // max zoom-out: nodes stay at least a few px
 
         const s = {
             svgW, svgH,
@@ -454,9 +466,12 @@ window.treeView = (() => {
             drag: null,
         };
 
+        // Loose clamp — allow panning well outside the tree but not infinitely
         function clampViewBox() {
-            s.vx = Math.max(-s.vw * 0.5, Math.min(s.svgW - s.vw * 0.5, s.vx));
-            s.vy = Math.max(-s.vh * 0.5, Math.min(s.svgH - s.vh * 0.5, s.vy));
+            const padX = s.vw * 2;
+            const padY = s.vh * 2;
+            s.vx = Math.max(-padX, Math.min(s.svgW + padX, s.vx));
+            s.vy = Math.max(-padY, Math.min(s.svgH + padY, s.vy));
         }
 
         function applyViewBox() {
@@ -469,15 +484,21 @@ window.treeView = (() => {
             e.preventDefault();
             e.stopPropagation();
             const rect = wrap.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) / rect.width;
-            const cy = (e.clientY - rect.top)  / rect.height;
-            // Normalise delta — trackpads send small floats, mice send 100/120
-            const delta = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY;
-            const factor = delta > 0 ? 1.1 : (1 / 1.1);
+            // Fraction of container where mouse sits
+            const fx = (e.clientX - rect.left) / rect.width;
+            const fy = (e.clientY - rect.top)  / rect.height;
+            // Mouse position in SVG space before zoom
+            const mouseX = s.vx + fx * s.vw;
+            const mouseY = s.vy + fy * s.vh;
+            // Scale factor
+            const raw = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY;
+            const factor = raw > 0 ? 1.12 : (1 / 1.12);
             const newW = Math.max(minVW, Math.min(maxVW, s.vw * factor));
-            const newH = newW * (s.svgH / s.svgW);
-            s.vx += cx * (s.vw - newW);
-            s.vy += cy * (s.vh - newH);
+            // Keep vh proportional to the container (not the SVG), so anchor is correct
+            const newH = newW * (rect.height / rect.width);
+            // Pin the mouse point: it was at fraction fx,fy of old vw,vh → must stay at same fraction of new
+            s.vx = mouseX - fx * newW;
+            s.vy = mouseY - fy * newH;
             s.vw = newW;
             s.vh = newH;
             clampViewBox();
@@ -498,10 +519,9 @@ window.treeView = (() => {
             if (!s.drag) return;
             e.preventDefault();
             const rect = wrap.getBoundingClientRect();
-            const scaleX = s.vw / rect.width;
-            const scaleY = s.vh / rect.height;
-            s.vx = s.drag.vx - (e.clientX - s.drag.px) * scaleX;
-            s.vy = s.drag.vy - (e.clientY - s.drag.py) * scaleY;
+            const scale = Math.min(s.vw / rect.width, s.vh / rect.height);
+            s.vx = s.drag.vx - (e.clientX - s.drag.px) * scale;
+            s.vy = s.drag.vy - (e.clientY - s.drag.py) * scale;
             clampViewBox();
             applyViewBox();
         };
@@ -520,25 +540,23 @@ window.treeView = (() => {
         _state[containerId] = s;
         wrap.style.cursor = 'grab';
 
-        // Focus on M0 at a comfortable zoom level
-        const firstNode = svg.querySelector('.tree-node-g');
-        if (firstNode && svgW > 0 && svgH > 0) {
+        // Initial view: zoom in to ~25% of tree width, centred on M0
+        {
             const wrapRect = wrap.getBoundingClientRect();
-            const targetW = Math.min(svgW, Math.max(300, wrapRect.width * 0.75));
-            const targetH = targetW * (svgH / svgW);
-            const transform = firstNode.getAttribute('transform');
-            const match = transform && transform.match(/translate\(\s*([\d.]+)[,\s]+([\d.]+)\s*\)/);
+            const containerAspect = wrapRect.height / Math.max(wrapRect.width, 1);
+            s.vw = Math.min(maxVW, Math.max(400, svgW * 0.25));
+            s.vh = s.vw * containerAspect;
+
+            const firstNode = svg.querySelector('.tree-node-g');
+            const transform = firstNode && firstNode.getAttribute('transform');
+            const match = transform && transform.match(/translate\(\s*([\d.eE+\-]+)[,\s]+([\d.eE+\-]+)\s*\)/);
             if (match) {
-                const nx = parseFloat(match[1]) + 30;
-                const ny = parseFloat(match[2]) + 15;
-                s.vw = targetW;
-                s.vh = targetH;
-                s.vx = nx - targetW / 2;
-                s.vy = ny - targetH / 3;
+                const nodeX = parseFloat(match[1]) + 30; // centre of M0 node (NodeW/2 = 30)
+                const nodeY = parseFloat(match[2]) + 15; // centre of M0 node (NodeH/2 = 15)
+                s.vx = nodeX - s.vw / 2;
+                s.vy = nodeY - s.vh / 2;
             } else {
-                s.vw = targetW;
-                s.vh = targetH;
-                s.vx = (svgW - targetW) / 2;
+                s.vx = 0;
                 s.vy = 0;
             }
         }

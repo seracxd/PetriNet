@@ -27,7 +27,7 @@ public sealed class StateSpaceAnalysis
 
     // ── Build ─────────────────────────────────────────────────────────────
 
-    public void Build(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
+    public void Build(Analysis.PetriNetSnapshot net, CancellationToken ct = default, int maxStates = MaxStates)
     {
         _states.Clear();
         _stateIdx.Clear();
@@ -73,10 +73,10 @@ public sealed class StateSpaceAnalysis
 
                 if (!_stateIdx.TryGetValue(next, out int nIdx))
                 {
-                    if (_states.Count >= MaxStates)
+                    if (_states.Count >= maxStates)
                     {
                         HasErrors = true;
-                        ErrorMsg = $"State space exceeded {MaxStates} states — net may be unbounded.";
+                        ErrorMsg = $"State space exceeded {maxStates} states — net may be unbounded.";
                         return;
                     }
 

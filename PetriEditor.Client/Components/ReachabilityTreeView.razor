@@ -28,12 +28,13 @@
         <span style="font-size:10px;color:#bbb;">Hover = marking preview</span>
     </div>
 
-    <div id="@_containerId" style="flex:1;min-height:0;overflow:hidden;background:#fafbfc;cursor:grab;user-select:none;touch-action:none;">
+    <div id="@_containerId" style="flex:1;min-height:0;overflow:hidden;background:#fafbfc;cursor:grab;user-select:none;touch-action:none;position:relative;">
         @if (_layout != null && _svgW > 0)
         {
-            <svg width="@F(_svgW)" height="@F(_svgH)"
+            <svg width="100%" height="100%"
                  viewBox="0 0 @F(_svgW) @F(_svgH)"
-                 style="display:block;">
+                 preserveAspectRatio="none"
+                 style="display:block;position:absolute;top:0;left:0;">
 
                 @* edges first (under nodes) *@
                 @foreach (var (fromNode, toNode, label, isDashed) in _edges)

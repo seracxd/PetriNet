@@ -66,6 +66,15 @@
                         }
                     </svg>
                 </button>
+                <button class="ap-tb-btn" title="Maximise" @onclick="Maximise">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="15 3 21 3 21 9" />
+                        <polyline points="9 21 3 21 3 15" />
+                        <line x1="21" y1="3" x2="14" y2="10" />
+                        <line x1="3" y1="21" x2="10" y2="14" />
+                    </svg>
+                </button>
                 <button class="ap-tb-btn" title="Close" @onclick="Close">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                         <line x1="18" y1="6" x2="6" y2="18" />
@@ -816,6 +825,22 @@
                             </div>
                         </div>
 
+                        @* row 1b: state limit (only reachability mode) *@
+                        @if (_graphMode == "reachability")
+                        {
+                            <div style="display:flex;align-items:center;gap:6px;padding:0 10px 5px;">
+                                <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">LIMIT</span>
+                                <input type="number" min="100" max="10000000" step="1000"
+                                       value="@_maxStates"
+                                       @onchange="OnMaxStatesChanged"
+                                       style="width:90px;padding:3px 6px;font-size:11px;border:1px solid #e4e6ea;border-radius:6px;text-align:right;" />
+                                @if (_maxStates > 10_000)
+                                {
+                                    <span style="font-size:10px;color:#e65100;" title="Large limits may take a long time or run out of memory">⚠ large</span>
+                                }
+                            </div>
+                        }
+
                         @* row 2: view toggle + compute (only when not statespace) *@
                         @if (_graphMode != "statespace")
                         {
@@ -1198,6 +1223,7 @@
     private string                     _viewMode     = "graph";        // "graph" | "tree"
     private bool                       _graphRunning = false;
     private string?                    _graphError;
+    private int                        _maxStates    = 5_000;
     private ReachabilityGraphDto?      _graphReach;
     private ReachabilityGraphDto?      _graphReachTree;
     private CoverabilityTreeDto?       _graphCover;
@@ -1210,6 +1236,12 @@
         if (_graphMode == mode) return;
         _graphMode = mode;
         StateHasChanged();
+    }
+
+    private void OnMaxStatesChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int v))
+            _maxStates = Math.Max(100, Math.Min(10_000_000, v));
     }
 
     private async Task ComputeGraph()
@@ -1232,7 +1264,7 @@
         try
         {
             var coverability = _graphMode == "coverability";
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token);
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token, _maxStates);
             if (result.ErrorMessage != null)
                 _graphError = result.ErrorMessage;
             else if (coverability)
@@ -1333,6 +1365,11 @@
     private void ToggleOpen() { _open = !_open; if (_open) _ = SetupJsAsync(); }
     public void Close() { ClearPreview(); _open = false; InvokeAsync(StateHasChanged); }
     private void ToggleFloat() { _floating = !_floating; _ = SetupJsAsync(); }
+    private void Maximise()
+    {
+        _floating = true;
+        _ = SetupJsAsync().ContinueWith(_ => JS.InvokeVoidAsync("analysisPanel.maximise").AsTask());
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -87,7 +87,8 @@ public sealed class AnalysisOrchestrator
     public async Task<GraphResultDto> RunGraphAsync(
         PetriNetDto       dto,
         bool              coverability,
-        CancellationToken ct)
+        CancellationToken ct,
+        int               maxStates = StateSpaceAnalysis.MaxStates)
     {
         var net = PetriNetMapper.ToSnapshot(dto);
 
@@ -121,7 +122,7 @@ public sealed class AnalysisOrchestrator
                 else
                 {
                     var ss = new StateSpaceAnalysis();
-                    ss.Build(net, ct);
+                    ss.Build(net, ct, maxStates);
                     if (ss.HasErrors) { error = ss.ErrorMsg; return; }
 
                     reachDto = AnalysisResultMapper.BuildReachabilityGraphDto(net, ss);
@@ -131,7 +132,7 @@ public sealed class AnalysisOrchestrator
                         IsSafe:         ss.IsSafe(),
                         IsDeadlockFree: ss.IsDeadlockFree(),
                         IsReversible:   ss.IsReversible(),
-                        ExceededLimit:  ss.States.Count >= StateSpaceAnalysis.MaxStates);
+                        ExceededLimit:  ss.States.Count >= maxStates);
 
                     if (!ct.IsCancellationRequested)
                     {
