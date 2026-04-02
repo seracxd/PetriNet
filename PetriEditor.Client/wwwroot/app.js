@@ -560,6 +560,11 @@ window.treeView = (() => {
     return { init, resetView };
 })();
 
+// ── SVG element z-order helper ────────────────────────────────────────────
+window.bringElementToFront = (el) => {
+    if (el && el.parentNode) el.parentNode.appendChild(el);
+};
+
 // ── Cytoscape.js interop ───────────────────────────────────────────────────
 window.petriEditor = window.petriEditor || {};
 window.petriEditor._cy = {};

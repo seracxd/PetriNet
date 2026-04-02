@@ -75,6 +75,7 @@ public class PetriNetManager : IDisposable
         diagram.RegisterComponent<PetriLinkModel, PetriLinkWidget>();
 
         diagram.Links.Added += OnLinkAdded;
+        diagram.Links.Removed += OnLinkRemoved;
         diagram.PointerMove += OnPointerMove;
         diagram.PanChanged += OnPanChanged;
         diagram.Nodes.Added += OnNodeAdded;
@@ -251,12 +252,15 @@ public class PetriNetManager : IDisposable
         if (model is PortModel port)
         {
             sourcePort = port;
-            sourceAnchor = new ShapeIntersectionAnchor(port.Parent);
+            sourceAnchor = new SinglePortAnchor(port) { MiddleIfNoMarker = false, UseShapeAndAlignment = true };
         }
         else if (model is NodeModel node)
         {
-            sourcePort = null;
-            sourceAnchor = new ShapeIntersectionAnchor(node);
+            var snapPort = FindClosestPort(node, pos);
+            sourcePort = snapPort;
+            sourceAnchor = snapPort != null
+                ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
+                : new NodeRelativeAnchor(node, pos);
         }
         else return;
 
@@ -338,7 +342,9 @@ public class PetriNetManager : IDisposable
             _pendingLink.ArcType = hasNormal ? ArcType.Inhibitor : ArcType.Normal;
         }
 
-        var targetAnchor = new ShapeIntersectionAnchor(targetNode);
+        Anchor targetAnchor = targetPort != null
+            ? (Anchor)new SinglePortAnchor(targetPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
+            : new NodeRelativeAnchor(targetNode, pos);
 
         _pendingLink.SetTarget(targetAnchor);
         _pendingLink.IsDraggingEndpoint = false;
@@ -430,6 +436,11 @@ public class PetriNetManager : IDisposable
             var fixedNode = GetParentNode(fixedAnchor);
             var hitNode = Diagram.Nodes.FirstOrDefault(n => n != fixedNode && HitTest(n, dropPos));
 
+            // Also allow dropping back on the dragged end's original node
+            var originalNode = GetParentNode(fixedIsSource ? snapshotTarget : snapshotSource);
+            if (hitNode == null && originalNode != null && HitTest(originalNode, dropPos))
+                hitNode = originalNode;
+
             if (hitNode == null)
             {
                 Diagram.Links.Remove(tempLink);
@@ -437,7 +448,10 @@ public class PetriNetManager : IDisposable
                 return;
             }
 
-            Anchor nodeAnchor = new ShapeIntersectionAnchor(hitNode);
+            var snapPort = FindClosestPort(hitNode, dropPos);
+            Anchor nodeAnchor = snapPort != null
+                ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
+                : new NodeRelativeAnchor(hitNode, dropPos);
 
             if (fixedIsSource) tempLink.SetTarget(nodeAnchor);
             else tempLink.SetSource(nodeAnchor);
@@ -507,6 +521,12 @@ public class PetriNetManager : IDisposable
         if (link.IsDraggingEndpoint) return;
         AddControls(link);
         link.TargetAttached += OnLinkTargetAttached;
+    }
+
+    private void OnLinkRemoved(BaseLinkModel baseLink)
+    {
+        if (baseLink is not PetriLinkModel link) return;
+        link.TargetAttached -= OnLinkTargetAttached;
     }
 
     private void AddControls(PetriLinkModel link) { }
@@ -685,16 +705,24 @@ public class PetriNetManager : IDisposable
         _ => null
     };
 
+    public const double PortSnapRadius = 8.0;
+
+    /// <summary>Returns the closest port if it is within <see cref="PortSnapRadius"/>, otherwise null.</summary>
     public PortModel? FindClosestPort(NodeModel node, Point p)
     {
         if (!node.Ports.Any()) return null;
-        return node.Ports.OrderBy(port =>
+        var closest = node.Ports.OrderBy(port =>
         {
             var pp = port.Position;
             if (pp == null) return double.MaxValue;
             double dx = pp.X - p.X, dy = pp.Y - p.Y;
             return dx * dx + dy * dy;
         }).First();
+
+        var cp = closest.Position;
+        if (cp == null) return null;
+        double ddx = cp.X - p.X, ddy = cp.Y - p.Y;
+        return ddx * ddx + ddy * ddy <= PortSnapRadius * PortSnapRadius ? closest : null;
     }
 
     private LinkModel? LinkFactory(Diagram diagram, ILinkable source, Anchor? targetAnchor)
@@ -757,11 +785,14 @@ public class PetriNetManager : IDisposable
     {
         _settings.Changed -= OnSettingsChanged;
         Diagram.Links.Added -= OnLinkAdded;
+        Diagram.Links.Removed -= OnLinkRemoved;
         Diagram.PointerMove -= OnPointerMove;
         Diagram.PanChanged -= OnPanChanged;
         Diagram.Nodes.Added -= OnNodeAdded;
         Diagram.Nodes.Removed -= OnNodeRemoved;
         Diagram.PointerDown -= OnDiagramPointerDown;
         Diagram.PointerUp -= OnDiagramPointerUp;
+        foreach (var link in Diagram.Links.OfType<PetriLinkModel>())
+            link.TargetAttached -= OnLinkTargetAttached;
     }
 }

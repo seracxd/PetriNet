@@ -103,6 +103,11 @@ namespace PetriNetAnalyzer.DiagramModels
                 var hitNode = diagram.Nodes
                     .FirstOrDefault(n => n != fixedNode && HitTest(n, dropPos));
 
+                // Also allow dropping back on the dragged end's original node (different position/port)
+                var originalNode = GetNode(fixedIsSource ? snapshotTarget : snapshotSource);
+                if (hitNode == null && originalNode != null && HitTest(originalNode, dropPos))
+                    hitNode = originalNode;
+
                 if (hitNode == null)
                 {
                     // Dropped on canvas — restore original link unchanged
@@ -115,7 +120,7 @@ namespace PetriNetAnalyzer.DiagramModels
                 var closestPort = _manager.FindClosestPort(hitNode, dropPos);
                 Anchor nodeAnchor = closestPort != null
                     ? (Anchor)new SinglePortAnchor(closestPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-                    : new ShapeIntersectionAnchor(hitNode);
+                    : new NodeRelativeAnchor(hitNode, dropPos);
 
                 if (fixedIsSource)
                     tempLink.SetTarget(nodeAnchor);

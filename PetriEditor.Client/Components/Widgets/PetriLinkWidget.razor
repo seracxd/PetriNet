@@ -10,6 +10,7 @@
 @inject DiagramStateService StateService
 @inject PetriNetManager Manager
 @inject DiagramSettings Settings
+@inject IJSRuntime JS
 
 @if (Link != null && _points != null && _points.Count >= 2)
 {
@@ -18,7 +19,7 @@
     var srcPt = _points[0];
     var tgtPt = _points[^1];
 
-    <g class="petri-link-group">
+    <g class="petri-link-group" @ref="_groupRef">
 
         @* ── Visible line ── *@
         <path d="@dSmooth" fill="none" stroke="@color" stroke-width="2" />
@@ -148,6 +149,8 @@
     [CascadingParameter] public Blazor.Diagrams.BlazorDiagram Diagram { get; set; } = null!;
     [Parameter] public PetriLinkModel Link { get; set; } = null!;
 
+    private ElementReference _groupRef;
+    private bool _wasSelected;
     private List<Point>? _points;
     private PetriVertexModel? _draggingVertex;
     private Point _dragStartMouse;
@@ -178,7 +181,14 @@
     private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
 
     private void OnLinkChanged(Blazor.Diagrams.Core.Models.Base.Model _)
-        => InvokeAsync(() => { RefreshPoints(); StateHasChanged(); });
+        => InvokeAsync(async () =>
+        {
+            RefreshPoints();
+            if (Link.Selected && !_wasSelected)
+                await JS.InvokeVoidAsync("bringElementToFront", _groupRef);
+            _wasSelected = Link.Selected;
+            StateHasChanged();
+        });
 
     public void Dispose()
     {
