@@ -1271,6 +1271,7 @@
             _lastDto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
         }
         _graphCts?.Cancel();
+        _graphCts?.Dispose();
         _graphCts = new CancellationTokenSource();
         _graphRunning = true;
         _graphError   = null;
@@ -1278,7 +1279,7 @@
         try
         {
             var coverability = _graphMode == "coverability";
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token, _maxStates);
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token, _maxStates, wantGraph: _viewMode == "graph");
             if (result.ErrorMessage != null)
                 _graphError = result.ErrorMessage;
             else if (coverability)
@@ -1288,8 +1289,8 @@
             }
             else
             {
-                _graphReach     = result.ReachabilityGraph;
-                _graphReachTree = result.ReachabilityTree;
+                if (result.ReachabilityGraph != null) _graphReach = result.ReachabilityGraph;
+                if (result.ReachabilityTree  != null) _graphReachTree = result.ReachabilityTree;
             }
             if (result.StateSpace != null)
             {

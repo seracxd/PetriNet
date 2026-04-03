@@ -7,6 +7,13 @@ using QuestPDF.Infrastructure;
 // QuestPDF community license — free for open-source / educational use
 QuestPDF.Settings.License = LicenseType.Community;
 
+// On low-memory hosts, trim the heap back after large analysis runs
+if (Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT") != null ||
+    Environment.GetEnvironmentVariable("LOW_MEMORY_GC") != null)
+{
+    System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.Batch;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // File logger — writes warnings and errors to logs/petri.log next to the executable

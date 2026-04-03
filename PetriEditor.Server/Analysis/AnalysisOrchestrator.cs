@@ -88,7 +88,8 @@ public sealed class AnalysisOrchestrator
         PetriNetDto       dto,
         bool              coverability,
         CancellationToken ct,
-        int               maxStates = StateSpaceAnalysis.MaxStates)
+        int               maxStates = StateSpaceAnalysis.MaxStates,
+        bool              wantGraph = false)
     {
         var net = PetriNetMapper.ToSnapshot(dto);
 
@@ -125,7 +126,10 @@ public sealed class AnalysisOrchestrator
                     ss.Build(net, ct, maxStates);
                     if (ss.HasErrors) { error = ss.ErrorMsg; return; }
 
-                    reachDto = AnalysisResultMapper.BuildReachabilityGraphDto(net, ss);
+                    // Only build the Cytoscape graph DTO if the caller explicitly wants it
+                    if (wantGraph)
+                        reachDto = AnalysisResultMapper.BuildReachabilityGraphDto(net, ss);
+
                     ssDto = new StateSpaceSummaryDto(
                         StateCount:     ss.States.Count,
                         IsBounded:      ss.IsBounded(),
@@ -146,7 +150,10 @@ public sealed class AnalysisOrchestrator
             catch (Exception ex) { error = ex.Message; }
         });
 
-        return new GraphResultDto(reachDto, reachTreeDto, coverDto, error, ssDto);
+        var result = new GraphResultDto(reachDto, reachTreeDto, coverDto, error, ssDto);
+        // Release large state-space objects before returning — they're no longer needed
+        GC.Collect(2, GCCollectionMode.Optimized, blocking: false, compacting: false);
+        return result;
     }
 
     private static PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)
