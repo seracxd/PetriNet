@@ -1,12 +1,13 @@
 @using PetriEditor.Shared.Contracts
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div style="flex:1;min-height:0;display:flex;flex-direction:column;">
 
     <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
                 padding:8px 12px;border-bottom:1px solid #e4e6ea;background:#f7f8fa;">
         <span style="font-size:11px;color:#9aa0ad;font-weight:500;">
-            @(_layout?.Count ?? 0) nodes@(_truncated ? $" (showing first {MaxNodes})" : "")
+            @(_layout?.Count ?? 0) nodes@(_truncated ? $" (showing first {MaxDisplayNodes})" : "")
         </span>
         <button @onclick="ResetView"
                 style="padding:3px 9px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
@@ -45,7 +46,7 @@
                     double y2 = toNode.Y;
                     double mx = (x1 + x2) / 2.0;
                     double my = (y1 + y2) / 2.0;
-                    <g>
+                    <g class="tree-edge-g" data-x1="@F(x1)" data-y1="@F(y1)" data-x2="@F(x2)" data-y2="@F(y2)">
                         <path d="M @F(x1) @F(y1) C @F(x1) @F(y1 + LevelH * 0.4) @F(x2) @F(y2 - LevelH * 0.4) @F(x2) @F(y2)"
                               stroke="@(isDashed ? "#f9a825" : "#c8d0dc")"
                               stroke-width="1.5"
@@ -73,18 +74,22 @@
                 @* nodes *@
                 @foreach (var n in _layout.Values)
                 {
-                    bool isRef  = n.IsReference;
-                    bool isInit = n.Node.IsInitial;
-                    bool isDead = n.Node.IsDeadlock;
+                    bool isRef      = n.IsReference;
+                    bool isInit     = n.Node.IsInitial;
+                    bool isDead     = n.Node.IsDeadlock;
+                    bool isHovered  = _hoveredMarkingKey != null && n.MarkingKey == _hoveredMarkingKey;
+                    string markingTip = string.Join(", ", n.Node.Marking);
 
-                    string fill   = isRef  ? "#fffde7"
-                                  : isInit ? "#e8faf8"
-                                  : isDead ? "#ffebee"
-                                  :          "#ffffff";
-                    string stroke = isRef  ? "#f9a825"
-                                  : isInit ? "#00a499"
-                                  : isDead ? "#e53935"
-                                  :          "#c8d0dc";
+                    string fill   = isHovered ? "#c8f0ec"
+                                  : isRef     ? "#fffde7"
+                                  : isInit    ? "#e8faf8"
+                                  : isDead    ? "#ffebee"
+                                  :             "#ffffff";
+                    string stroke = isHovered ? "#00796b"
+                                  : isRef     ? "#f9a825"
+                                  : isInit    ? "#00a499"
+                                  : isDead    ? "#e53935"
+                                  :             "#c8d0dc";
                     string textC  = isRef  ? "#f57f17"
                                   : isInit ? "#00796b"
                                   : isDead ? "#b71c1c"
@@ -95,11 +100,12 @@
                        @onmouseenter="() => OnNodeEnter(n)"
                        @onmouseleave="OnNodeLeave"
                        style="cursor:default;">
+                        <title>[@markingTip]</title>
                         <rect x="0" y="0" width="@NodeW" height="@NodeH" rx="7"
                               fill="@fill" stroke="@stroke"
-                              stroke-width="@(isInit ? 2.5 : 1.5)"
+                              stroke-width="@(isHovered || isInit ? 2.5 : 1.5)"
                               stroke-dasharray="@(isRef ? "4 2" : "none")" />
-                        <svg:text x="@F(NodeW / 2.0)" y="@F(NodeH / 2.0)"
+                        <svg:text x="@F(NodeW / 2.0)" y="@F(isRef ? NodeH / 2.0 - 4 : NodeH / 2.0)"
                               text-anchor="middle" dominant-baseline="middle"
                               font-size="11" font-weight="700" font-family="Inter,sans-serif"
                               fill="@textC" style="pointer-events:none;">
@@ -107,7 +113,7 @@
                         </svg:text>
                         @if (isRef)
                         {
-                            <svg:text x="@F(NodeW / 2.0)" y="@F(NodeH - 3)"
+                            <svg:text x="@F(NodeW / 2.0)" y="@F(NodeH - 4)"
                                   text-anchor="middle" dominant-baseline="auto"
                                   font-size="8" font-family="Inter,sans-serif"
                                   fill="#f57f17" style="pointer-events:none;">
@@ -125,12 +131,12 @@
     [Parameter] public ReachabilityGraphDto? Graph { get; set; }
     [Parameter] public EventCallback<IReadOnlyList<int?>> OnMarkingHovered { get; set; }
     [Parameter] public EventCallback OnMarkingCleared { get; set; }
+    [Parameter] public int MaxDisplayNodes { get; set; } = 500;
 
     const double NodeW  = 60;
     const double NodeH  = 30;
     const double LevelH = 80;
     const double MinGapX = 16;
-    const int    MaxNodes = 500;
 
     private readonly string _containerId = $"tree-{Guid.NewGuid():N}";
     private ReachabilityGraphDto? _lastGraph;
@@ -138,6 +144,7 @@
     private List<(LayoutNode From, LayoutNode To, string Label, bool Dashed)> _edges = new();
     private double _svgW, _svgH;
     private bool _hasDuplicates, _hasDeadlocks, _truncated;
+    private string? _hoveredMarkingKey;
 
     // Map from canonical id → BFS index label (M0, M1, …)
     private Dictionary<int, string> _nodeLabels = new();
@@ -145,9 +152,10 @@
     private sealed class LayoutNode
     {
         public ReachNodeDto Node;
-        public string Label  = "";
-        public string RefLabel = ""; // label of the canonical target (for reference nodes)
-        public bool IsReference;     // true = duplicate, shown as collapsed back-ref
+        public string Label     = "";
+        public string RefLabel  = "";
+        public string MarkingKey = "";
+        public bool IsReference;
         public double X, Y;
         public LayoutNode(ReachNodeDto node) { Node = node; }
     }
@@ -170,10 +178,10 @@
 
         if (Graph!.Nodes.Count == 0) { _svgW = 400; _svgH = 200; return; }
 
-        // Truncate to MaxNodes via BFS if needed
+        // Truncate to MaxDisplayNodes via BFS if needed
         var allNodes = Graph.Nodes;
         var allEdges = Graph.Edges;
-        if (allNodes.Count > MaxNodes)
+        if (allNodes.Count > MaxDisplayNodes)
         {
             _truncated = true;
             var rootNode = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
@@ -185,11 +193,11 @@
             foreach (var n in allNodes)
                 if (n.ParentId >= 0 && childMap.ContainsKey(n.ParentId))
                     childMap[n.ParentId].Add(n.Id);
-            while (q.Count > 0 && keep.Count < MaxNodes)
+            while (q.Count > 0 && keep.Count < MaxDisplayNodes)
             {
                 int cur = q.Dequeue();
                 foreach (int ch in childMap[cur])
-                    if (keep.Count < MaxNodes && keep.Add(ch))
+                    if (keep.Count < MaxDisplayNodes && keep.Add(ch))
                         q.Enqueue(ch);
             }
             allNodes = allNodes.Where(n => keep.Contains(n.Id)).ToList();
@@ -239,15 +247,24 @@
                     bfsQ.Enqueue(ch);
         }
 
+        // Build a lookup: canonical id → canonical node (for reference hover)
+        var nodeById = allNodes.ToDictionary(n => n.Id);
+
         // Build layout nodes
         foreach (var n in allNodes)
         {
             var ln = new LayoutNode(n);
             bool isRef = canonical[n.Id] != n.Id;
             ln.IsReference = isRef;
-            ln.Label = _nodeLabels.GetValueOrDefault(canonical[n.Id], $"M?");
+            ln.Label = _nodeLabels.GetValueOrDefault(canonical[n.Id], "M?");
+            ln.MarkingKey = string.Join(",", n.Marking);
             if (isRef)
+            {
                 ln.RefLabel = _nodeLabels.GetValueOrDefault(canonical[n.Id], "");
+                // Store canonical node on reference so hover works
+                if (nodeById.TryGetValue(canonical[n.Id], out var canonNode))
+                    ln.Node = canonNode;
+            }
             _layout[n.Id] = ln;
         }
 
@@ -328,16 +345,25 @@
 
     private void OnNodeEnter(LayoutNode ln)
     {
-        if (ln.IsReference) return; // ref nodes have no marking to preview
+        _hoveredMarkingKey = ln.MarkingKey;
         var node = ln.Node;
-        if (!node.Marking.Any()) return;
-        _ = OnMarkingHovered.InvokeAsync(node.Marking.Select(t => (int?)t).ToList());
+        if (node.Marking.Any())
+            _ = OnMarkingHovered.InvokeAsync(node.Marking.Select(t => (int?)t).ToList());
     }
 
-    private void OnNodeLeave() => _ = OnMarkingCleared.InvokeAsync();
+    private void OnNodeLeave()
+    {
+        _hoveredMarkingKey = null;
+        _ = OnMarkingCleared.InvokeAsync();
+    }
 
     private async Task ResetView() =>
         await JS.InvokeVoidAsync("treeView.resetView", _containerId);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("treeView.destroy", _containerId); } catch { }
+    }
 
     private static string F(double v) =>
         v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);

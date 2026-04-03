@@ -436,6 +436,44 @@ window.analysisPanel = (() => {
 window.treeView = (() => {
     const _state = {};   // keyed by containerId
 
+    // Margin (in SVG units) outside viewBox where elements are still kept visible.
+    // Elements beyond this margin get display:none.
+    const CULL_MARGIN = 40;
+
+    function _cullNodes(s, svg) {
+        // Cull nodes: hide elements whose bounding box is entirely outside the viewport
+        const x0 = s.vx - CULL_MARGIN;
+        const y0 = s.vy - CULL_MARGIN;
+        const x1 = s.vx + s.vw + CULL_MARGIN;
+        const y1 = s.vy + s.vh + CULL_MARGIN;
+
+        // Node groups — each has transform="translate(nx, ny)"
+        const nodeW = 60, nodeH = 30;
+        const nodes = svg.querySelectorAll('.tree-node-g');
+        for (let i = 0; i < nodes.length; i++) {
+            const g = nodes[i];
+            const t = g._treePos;
+            if (!t) continue;
+            const visible = t.x + nodeW >= x0 && t.x <= x1 && t.y + nodeH >= y0 && t.y <= y1;
+            g.style.display = visible ? '' : 'none';
+        }
+
+        // Edge groups — each has a <path> with from/to baked in; we check midpoint
+        const edges = svg.querySelectorAll('.tree-edge-g');
+        for (let i = 0; i < edges.length; i++) {
+            const g = edges[i];
+            const t = g._treeEdge;
+            if (!t) continue;
+            // Rough AABB check
+            const ex0 = Math.min(t.x1, t.x2) - CULL_MARGIN;
+            const ey0 = Math.min(t.y1, t.y2) - CULL_MARGIN;
+            const ex1 = Math.max(t.x1, t.x2) + CULL_MARGIN;
+            const ey1 = Math.max(t.y1, t.y2) + CULL_MARGIN;
+            const visible = ex1 >= x0 && ex0 <= x1 && ey1 >= y0 && ey0 <= y1;
+            g.style.display = visible ? '' : 'none';
+        }
+    }
+
     function init(containerId, svgW, svgH) {
         const wrap = document.getElementById(containerId);
         if (!wrap) return;
@@ -446,27 +484,40 @@ window.treeView = (() => {
         wrap.style.touchAction = 'none';
         wrap.style.overscrollBehavior = 'none';
 
-        // Destroy previous listeners if re-initialising
+        // Destroy previous state if re-initialising
         if (_state[containerId]) {
-            const s = _state[containerId];
-            wrap.removeEventListener('wheel',        s.onWheel);
-            wrap.removeEventListener('pointerdown',  s.onPointerDown);
-            wrap.removeEventListener('pointermove',  s.onPointerMove);
-            wrap.removeEventListener('pointerup',    s.onPointerUp);
-            wrap.removeEventListener('pointercancel',s.onPointerUp);
+            _destroyState(containerId, wrap);
+        }
+
+        // Cache SVG-space positions on each node/edge element so culling is O(n) with no layout queries
+        const nodes = svg.querySelectorAll('.tree-node-g');
+        for (let i = 0; i < nodes.length; i++) {
+            const g = nodes[i];
+            const t = g.getAttribute('transform');
+            const m = t && t.match(/translate\(\s*([\d.eE+\-]+)[,\s]+([\d.eE+\-]+)\s*\)/);
+            g._treePos = m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+        }
+        const edges = svg.querySelectorAll('.tree-edge-g');
+        for (let i = 0; i < edges.length; i++) {
+            const g = edges[i];
+            const d = g.dataset;
+            g._treeEdge = d.x1 != null
+                ? { x1: +d.x1, y1: +d.y1, x2: +d.x2, y2: +d.y2 }
+                : null;
         }
 
         // Zoom limits (in terms of viewBox width)
-        const minVW = 100;         // max zoom-in: 100px wide slice
-        const maxVW = svgW * 4;    // max zoom-out: nodes stay at least a few px
+        const minVW = 100;
+        const maxVW = svgW * 4;
 
         const s = {
             svgW, svgH,
             vx: 0, vy: 0, vw: svgW, vh: svgH,
             drag: null,
+            rafId: null,
+            dirty: false,
         };
 
-        // Loose clamp — allow panning well outside the tree but not infinitely
         function clampViewBox() {
             const padX = s.vw * 2;
             const padY = s.vh * 2;
@@ -474,38 +525,40 @@ window.treeView = (() => {
             s.vy = Math.max(-padY, Math.min(s.svgH + padY, s.vy));
         }
 
-        function applyViewBox() {
+        function flush() {
+            s.rafId = null;
+            s.dirty = false;
             svg.setAttribute('viewBox',
                 `${s.vx.toFixed(1)} ${s.vy.toFixed(1)} ${s.vw.toFixed(1)} ${s.vh.toFixed(1)}`);
+            _cullNodes(s, svg);
         }
 
-        // ── Wheel = zoom around cursor ────────────────────────────────────
+        function scheduleFlush() {
+            if (s.dirty) return;
+            s.dirty = true;
+            s.rafId = requestAnimationFrame(flush);
+        }
+
         s.onWheel = (e) => {
             e.preventDefault();
             e.stopPropagation();
             const rect = wrap.getBoundingClientRect();
-            // Fraction of container where mouse sits
             const fx = (e.clientX - rect.left) / rect.width;
             const fy = (e.clientY - rect.top)  / rect.height;
-            // Mouse position in SVG space before zoom
             const mouseX = s.vx + fx * s.vw;
             const mouseY = s.vy + fy * s.vh;
-            // Scale factor
             const raw = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY;
             const factor = raw > 0 ? 1.12 : (1 / 1.12);
             const newW = Math.max(minVW, Math.min(maxVW, s.vw * factor));
-            // Keep vh proportional to the container (not the SVG), so anchor is correct
             const newH = newW * (rect.height / rect.width);
-            // Pin the mouse point: it was at fraction fx,fy of old vw,vh → must stay at same fraction of new
             s.vx = mouseX - fx * newW;
             s.vy = mouseY - fy * newH;
             s.vw = newW;
             s.vh = newH;
             clampViewBox();
-            applyViewBox();
+            scheduleFlush();
         };
 
-        // ── Pointer drag = pan ────────────────────────────────────────────
         s.onPointerDown = (e) => {
             if (e.button !== 0) return;
             if (e.target.closest('.tree-node-g')) return;
@@ -523,7 +576,7 @@ window.treeView = (() => {
             s.vx = s.drag.vx - (e.clientX - s.drag.px) * scale;
             s.vy = s.drag.vy - (e.clientY - s.drag.py) * scale;
             clampViewBox();
-            applyViewBox();
+            scheduleFlush();
         };
 
         s.onPointerUp = () => {
@@ -551,8 +604,8 @@ window.treeView = (() => {
             const transform = firstNode && firstNode.getAttribute('transform');
             const match = transform && transform.match(/translate\(\s*([\d.eE+\-]+)[,\s]+([\d.eE+\-]+)\s*\)/);
             if (match) {
-                const nodeX = parseFloat(match[1]) + 30; // centre of M0 node (NodeW/2 = 30)
-                const nodeY = parseFloat(match[2]) + 15; // centre of M0 node (NodeH/2 = 15)
+                const nodeX = parseFloat(match[1]) + 30;
+                const nodeY = parseFloat(match[2]) + 15;
                 s.vx = nodeX - s.vw / 2;
                 s.vy = nodeY - s.vh / 2;
             } else {
@@ -561,7 +614,26 @@ window.treeView = (() => {
             }
         }
         clampViewBox();
-        applyViewBox();
+        flush();
+    }
+
+    function _destroyState(containerId, wrap) {
+        const s = _state[containerId];
+        if (!s) return;
+        if (s.rafId != null) cancelAnimationFrame(s.rafId);
+        wrap = wrap || document.getElementById(containerId);
+        if (wrap) {
+            wrap.removeEventListener('wheel',        s.onWheel,       { capture: true });
+            wrap.removeEventListener('pointerdown',  s.onPointerDown);
+            wrap.removeEventListener('pointermove',  s.onPointerMove);
+            wrap.removeEventListener('pointerup',    s.onPointerUp);
+            wrap.removeEventListener('pointercancel',s.onPointerUp);
+        }
+        delete _state[containerId];
+    }
+
+    function destroy(containerId) {
+        _destroyState(containerId, null);
     }
 
     function resetView(containerId) {
@@ -573,9 +645,10 @@ window.treeView = (() => {
         if (!svg) return;
         s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
         svg.setAttribute('viewBox', `0 0 ${s.svgW} ${s.svgH}`);
+        _cullNodes(s, svg);
     }
 
-    return { init, resetView };
+    return { init, resetView, destroy };
 })();
 
 // ── SVG element z-order helper ────────────────────────────────────────────

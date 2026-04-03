@@ -943,7 +943,7 @@
                     @if (_graphReachTree != null)
                     {
                         <div style="@(_graphMode == "reachability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <ReachabilityTreeView Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                            <ReachabilityTreeView Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
                         </div>
                     }
 
@@ -959,7 +959,7 @@
                     @if (_graphCoverTree != null)
                     {
                         <div style="@(_graphMode == "coverability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeViewSvg Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                            <CoverabilityTreeViewSvg Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
                         </div>
                     }
 
@@ -1023,7 +1023,21 @@
     private string _mode = "simulation";  // "analysis" | "simulation"
     private string _activeAnalysisTab = "properties";
 
-    private void SelectTab(string id) { _activeAnalysisTab = id; StateHasChanged(); }
+    private void SelectTab(string id)
+    {
+        // Free tree data when leaving the graph tab — components will unmount and call DisposeAsync
+        if (_activeAnalysisTab == "graph" && id != "graph")
+        {
+            _graphReach      = null;
+            _graphReachTree  = null;
+            _graphCover      = null;
+            _graphCoverTree  = null;
+            _graphStateSpace = null;
+            _graphError      = null;
+        }
+        _activeAnalysisTab = id;
+        StateHasChanged();
+    }
 
     private double _dockedWidth = 320;
     private const double DockedMin = 200, DockedMax = 700;
