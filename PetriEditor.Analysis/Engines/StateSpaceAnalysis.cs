@@ -9,7 +9,8 @@ public sealed class StateSpaceAnalysis
 {
     public const int MaxStates = 500_000;
 
-    public bool HasErrors { get; private set; }
+    public bool HasErrors   { get; private set; }
+    public bool IsTruncated { get; private set; }
     public string? ErrorMsg { get; private set; }
 
     private readonly List<int[]> _states = [];
@@ -32,8 +33,9 @@ public sealed class StateSpaceAnalysis
         _states.Clear();
         _stateIdx.Clear();
         _edges.Clear();
-        HasErrors = false;
-        ErrorMsg = null;
+        HasErrors   = false;
+        IsTruncated = false;
+        ErrorMsg    = null;
 
         if (!net.Places.Any() || !net.Transitions.Any())
         {
@@ -75,9 +77,9 @@ public sealed class StateSpaceAnalysis
                 {
                     if (_states.Count >= maxStates)
                     {
-                        HasErrors = true;
-                        ErrorMsg = $"State space exceeded {maxStates} states — net may be unbounded.";
-                        return;
+                        IsTruncated = true;
+                        ErrorMsg    = $"State space exceeded {maxStates} states — net may be unbounded.";
+                        continue;  // skip this edge; don't add the new state
                     }
 
                     nIdx = EnqueueState(next);
@@ -153,14 +155,14 @@ public sealed class StateSpaceAnalysis
 
     // ── Graph queries ─────────────────────────────────────────────────────
 
-    public bool IsBounded() => !HasErrors;
-    public bool IsDeadlockFree() => !HasErrors && Enumerable.Range(0, _states.Count).All(i => _edges[i].Count > 0);
-    public bool IsReversible() => !HasErrors && FindSCCs().Count == 1;
-    public bool IsSafe() => !HasErrors && _states.All(s => s.All(t => t <= 1));
+    public bool IsBounded()     => !HasErrors && !IsTruncated;
+    public bool IsDeadlockFree() => !HasErrors && !IsTruncated && Enumerable.Range(0, _states.Count).All(i => _edges[i].Count > 0);
+    public bool IsReversible()  => !HasErrors && !IsTruncated && FindSCCs().Count == 1;
+    public bool IsSafe()        => !HasErrors && !IsTruncated && _states.All(s => s.All(t => t <= 1));
 
     public bool IsLive(int transCount)
     {
-        if (HasErrors || transCount == 0)
+        if (HasErrors || IsTruncated || transCount == 0)
             return false;
 
         foreach (var scc in FindSCCs())

@@ -141,10 +141,11 @@ public sealed class LocalAnalysisService : IAnalysisService
         // ── Reachability tree DTO ─────────────────────────────────────────
         ReachabilityGraphDto? reachTree = null;
         var rt = report.ReachabilityTree;
-        if (rt != null && !rt.HasErrors && rt.Nodes.Count > 0)
+        if (rt != null && (!rt.HasErrors || rt.IsTruncated) && rt.Nodes.Count > 0)
         {
             var rtNodes = rt.Nodes.Select(n => new ReachNodeDto(
-                n.Id, n.Marking, n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
+                n.Id, n.Marking, n.IsInitial, n.IsDeadlock, n.IsDuplicate,
+                rt.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
             var rtEdges = rt.Edges.Select(e => new ReachEdgeDto(
                 e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
             reachTree = new ReachabilityGraphDto(rtNodes, rtEdges, placeNames);
@@ -153,12 +154,13 @@ public sealed class LocalAnalysisService : IAnalysisService
         // ── Coverability tree DTO ─────────────────────────────────────────
         CoverabilityTreeDto? coverTree = null;
         var cb = report.CoverabilityTree;
-        if (cb != null && !cb.HasErrors && cb.Nodes.Count > 0)
+        if (cb != null && (!cb.HasErrors || cb.IsTruncated) && cb.Nodes.Count > 0)
         {
             var ctNodes = cb.Nodes.Select(n => new CoverNodeDto(
                 n.Id,
                 n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
-                n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
+                n.IsInitial, n.IsDeadlock, n.IsDuplicate,
+                cb.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
             var ctEdges = cb.Edges.Select(e => new CoverEdgeDto(
                 e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
             coverTree = new CoverabilityTreeDto(ctNodes, ctEdges, placeNames);

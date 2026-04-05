@@ -22,16 +22,16 @@ public sealed class AnalysisHub : Hub
 {
     private readonly AnalysisOrchestrator _orchestrator;
     private readonly PdfExportService _pdfExport;
+    private readonly ILogger<AnalysisHub> _logger;
 
-    // One CTS per connection, keyed by ConnectionId.
-    // Fine for school-scale usage; replace with a proper registry for production.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource>
         _ctsByConnection = new();
 
-    public AnalysisHub(AnalysisOrchestrator orchestrator, PdfExportService pdfExport)
+    public AnalysisHub(AnalysisOrchestrator orchestrator, PdfExportService pdfExport, ILogger<AnalysisHub> logger)
     {
         _orchestrator = orchestrator;
         _pdfExport = pdfExport;
+        _logger = logger;
     }
 
     // ── Client-callable methods ───────────────────────────────────────────
@@ -74,6 +74,7 @@ public sealed class AnalysisHub : Hub
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "RunAnalysis failed for connection {ConnectionId}", Context.ConnectionId);
             await caller.SendAsync("ReceiveError", ex.Message);
         }
         finally
@@ -97,6 +98,11 @@ public sealed class AnalysisHub : Hub
         {
             return await _orchestrator.RunGraphAsync(net, coverability, cts.Token, maxStates, wantGraph);
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RunGraphAnalysis failed for connection {ConnectionId}", Context.ConnectionId);
+            throw;
+        }
         finally
         {
             _ctsByConnection.TryRemove(Context.ConnectionId, out _);
@@ -107,8 +113,16 @@ public sealed class AnalysisHub : Hub
     /// <summary>Generate a PDF report for the given net and return the bytes.</summary>
     public Task<byte[]> ExportPdf(ExportRequestDto request)
     {
-        var bytes = _pdfExport.Generate(request);
-        return Task.FromResult(bytes);
+        try
+        {
+            var bytes = _pdfExport.Generate(request);
+            return Task.FromResult(bytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "PDF export failed for connection {ConnectionId}", Context.ConnectionId);
+            throw;
+        }
     }
 
     /// <summary>Cancel any in-flight analysis for the current connection.</summary>
@@ -129,6 +143,9 @@ public sealed class AnalysisHub : Hub
             cts.Cancel();
             cts.Dispose();
         }
+
+        if (exception != null)
+            _logger.LogWarning(exception, "Client {ConnectionId} disconnected with error", Context.ConnectionId);
 
         return base.OnDisconnectedAsync(exception);
     }

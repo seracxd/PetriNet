@@ -122,11 +122,17 @@ public static class AnalysisResultMapper
     /// </summary>
     public static ReachabilityGraphDto? BuildReachabilityGraphDto(PetriNetSnapshot net, StateSpaceAnalysis ss)
     {
-        if (ss.HasErrors) return null;
-        var placeNames = net.Places.Select(p => p.Name).ToList();
-        var deadlocks  = new HashSet<int>(FindDeadlockIndices(ss));
+        if (ss.HasErrors && !ss.IsTruncated) return null;
+        if (ss.States.Count == 0) return null;
+        var placeNames  = net.Places.Select(p => p.Name).ToList();
+        var edgesByFrom = ss.GetEdges();
+        var zeroEdge    = new HashSet<int>(Enumerable.Range(0, ss.States.Count).Where(i => edgesByFrom[i].Count == 0));
+        // When truncated we cannot distinguish true deadlocks from nodes whose
+        // children were simply not explored, so mark all 0-edge nodes as truncated.
+        var deadlocks   = ss.IsTruncated ? new HashSet<int>() : zeroEdge;
+        var truncated   = ss.IsTruncated ? zeroEdge : new HashSet<int>();
         var nodes = ss.States.Select((marking, id) => new ReachNodeDto(
-            id, marking, id == 0, deadlocks.Contains(id), false, -1)).ToList();
+            id, marking, id == 0, deadlocks.Contains(id), false, truncated.Contains(id), -1)).ToList();
         var edges = ss.GetEdges()
             .SelectMany((edgeList, from) => edgeList.Select(e => new ReachEdgeDto(
                 from, e.To, e.TransId,
@@ -137,11 +143,12 @@ public static class AnalysisResultMapper
 
     public static ReachabilityGraphDto? BuildReachabilityTreeDto(PetriNetSnapshot net, ReachabilityTreeBuilder rt)
     {
-        if (rt.HasErrors || rt.Nodes.Count == 0) return null;
+        if ((rt.HasErrors && !rt.IsTruncated) || rt.Nodes.Count == 0) return null;
         var placeNames = net.Places.Select(p => p.Name).ToList();
         var nodes = rt.Nodes.Select(n => new ReachNodeDto(
             Id: n.Id, Marking: n.Marking, IsInitial: n.IsInitial,
-            IsDeadlock: n.IsDeadlock, IsDuplicate: n.IsDuplicate, ParentId: n.ParentId)).ToList();
+            IsDeadlock: n.IsDeadlock, IsDuplicate: n.IsDuplicate,
+            IsTruncated: rt.TruncatedIds.Contains(n.Id), ParentId: n.ParentId)).ToList();
         var edges = rt.Edges.Select(e => new ReachEdgeDto(
             From: e.From, To: e.To, TransitionId: e.TransitionId, TransitionName: e.TransitionName)).ToList();
         return new ReachabilityGraphDto(nodes, edges, placeNames);
@@ -149,12 +156,13 @@ public static class AnalysisResultMapper
 
     public static CoverabilityTreeDto? BuildCoverabilityTreeDto(PetriNetSnapshot net, CoverabilityTreeBuilder cb)
     {
-        if (cb.HasErrors || cb.Nodes.Count == 0) return null;
+        if ((cb.HasErrors && !cb.IsTruncated) || cb.Nodes.Count == 0) return null;
         var placeNames = net.Places.Select(p => p.Name).ToList();
         var nodes = cb.Nodes.Select(n => new CoverNodeDto(
             n.Id,
             n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
-            n.IsInitial, n.IsDeadlock, n.IsDuplicate, n.ParentId)).ToList();
+            n.IsInitial, n.IsDeadlock, n.IsDuplicate,
+            IsTruncated: cb.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
         var edges = cb.Edges.Select(e => new CoverEdgeDto(
             e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
         return new CoverabilityTreeDto(nodes, edges, placeNames);
@@ -166,23 +174,22 @@ public static class AnalysisResultMapper
         if (ss == null || ss.HasErrors)
             return null;
 
-        var net       = report.Net;
-        var states    = ss.States;
+        var net        = report.Net;
+        var states     = ss.States;
         var placeNames = net.Places.Select(p => p.Name).ToList();
-        var deadlocks = new HashSet<int>(FindDeadlockIndices(ss));
+        var zeroEdge   = new HashSet<int>(FindDeadlockIndices(ss));
+        // When truncated we cannot tell true deadlocks from unexplored boundary nodes
+        var deadlocks  = ss.IsTruncated ? new HashSet<int>() : zeroEdge;
+        var truncated  = ss.IsTruncated ? zeroEdge : new HashSet<int>();
 
-        // ── Nodes ─────────────────────────────────────────────────────────
-        // We want to flag duplicate (already-visited) nodes.
-        // In BFS the state space has no duplicates — every entry is unique.
-        // "IsDuplicate" means the same marking appeared via a different path;
-        // since StateSpaceAnalysis already deduplicates, all nodes are unique.
         var nodes = states.Select((marking, id) => new ReachNodeDto(
             Id:          id,
             Marking:     marking,
             IsInitial:   id == 0,
             IsDeadlock:  deadlocks.Contains(id),
             IsDuplicate: false,
-            ParentId:    -1    // parent tracking not available without BFS tree; -1 = unknown
+            IsTruncated: truncated.Contains(id),
+            ParentId:    -1
         )).ToList();
 
         // ── Edges ─────────────────────────────────────────────────────────
@@ -219,7 +226,7 @@ public static class AnalysisResultMapper
     private static ReachabilityGraphDto? BuildReachabilityTree(AnalysisReport report)
     {
         var rt = report.ReachabilityTree;
-        if (rt == null || rt.HasErrors || rt.Nodes.Count == 0)
+        if (rt == null || (rt.HasErrors && !rt.IsTruncated) || rt.Nodes.Count == 0)
             return null;
 
         var net        = report.Net;
@@ -231,6 +238,7 @@ public static class AnalysisResultMapper
             IsInitial:   n.IsInitial,
             IsDeadlock:  n.IsDeadlock,
             IsDuplicate: n.IsDuplicate,
+            IsTruncated: rt.TruncatedIds.Contains(n.Id),
             ParentId:    n.ParentId
         )).ToList();
 
@@ -249,7 +257,7 @@ public static class AnalysisResultMapper
     private static CoverabilityTreeDto? BuildCoverabilityTree(AnalysisReport report)
     {
         var ct = report.CoverabilityTree;
-        if (ct == null || ct.HasErrors || ct.Nodes.Count == 0)
+        if (ct == null || (ct.HasErrors && !ct.IsTruncated) || ct.Nodes.Count == 0)
             return null;
 
         var net        = report.Net;
@@ -262,6 +270,7 @@ public static class AnalysisResultMapper
             IsInitial:   n.IsInitial,
             IsDeadlock:  n.IsDeadlock,
             IsDuplicate: n.IsDuplicate,
+            IsTruncated: ct.TruncatedIds.Contains(n.Id),
             ParentId:    n.ParentId
         )).ToList();
 

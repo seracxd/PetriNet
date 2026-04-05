@@ -440,82 +440,287 @@ window.treeView = (() => {
     // Elements beyond this margin get display:none.
     const CULL_MARGIN = 40;
 
-    function _cullNodes(s, svg) {
-        // Cull nodes: hide elements whose bounding box is entirely outside the viewport
+    function _cullNodes(s) {
         const x0 = s.vx - CULL_MARGIN;
         const y0 = s.vy - CULL_MARGIN;
         const x1 = s.vx + s.vw + CULL_MARGIN;
         const y1 = s.vy + s.vh + CULL_MARGIN;
 
-        // Node groups — each has transform="translate(nx, ny)"
-        const nodeW = 60, nodeH = 30;
-        const nodes = svg.querySelectorAll('.tree-node-g');
-        for (let i = 0; i < nodes.length; i++) {
-            const g = nodes[i];
+        const nodeW = s.nodeW, nodeH = s.nodeH;
+
+        // LOD: pixel size of a node on screen.
+        // When nodes are tiny, hide text elements for massive perf gain.
+        const wrapW = s._wrapWidth || 800;
+        const nodeScreenPx = (nodeW / s.vw) * wrapW;
+        const showText = nodeScreenPx > 10;   // hide text when nodes are tiny on screen
+        const showEdgeLabels = nodeScreenPx > 8;
+
+        // Cached node groups (built during init)
+        const nodeGs = s._nodeGs;
+        for (let i = 0; i < nodeGs.length; i++) {
+            const g = nodeGs[i];
             const t = g._treePos;
-            if (!t) continue;
             const visible = t.x + nodeW >= x0 && t.x <= x1 && t.y + nodeH >= y0 && t.y <= y1;
             g.style.display = visible ? '' : 'none';
+            if (visible && g._textEls) {
+                const d = showText ? '' : 'none';
+                const els = g._textEls;
+                for (let j = 0; j < els.length; j++) els[j].style.display = d;
+            }
         }
 
-        // Edge groups — each has a <path> with from/to baked in; we check midpoint
-        const edges = svg.querySelectorAll('.tree-edge-g');
-        for (let i = 0; i < edges.length; i++) {
-            const g = edges[i];
+        // Cached edge groups
+        const edgeGs = s._edgeGs;
+        for (let i = 0; i < edgeGs.length; i++) {
+            const g = edgeGs[i];
             const t = g._treeEdge;
-            if (!t) continue;
-            // Rough AABB check
             const ex0 = Math.min(t.x1, t.x2) - CULL_MARGIN;
             const ey0 = Math.min(t.y1, t.y2) - CULL_MARGIN;
             const ex1 = Math.max(t.x1, t.x2) + CULL_MARGIN;
             const ey1 = Math.max(t.y1, t.y2) + CULL_MARGIN;
             const visible = ex1 >= x0 && ex0 <= x1 && ey1 >= y0 && ey0 <= y1;
             g.style.display = visible ? '' : 'none';
+            if (visible && g._labelEls) {
+                const d = showEdgeLabels ? '' : 'none';
+                const els = g._labelEls;
+                for (let j = 0; j < els.length; j++) els[j].style.display = d;
+            }
         }
     }
 
-    function init(containerId, svgW, svgH) {
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function _buildSvgContent(svg, nodes, edges, markerId, nodeW, nodeH) {
+        // Clear any previous content
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        const levelH = nodeH * 2;
+
+        // defs + arrowhead marker
+        const defs = document.createElementNS(SVG_NS, 'defs');
+        const marker = document.createElementNS(SVG_NS, 'marker');
+        marker.setAttribute('id', markerId);
+        marker.setAttribute('markerWidth', '8');
+        marker.setAttribute('markerHeight', '8');
+        marker.setAttribute('refX', '4');
+        marker.setAttribute('refY', '4');
+        marker.setAttribute('orient', 'auto');
+        const arrowPath = document.createElementNS(SVG_NS, 'path');
+        arrowPath.setAttribute('d', 'M 0 1 L 8 4 L 0 7 Z');
+        arrowPath.setAttribute('fill', '#c8d0dc');
+        marker.appendChild(arrowPath);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+
+        // edges (rendered first, under nodes)
+        const edgeGs = [];
+        for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            const x1 = e.x1, y1 = e.y1, x2 = e.x2, y2 = e.y2;
+            const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+
+            const g = document.createElementNS(SVG_NS, 'g');
+            g.setAttribute('class', 'tree-edge-g');
+            g._treeEdge = { x1, y1, x2, y2 };
+
+            const path = document.createElementNS(SVG_NS, 'path');
+            const cy1 = y1 + levelH * 0.4;
+            const cy2 = y2 - levelH * 0.4;
+            path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${cy1} ${x2} ${cy2} ${x2} ${y2}`);
+            path.setAttribute('stroke', e.isDashed ? '#f9a825' : '#c8d0dc');
+            path.setAttribute('stroke-width', '1.5');
+            path.setAttribute('stroke-dasharray', e.isDashed ? '5 3' : 'none');
+            path.setAttribute('fill', 'none');
+            path.setAttribute('marker-end', `url(#${markerId})`);
+            g.appendChild(path);
+
+            if (e.label) {
+                const lw = e.label.length * 5.5 + 6;
+                const bg = document.createElementNS(SVG_NS, 'rect');
+                bg.setAttribute('x', mx - lw / 2);
+                bg.setAttribute('y', my - 7);
+                bg.setAttribute('width', lw);
+                bg.setAttribute('height', '13');
+                bg.setAttribute('rx', '3');
+                bg.setAttribute('fill', '#f7f8fa');
+                g.appendChild(bg);
+
+                const txt = document.createElementNS(SVG_NS, 'text');
+                txt.setAttribute('x', mx);
+                txt.setAttribute('y', my);
+                txt.setAttribute('text-anchor', 'middle');
+                txt.setAttribute('dominant-baseline', 'middle');
+                txt.setAttribute('font-size', '9');
+                txt.setAttribute('font-family', 'Inter,sans-serif');
+                txt.setAttribute('fill', '#8a94a6');
+                txt.style.pointerEvents = 'none';
+                txt.textContent = e.label;
+                g.appendChild(txt);
+
+                g._labelEls = [bg, txt]; // cached for LOD toggling
+            }
+
+            svg.appendChild(g);
+            edgeGs.push(g);
+        }
+
+        // nodes
+        const nodeArr = [];
+        const nodeGs = [];
+        for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            const isRef    = n.isRef;
+            const isCutOff = !!n.isCutOff;
+            const isInit   = n.isInit;
+            const isDead   = n.isDead;
+            const isOmega  = !!n.isOmega;
+
+            const fill   = isRef    ? '#fffde7'
+                         : isCutOff ? '#f3e5f5'
+                         : isOmega  ? '#f0f0fb'
+                         : isInit   ? '#e8faf8'
+                         : isDead   ? '#ffebee'
+                         :            '#ffffff';
+            const stroke = isRef    ? '#f9a825'
+                         : isCutOff ? '#8e24aa'
+                         : isOmega  ? '#5c6bc0'
+                         : isInit   ? '#00a499'
+                         : isDead   ? '#e53935'
+                         :            '#c8d0dc';
+            const textC  = isRef    ? '#f57f17'
+                         : isCutOff ? '#6a1b9a'
+                         : isOmega  ? '#3949ab'
+                         : isInit   ? '#00796b'
+                         : isDead   ? '#b71c1c'
+                         :            '#374151';
+
+            const g = document.createElementNS(SVG_NS, 'g');
+            g.setAttribute('class', 'tree-node-g');
+            g.setAttribute('transform', `translate(${n.x} ${n.y})`);
+            g.style.cursor = isRef ? 'pointer' : 'default';
+            g._treePos = { x: n.x, y: n.y };
+            g._marking = n.markingKey;
+
+            const rect = document.createElementNS(SVG_NS, 'rect');
+            rect.setAttribute('x', '0');
+            rect.setAttribute('y', '0');
+            rect.setAttribute('width', nodeW);
+            rect.setAttribute('height', nodeH);
+            rect.setAttribute('rx', Math.max(2, nodeW * 0.12));
+            rect.setAttribute('fill', fill);
+            rect.setAttribute('stroke', stroke);
+            rect.setAttribute('stroke-width', isInit ? '2.5' : '1.5');
+            rect.setAttribute('stroke-dasharray', isRef ? '4 2' : 'none');
+            g.appendChild(rect);
+
+            const textEls = [];  // cache all text elements for LOD toggling
+
+            const fontSize    = Math.max(6, Math.round(nodeW * 0.18));
+            const refFontSize = Math.max(5, Math.round(nodeW * 0.13));
+            const labelY = isRef ? nodeH / 2 - nodeH * 0.13 : nodeH / 2;
+            const labelTxt = document.createElementNS(SVG_NS, 'text');
+            labelTxt.setAttribute('x', nodeW / 2);
+            labelTxt.setAttribute('y', labelY);
+            labelTxt.setAttribute('text-anchor', 'middle');
+            labelTxt.setAttribute('dominant-baseline', 'middle');
+            labelTxt.setAttribute('font-size', fontSize);
+            labelTxt.setAttribute('font-weight', '700');
+            labelTxt.setAttribute('font-family', 'Inter,sans-serif');
+            labelTxt.setAttribute('fill', textC);
+            labelTxt.style.pointerEvents = 'none';
+            labelTxt.textContent = n.label;
+            g.appendChild(labelTxt);
+            textEls.push(labelTxt);
+
+            if (isCutOff) {
+                const ellipsis = document.createElementNS(SVG_NS, 'text');
+                ellipsis.setAttribute('x', nodeW / 2);
+                ellipsis.setAttribute('y', nodeH - nodeH * 0.08);
+                ellipsis.setAttribute('text-anchor', 'middle');
+                ellipsis.setAttribute('dominant-baseline', 'auto');
+                ellipsis.setAttribute('font-size', Math.max(5, Math.round(nodeW * 0.13)));
+                ellipsis.setAttribute('font-family', 'Inter,sans-serif');
+                ellipsis.setAttribute('fill', '#8e24aa');
+                ellipsis.style.pointerEvents = 'none';
+                ellipsis.textContent = '…';
+                g.appendChild(ellipsis);
+                textEls.push(ellipsis);
+            }
+
+            if (isRef && n.refLabel) {
+                const refTxt = document.createElementNS(SVG_NS, 'text');
+                refTxt.setAttribute('x', nodeW / 2);
+                refTxt.setAttribute('y', nodeH - nodeH * 0.1);
+                refTxt.setAttribute('text-anchor', 'middle');
+                refTxt.setAttribute('dominant-baseline', 'auto');
+                refTxt.setAttribute('font-size', refFontSize);
+                refTxt.setAttribute('font-family', 'Inter,sans-serif');
+                refTxt.setAttribute('fill', '#f57f17');
+                refTxt.style.pointerEvents = 'none';
+                refTxt.textContent = '\u2192 ' + n.refLabel;
+                g.appendChild(refTxt);
+                textEls.push(refTxt);
+            }
+
+            if (n.markingTip) {
+                const title = document.createElementNS(SVG_NS, 'title');
+                title.textContent = n.markingTip;
+                g.appendChild(title);
+            }
+
+            g._textEls = textEls;  // cache for LOD
+
+            svg.appendChild(g);
+            nodeGs.push(g);
+
+            nodeArr.push({
+                el: g,
+                x: n.x,
+                y: n.y,
+                marking: n.markingKey,
+                canonicalId: n.canonicalId != null ? n.canonicalId : -1,
+            });
+        }
+
+        return { nodeArr, nodeGs, edgeGs };
+    }
+
+    function init(containerId, nodes, edges, svgW, svgH, nodeW, nodeH, placeNames, dotNetRef) {
         const wrap = document.getElementById(containerId);
         if (!wrap) return;
         const svg = wrap.querySelector('svg');
         if (!svg) return;
 
-        // Prevent browser scroll/pinch from stealing events on this element
         wrap.style.touchAction = 'none';
         wrap.style.overscrollBehavior = 'none';
 
-        // Destroy previous state if re-initialising
         if (_state[containerId]) {
             _destroyState(containerId, wrap);
         }
 
-        // Cache SVG-space positions on each node/edge element so culling is O(n) with no layout queries
-        const nodes = svg.querySelectorAll('.tree-node-g');
-        for (let i = 0; i < nodes.length; i++) {
-            const g = nodes[i];
-            const t = g.getAttribute('transform');
-            const m = t && t.match(/translate\(\s*([\d.eE+\-]+)[,\s]+([\d.eE+\-]+)\s*\)/);
-            g._treePos = m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
-        }
-        const edges = svg.querySelectorAll('.tree-edge-g');
-        for (let i = 0; i < edges.length; i++) {
-            const g = edges[i];
-            const d = g.dataset;
-            g._treeEdge = d.x1 != null
-                ? { x1: +d.x1, y1: +d.y1, x2: +d.x2, y2: +d.y2 }
-                : null;
-        }
+        // Determine marker id from container id prefix
+        const markerId = containerId.startsWith('tree-cov-') ? 'arr-cov' : 'arr';
 
-        // Zoom limits (in terms of viewBox width)
+        const built = _buildSvgContent(svg, nodes, edges, markerId, nodeW, nodeH);
+        const nodeArr = built.nodeArr;
+
+        // Zoom limits: max zoom-out shows the full tree (svgW) with a small margin
         const minVW = 100;
-        const maxVW = svgW * 4;
+        const maxVW = svgW * 1.1;
 
+        const wrapRect0 = wrap.getBoundingClientRect();
         const s = {
-            svgW, svgH,
+            svgW, svgH, nodeW, nodeH,
             vx: 0, vy: 0, vw: svgW, vh: svgH,
             drag: null,
             rafId: null,
             dirty: false,
+            hoveredEl: null,
+            hoveredMarking: null,
+            dotNetRef,
+            _nodeGs: built.nodeGs,
+            _edgeGs: built.edgeGs,
+            _wrapWidth: Math.max(wrapRect0.width, 1),
         };
 
         function clampViewBox() {
@@ -530,7 +735,7 @@ window.treeView = (() => {
             s.dirty = false;
             svg.setAttribute('viewBox',
                 `${s.vx.toFixed(1)} ${s.vy.toFixed(1)} ${s.vw.toFixed(1)} ${s.vh.toFixed(1)}`);
-            _cullNodes(s, svg);
+            _cullNodes(s);
         }
 
         function scheduleFlush() {
@@ -543,6 +748,7 @@ window.treeView = (() => {
             e.preventDefault();
             e.stopPropagation();
             const rect = wrap.getBoundingClientRect();
+            s._wrapWidth = Math.max(rect.width, 1);
             const fx = (e.clientX - rect.left) / rect.width;
             const fy = (e.clientY - rect.top)  / rect.height;
             const mouseX = s.vx + fx * s.vw;
@@ -584,28 +790,192 @@ window.treeView = (() => {
             wrap.style.cursor = 'grab';
         };
 
+        // ── Spatial hash for fast hit-testing ────────────────────────────
+        // Cell size chosen so most cells have 1-3 nodes
+        const _cellSize = Math.max(nodeW, nodeH) * 3;
+        const _grid = {};
+        for (let i = 0; i < nodeArr.length; i++) {
+            const n = nodeArr[i];
+            n._rect = n.el.querySelector('rect'); // cache rect element for hover styling
+            const cx = Math.floor(n.x / _cellSize);
+            const cy = Math.floor(n.y / _cellSize);
+            const key = cx + ',' + cy;
+            if (!_grid[key]) _grid[key] = [];
+            _grid[key].push(n);
+        }
+
+        function hitTestNode(svgX, svgY) {
+            const cx = Math.floor(svgX / _cellSize);
+            const cy = Math.floor(svgY / _cellSize);
+            // Check the cell and its 8 neighbours (node may straddle boundary)
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const bucket = _grid[(cx + dx) + ',' + (cy + dy)];
+                    if (!bucket) continue;
+                    for (let i = 0; i < bucket.length; i++) {
+                        const n = bucket[i];
+                        if (n.el.style.display === 'none') continue;
+                        if (svgX >= n.x && svgX <= n.x + s.nodeW && svgY >= n.y && svgY <= n.y + s.nodeH)
+                            return n;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function setHoverStyle(el, on) {
+            if (!el) return;
+            const rect = el._rect || el.querySelector('rect');
+            if (!rect) return;
+            if (on) {
+                rect.dataset.origFill   = rect.getAttribute('fill');
+                rect.dataset.origStroke = rect.getAttribute('stroke');
+                rect.dataset.origSw     = rect.getAttribute('stroke-width');
+                rect.setAttribute('fill',         '#c8f0ec');
+                rect.setAttribute('stroke',       '#00796b');
+                rect.setAttribute('stroke-width', '2.5');
+            } else {
+                if (rect.dataset.origFill)   rect.setAttribute('fill',         rect.dataset.origFill);
+                if (rect.dataset.origStroke) rect.setAttribute('stroke',       rect.dataset.origStroke);
+                if (rect.dataset.origSw)     rect.setAttribute('stroke-width', rect.dataset.origSw);
+            }
+        }
+
+        // Index: marking key → list of nodeArr entries (for fast highlight)
+        const _markingIndex = {};
+        for (let i = 0; i < nodeArr.length; i++) {
+            const k = nodeArr[i].marking;
+            if (!_markingIndex[k]) _markingIndex[k] = [];
+            _markingIndex[k].push(nodeArr[i]);
+        }
+
+        // Tooltip element (same style as Cytoscape graph tooltip)
+        let tooltip = wrap.querySelector('.tree-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'tree-tooltip';
+            tooltip.style.cssText = `
+                position:absolute;pointer-events:none;display:none;
+                background:#fff;border:1px solid #e4e6ea;border-radius:8px;
+                box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:8px 10px;
+                min-width:120px;max-width:220px;font-family:Inter,sans-serif;
+                font-size:11px;z-index:9999;
+            `;
+            wrap.appendChild(tooltip);
+        }
+        const _placeNames = placeNames || [];
+        const _isCov = containerId.startsWith('tree-cov-');
+
+        function showTooltip(hit, clientX, clientY) {
+            const vals = hit.marking.split(',');
+            const label = hit.el.querySelector('text')?.textContent || '';
+            let html = `<div style="font-weight:700;color:#374151;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;">${label}</div>`;
+            for (let i = 0; i < vals.length; i++) {
+                const name = _placeNames[i] || ('p' + i);
+                const raw = vals[i];
+                const isOmega = raw === 'w' || raw === '-1';
+                const val = isOmega ? 'ω' : raw;
+                const num = isOmega ? -1 : parseInt(raw, 10);
+                const hot = num > 0 || isOmega;
+                html += `<div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;
+                         color:${hot ? '#222' : '#9aa0ad'};font-weight:${hot ? '600' : '400'};">
+                           <span>${name}</span>
+                           <span style="color:${isOmega ? '#7c4dff' : hot ? '#00a499' : '#bbb'}">${val}</span>
+                         </div>`;
+            }
+            tooltip.innerHTML = html;
+            tooltip.style.display = 'block';
+            const wr = wrap.getBoundingClientRect();
+            let tx = clientX - wr.left + 12;
+            let ty = clientY - wr.top - 10;
+            if (tx + 230 > wrap.clientWidth) tx = clientX - wr.left - 240;
+            tooltip.style.left = tx + 'px';
+            tooltip.style.top = ty + 'px';
+        }
+
+        s.onMouseMove = (e) => {
+            if (s.drag) { tooltip.style.display = 'none'; return; }
+            const rect = wrap.getBoundingClientRect();
+            const fx = (e.clientX - rect.left) / rect.width;
+            const fy = (e.clientY - rect.top)  / rect.height;
+            const svgX = s.vx + fx * s.vw;
+            const svgY = s.vy + fy * s.vh;
+            const hit = hitTestNode(svgX, svgY);
+            const key = hit ? hit.marking : null;
+            if (key !== s.hoveredMarking) {
+                // Un-highlight nodes with old key
+                if (s.hoveredMarking) {
+                    const old = _markingIndex[s.hoveredMarking];
+                    if (old) for (let i = 0; i < old.length; i++) setHoverStyle(old[i].el, false);
+                }
+                s.hoveredMarking = key;
+                if (key) {
+                    const cur = _markingIndex[key];
+                    if (cur) for (let i = 0; i < cur.length; i++) setHoverStyle(cur[i].el, true);
+                    if (s.dotNetRef) s.dotNetRef.invokeMethodAsync('OnNodeHovered', key, key);
+                } else {
+                    if (s.dotNetRef) s.dotNetRef.invokeMethodAsync('OnNodeLeft');
+                }
+            }
+            // Update tooltip position / content
+            if (hit) {
+                showTooltip(hit, e.clientX, e.clientY);
+            } else {
+                tooltip.style.display = 'none';
+            }
+        };
+
+        s.onMouseLeave = () => {
+            tooltip.style.display = 'none';
+            if (!s.hoveredMarking) return;
+            const old = _markingIndex[s.hoveredMarking];
+            if (old) for (let i = 0; i < old.length; i++) setHoverStyle(old[i].el, false);
+            s.hoveredMarking = null;
+            if (s.dotNetRef) s.dotNetRef.invokeMethodAsync('OnNodeLeft');
+        };
+
+        // ── Click on ref node: pan to canonical ──────────────────────────
+        s.onClick = (e) => {
+            if (s.drag) return;
+            const rect = wrap.getBoundingClientRect();
+            const fx = (e.clientX - rect.left) / rect.width;
+            const fy = (e.clientY - rect.top)  / rect.height;
+            const svgX = s.vx + fx * s.vw;
+            const svgY = s.vy + fy * s.vh;
+            const hit = hitTestNode(svgX, svgY);
+            if (!hit || hit.canonicalId < 0) return;
+            // Find the canonical (non-ref) node with the same marking key
+            const target = nodeArr.find(n => n.canonicalId < 0 && n.marking === hit.marking);
+            if (!target) return;
+            // Pan viewport so target node is centred
+            s.vx = target.x + s.nodeW / 2 - s.vw / 2;
+            s.vy = target.y + s.nodeH / 2 - s.vh / 2;
+            clampViewBox();
+            scheduleFlush();
+        };
+
         wrap.addEventListener('wheel',        s.onWheel,        { passive: false, capture: true });
         wrap.addEventListener('pointerdown',  s.onPointerDown,  { passive: false });
         wrap.addEventListener('pointermove',  s.onPointerMove,  { passive: false });
         wrap.addEventListener('pointerup',    s.onPointerUp);
         wrap.addEventListener('pointercancel',s.onPointerUp);
+        wrap.addEventListener('mousemove',    s.onMouseMove);
+        wrap.addEventListener('mouseleave',   s.onMouseLeave);
+        wrap.addEventListener('click',        s.onClick);
 
         _state[containerId] = s;
         wrap.style.cursor = 'grab';
 
-        // Initial view: zoom in to ~25% of tree width, centred on M0
+        // Initial view: show ~40% of tree width centred on M0 (reasonable starting zoom)
         {
             const wrapRect = wrap.getBoundingClientRect();
             const containerAspect = wrapRect.height / Math.max(wrapRect.width, 1);
-            s.vw = Math.min(maxVW, Math.max(400, svgW * 0.25));
+            s.vw = Math.min(maxVW, Math.max(300, svgW * 0.4));
             s.vh = s.vw * containerAspect;
 
-            const firstNode = svg.querySelector('.tree-node-g');
-            const transform = firstNode && firstNode.getAttribute('transform');
-            const match = transform && transform.match(/translate\(\s*([\d.eE+\-]+)[,\s]+([\d.eE+\-]+)\s*\)/);
-            if (match) {
-                const nodeX = parseFloat(match[1]) + 30;
-                const nodeY = parseFloat(match[2]) + 15;
+            if (nodeArr.length > 0) {
+                const nodeX = nodeArr[0].x + s.nodeW / 2;
+                const nodeY = nodeArr[0].y + s.nodeH / 2;
                 s.vx = nodeX - s.vw / 2;
                 s.vy = nodeY - s.vh / 2;
             } else {
@@ -628,6 +998,9 @@ window.treeView = (() => {
             wrap.removeEventListener('pointermove',  s.onPointerMove);
             wrap.removeEventListener('pointerup',    s.onPointerUp);
             wrap.removeEventListener('pointercancel',s.onPointerUp);
+            wrap.removeEventListener('mousemove',    s.onMouseMove);
+            wrap.removeEventListener('mouseleave',   s.onMouseLeave);
+            wrap.removeEventListener('click',        s.onClick);
         }
         delete _state[containerId];
     }
@@ -644,8 +1017,10 @@ window.treeView = (() => {
         const svg = wrap.querySelector('svg');
         if (!svg) return;
         s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
+        const rect = wrap.getBoundingClientRect();
+        s._wrapWidth = Math.max(rect.width, 1);
         svg.setAttribute('viewBox', `0 0 ${s.svgW} ${s.svgH}`);
-        _cullNodes(s, svg);
+        _cullNodes(s);
     }
 
     return { init, resetView, destroy };
@@ -692,6 +1067,9 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
         minZoom: 0.05,
         maxZoom: 4,
         wheelSensitivity: 0.15,
+        textureOnViewport: false,
+        hideEdgesOnViewport: false,
+        hideLabelsOnViewport: false,
         style: [
             {
                 selector: 'node',
@@ -713,6 +1091,14 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
                     'text-halign': 'center',
                     'transition-property': 'background-color, border-color, border-width',
                     'transition-duration': '0.12s',
+                }
+            },
+            // LOD: hide labels when zoomed out far
+            {
+                selector: 'node.lod-hide-label',
+                style: {
+                    'label': '',
+                    'text-outline-width': 0,
                 }
             },
             {
@@ -754,6 +1140,15 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
                 }
             },
             {
+                selector: 'node.cutoff',
+                style: {
+                    'background-color': '#f3e5f5',
+                    'border-color': '#8e24aa',
+                    'color': '#6a1b9a',
+                    'text-outline-color': '#f3e5f5',
+                }
+            },
+            {
                 selector: 'node:selected',
                 style: {
                     'border-color': '#00a499',
@@ -778,6 +1173,14 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
                     'text-background-padding': '2px',
                     'text-background-shape': 'roundrectangle',
                 }
+            },
+            // LOD: hide edge labels when zoomed out
+            {
+                selector: 'edge.lod-hide-label',
+                style: {
+                    'label': '',
+                    'text-background-opacity': 0,
+                }
             }
         ],
         layout: {
@@ -791,6 +1194,34 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
         }
     });
 
+    // ── LOD: toggle labels based on zoom level ───────────────────────────
+    let _lodState = 'full'; // 'full' | 'noEdgeLabels' | 'noLabels'
+    function updateLod() {
+        const zoom = cy.zoom();
+        let newState;
+        if (zoom < 0.07) newState = 'noLabels';
+        else if (zoom < 0.15) newState = 'noEdgeLabels';
+        else newState = 'full';
+
+        if (newState === _lodState) return;
+        _lodState = newState;
+
+        cy.batch(function() {
+            if (newState === 'noLabels') {
+                cy.nodes().addClass('lod-hide-label');
+                cy.edges().addClass('lod-hide-label');
+            } else if (newState === 'noEdgeLabels') {
+                cy.nodes().removeClass('lod-hide-label');
+                cy.edges().addClass('lod-hide-label');
+            } else {
+                cy.nodes().removeClass('lod-hide-label');
+                cy.edges().removeClass('lod-hide-label');
+            }
+        });
+    }
+
+    cy.on('zoom', updateLod);
+
     // After layout finishes positioning nodes, zoom to M0 at a comfortable level
     cy.one('layoutstop', function() {
         const initNode = cy.nodes('.initial');
@@ -801,6 +1232,7 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
         } else {
             cy.fit(undefined, 48);
         }
+        updateLod();
     });
 
     // Tooltip element

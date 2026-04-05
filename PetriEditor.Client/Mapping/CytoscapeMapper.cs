@@ -28,7 +28,7 @@ public static class CytoscapeMapper
 
             int idx    = indexMap.GetValueOrDefault(node.Id, node.Id);
             string lbl = idx == 0 ? "M\u2080" : $"M{idx}";
-            var classes = NodeClasses(node.IsInitial, node.IsDeadlock, false, false);
+            var classes = NodeClasses(node.IsInitial, node.IsDeadlock, false, false, node.IsTruncated);
 
             elements.Add(new CyElement("nodes",
                 new CyData(node.Id.ToString(), lbl, null, null,
@@ -74,7 +74,7 @@ public static class CytoscapeMapper
             int idx    = indexMap.GetValueOrDefault(node.Id, node.Id);
             string lbl = idx == 0 ? "M\u2080" : $"M{idx}";
             bool hasOmega  = node.Marking.Any(m => m is null);
-            var classes    = NodeClasses(node.IsInitial, node.IsDeadlock, false, hasOmega);
+            var classes    = NodeClasses(node.IsInitial, node.IsDeadlock, false, hasOmega, node.IsTruncated);
             var markingArr = node.Marking.Select(m => m ?? -1).ToArray();
 
             elements.Add(new CyElement("nodes",
@@ -156,13 +156,14 @@ public static class CytoscapeMapper
         return result;
     }
 
-    private static string[]? NodeClasses(bool isInitial, bool isDeadlock, bool isDuplicate, bool hasOmega)
+    private static string[]? NodeClasses(bool isInitial, bool isDeadlock, bool isDuplicate, bool hasOmega, bool isCutOff = false)
     {
         var c = new List<string>();
         if (isInitial)   c.Add("initial");
         if (isDeadlock)  c.Add("deadlock");
         if (isDuplicate) c.Add("duplicate");
         if (hasOmega)    c.Add("omega");
+        if (isCutOff)    c.Add("cutoff");
         return c.Count > 0 ? c.ToArray() : null;
     }
 

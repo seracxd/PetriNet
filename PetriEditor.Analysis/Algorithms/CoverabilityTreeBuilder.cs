@@ -28,21 +28,27 @@ public sealed class CoverabilityTreeBuilder
     public const int Omega    = int.MaxValue;   // ω sentinel
 
     public bool   HasErrors    { get; private set; }
+    public bool   IsTruncated  { get; private set; }
     public string? ErrorMessage { get; private set; }
 
-    public IReadOnlyList<CoverTreeNode> Nodes => _nodes;
-    public IReadOnlyList<CoverTreeEdge> Edges => _edges;
+    public IReadOnlyList<CoverTreeNode> Nodes        => _nodes;
+    public IReadOnlyList<CoverTreeEdge> Edges        => _edges;
+    public IReadOnlySet<int>            TruncatedIds => _truncatedIds;
 
-    private readonly List<CoverTreeNode> _nodes = [];
-    private readonly List<CoverTreeEdge> _edges = [];
+    private readonly List<CoverTreeNode> _nodes        = [];
+    private readonly List<CoverTreeEdge> _edges        = [];
+    private readonly HashSet<int>        _truncatedIds = [];
 
     public void Build(
         PetriNetSnapshot  net,
-        CancellationToken ct = default)
+        CancellationToken ct       = default,
+        int               maxNodes = MaxNodes)
     {
         _nodes.Clear();
         _edges.Clear();
+        _truncatedIds.Clear();
         HasErrors    = false;
+        IsTruncated  = false;
         ErrorMessage = null;
 
         if (!net.Places.Any() || !net.Transitions.Any())
@@ -91,11 +97,12 @@ public sealed class CoverabilityTreeBuilder
                 // Step b: walk ancestors and promote to omega where needed
                 PropagateOmega(next, parentId);
 
-                if (_nodes.Count >= MaxNodes)
+                if (_nodes.Count >= maxNodes)
                 {
-                    HasErrors    = true;
+                    IsTruncated  = true;
                     ErrorMessage = $"Coverability tree exceeded {MaxNodes} nodes.";
-                    return;
+                    _truncatedIds.Add(parentId);
+                    continue;
                 }
 
                 // Step c/d: check for duplicate marking anywhere in existing tree

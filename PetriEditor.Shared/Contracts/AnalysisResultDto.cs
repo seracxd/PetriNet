@@ -73,6 +73,7 @@ public sealed record ReachNodeDto(
     bool                 IsInitial,
     bool                 IsDeadlock,
     bool                 IsDuplicate,
+    bool                 IsTruncated,
     int                  ParentId);   // -1 for the root node
 
 /// <summary>A directed edge between two reachability graph nodes.</summary>
@@ -103,6 +104,7 @@ public sealed record CoverNodeDto(
     bool                  IsInitial,
     bool                  IsDeadlock,
     bool                  IsDuplicate,
+    bool                  IsTruncated,
     int                   ParentId);
 
 /// <summary>A directed edge between two coverability tree nodes.</summary>

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using PetriEditor.Server.Analysis;
 using PetriEditor.Server.Hubs;
 using PetriEditor.Server.Logging;
@@ -19,6 +20,17 @@ var builder = WebApplication.CreateBuilder(args);
 // File logger — writes warnings and errors to logs/petri.log next to the executable
 var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "petri.log");
 builder.Logging.AddProvider(new FileLoggerProvider(logPath));
+
+// Suppress noisy framework warnings that aren't actionable
+builder.Logging.AddFilter("Microsoft.AspNetCore.DataProtection", LogLevel.Error);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Antiforgery", LogLevel.Error);
+builder.Logging.AddFilter("Microsoft.AspNetCore.HttpsPolicy", LogLevel.Error);
+builder.Logging.AddFilter("Microsoft.AspNetCore.StaticFiles", LogLevel.Warning);
+
+// Keep Data Protection keys stable across container restarts so antiforgery tokens
+// from existing browser sessions remain valid after a redeploy.
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo("/tmp/dataprotection-keys"));
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents()

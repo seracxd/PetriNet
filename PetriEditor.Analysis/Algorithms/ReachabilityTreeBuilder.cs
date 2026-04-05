@@ -17,21 +17,27 @@ public sealed class ReachabilityTreeBuilder
     public const int MaxNodes = 100_000;
 
     public bool   HasErrors    { get; private set; }
+    public bool   IsTruncated  { get; private set; }
     public string? ErrorMessage { get; private set; }
 
-    public IReadOnlyList<ReachTreeNode> Nodes => _nodes;
-    public IReadOnlyList<ReachTreeEdge> Edges => _edges;
+    public IReadOnlyList<ReachTreeNode> Nodes        => _nodes;
+    public IReadOnlyList<ReachTreeEdge> Edges        => _edges;
+    public IReadOnlySet<int>            TruncatedIds => _truncatedIds;
 
-    private readonly List<ReachTreeNode> _nodes = [];
-    private readonly List<ReachTreeEdge> _edges = [];
+    private readonly List<ReachTreeNode> _nodes        = [];
+    private readonly List<ReachTreeEdge> _edges        = [];
+    private readonly HashSet<int>        _truncatedIds = [];
 
     public void Build(
         PetriNetSnapshot  net,
-        CancellationToken ct = default)
+        CancellationToken ct       = default,
+        int               maxNodes = MaxNodes)
     {
         _nodes.Clear();
         _edges.Clear();
+        _truncatedIds.Clear();
         HasErrors    = false;
+        IsTruncated  = false;
         ErrorMessage = null;
 
         if (!net.Places.Any() || !net.Transitions.Any())
@@ -79,17 +85,18 @@ public sealed class ReachabilityTreeBuilder
                 anyFired = true;
                 var next = FireUtils.Fire(net, pIdx, marking, t.Id);
 
-                if (_nodes.Count >= MaxNodes)
+                if (_nodes.Count >= maxNodes)
                 {
-                    HasErrors    = true;
-                    ErrorMessage = $"Reachability tree exceeded {MaxNodes} nodes — net may be unbounded or have very deep reachability.";
-                    return;
+                    IsTruncated  = true;
+                    ErrorMessage = $"Reachability tree exceeded {MaxNodes} nodes.";
+                    // Mark parent as truncated and stop expanding, but don't abort
+                    _truncatedIds.Add(parentId);
+                    continue;
                 }
 
                 var key       = MarkingKey(next);
                 bool isDup    = !knownMarkings.Add(key);
                 int  newId    = _nodes.Count;
-                bool isDeadlock = false; // determined after full expansion; duplicates are not expanded
 
                 _nodes.Add(new ReachTreeNode(newId, next,
                     IsInitial:   false,

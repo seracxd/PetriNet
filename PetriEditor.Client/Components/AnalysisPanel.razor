@@ -791,103 +791,210 @@
                 @* ── Graph / Tree tab (always mounted, shown/hidden via CSS) ── *@
                 <div style="@(_activeAnalysisTab == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
 
-                    @* toolbar *@
-                    <div style="flex-shrink:0;display:flex;flex-direction:column;gap:0;border-bottom:1px solid #e4e6ea;background:#f7f8fa;">
+                    @* toolbar — compact single row *@
+                    <div style="flex-shrink:0;border-bottom:1px solid #e4e6ea;background:#f7f8fa;position:relative;">
+                        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;">
 
-                        @* row 1: mode selector *@
-                        @{
-                            bool? _knownBounded = _graphStateSpace?.IsBounded;
-                        }
-                        <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 5px;">
-                            <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">MODE</span>
-                            <div style="display:flex;border:1px solid #e4e6ea;border-radius:7px;overflow:hidden;flex:1;">
-                                <button @onclick='() => SetGraphMode("reachability")'
-                                        title="@(_knownBounded == false ? "Net is unbounded — use Coverability" : "Exact graph for bounded nets")"
-                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;
-                                               background:@(_graphMode == "reachability" ? "#00a499" : "#fff");
-                                               color:@(_graphMode == "reachability" ? "#fff" : _knownBounded == false ? "#e0a0a0" : "#8a94a6");
-                                               text-decoration:@(_knownBounded == false ? "line-through" : "none");">
-                                    Reachability
-                                </button>
-                                <button @onclick='() => SetGraphMode("coverability")'
-                                        title="@(_knownBounded == true ? "Net is bounded — Reachability is exact" : "Works for bounded and unbounded nets (ω = unbounded)")"
-                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;white-space:nowrap;
-                                               background:@(_graphMode == "coverability" ? "#00a499" : "#fff");
-                                               color:@(_graphMode == "coverability" ? "#fff" : "#8a94a6");">
-                                    Coverability
-                                </button>
-                                <button @onclick='() => SetGraphMode("statespace")'
-                                        style="flex:1;padding:5px 6px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;white-space:nowrap;
-                                               background:@(_graphMode == "statespace" ? "#00a499" : "#fff");
-                                               color:@(_graphMode == "statespace" ? "#fff" : "#8a94a6");">
-                                    State Space
-                                </button>
-                            </div>
-                        </div>
+                            @* mode label *@
+                            <span style="font-size:10px;font-weight:600;color:#8a94a6;white-space:nowrap;">
+                                @(_graphMode == "reachability" ? "Reach" : _graphMode == "coverability" ? "Cover" : "Props")
+                                @(_graphMode != "statespace" ? " · " + (_viewMode == "graph" ? "Graph" : "Tree") : "")
+                            </span>
 
-                        @* row 1b: state limit (only reachability mode) *@
-                        @if (_graphMode == "reachability")
-                        {
-                            <div style="display:flex;align-items:center;gap:6px;padding:0 10px 5px;">
-                                <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">LIMIT</span>
-                                <input type="number" min="100" max="10000000" step="1000"
-                                       value="@_maxStates"
-                                       @onchange="OnMaxStatesChanged"
-                                       style="width:90px;padding:3px 6px;font-size:11px;border:1px solid #e4e6ea;border-radius:6px;text-align:right;" />
-                                @if (_maxStates > 10_000)
-                                {
-                                    <span style="font-size:10px;color:#e65100;" title="Large limits may take a long time or run out of memory">⚠ large</span>
-                                }
-                            </div>
-                        }
+                            @* Fit button *@
+                            @if (_graphMode != "statespace")
+                            {
+                                <button @onclick="FitCurrentView"
+                                        style="padding:3px 7px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
+                                               border-radius:6px;background:#fff;color:#8a94a6;cursor:pointer;">Fit</button>
+                            }
 
-                        @* row 2: view toggle + compute (only when not statespace) *@
-                        @if (_graphMode != "statespace")
-                        {
-                            <div style="display:flex;align-items:center;gap:6px;padding:0 10px 6px;">
-                                <span style="font-size:10px;color:#b0b8c4;font-weight:600;white-space:nowrap;">VIEW</span>
-                                <div style="display:flex;border:1px solid #e4e6ea;border-radius:7px;overflow:hidden;">
-                                    <button @onclick='() => _viewMode = "graph"'
-                                            style="padding:4px 12px;font-size:11px;font-weight:600;border:none;cursor:pointer;
-                                                   background:@(_viewMode == "graph" ? "#e8f5f3" : "#fff");
-                                                   color:@(_viewMode == "graph" ? "#00796b" : "#8a94a6");">
-                                        Graph
-                                    </button>
-                                    <button @onclick='() => _viewMode = "tree"'
-                                            style="padding:4px 12px;font-size:11px;font-weight:600;border:none;border-left:1px solid #e4e6ea;cursor:pointer;
-                                                   background:@(_viewMode == "tree" ? "#e8f5f3" : "#fff");
-                                                   color:@(_viewMode == "tree" ? "#00796b" : "#8a94a6");">
-                                        Tree
-                                    </button>
-                                </div>
-                                <div style="flex:1;"></div>
-                                @if (_graphRunning)
-                                {
-                                    <button @onclick="CancelGraph"
-                                            style="padding:4px 10px;font-size:11px;font-weight:700;border:1.5px solid #ffcdd2;border-radius:7px;background:#fff0f0;color:#e53935;cursor:pointer;white-space:nowrap;">
-                                        Cancel
-                                    </button>
-                                }
-                                @if (_graphError != null && !_graphRunning)
-                                {
-                                    <span style="font-size:10px;color:#e53935;white-space:nowrap;" title="@_graphError">⚠ Error</span>
-                                }
+                            @* info icon *@
+                            @if (_graphMode != "statespace")
+                            {
+                                <span @onmouseenter="() => _graphInfoHover = true" @onmouseleave="() => _graphInfoHover = false"
+                                      style="font-size:11px;color:#9aa0ad;cursor:help;line-height:1;position:relative;">ⓘ
+                                    @if (_graphInfoHover)
+                                    {
+                                        <div style="position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+                                                    background:#fff;border:1px solid #e4e6ea;border-radius:8px;
+                                                    box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:8px 10px;
+                                                    min-width:180px;max-width:240px;font-family:Inter,sans-serif;
+                                                    font-size:11px;z-index:9999;white-space:nowrap;pointer-events:none;">
+                                            @{
+                                                string infoTitle = _graphMode == "reachability"
+                                                    ? (_viewMode == "graph" ? "Reachability graph" : "Reachability tree")
+                                                    : (_viewMode == "graph" ? "Coverability graph" : "Coverability tree");
+                                                int infoNodes = 0, infoEdges = 0;
+                                                bool infoDup = false, infoDead = false, infoTrunc = false, infoOmega = false;
+                                                if (_graphMode == "reachability" && _viewMode == "graph" && _refReachGraph != null)
+                                                { infoNodes = _refReachGraph.NodeCount; infoEdges = _refReachGraph.EdgeCount; infoDup = _refReachGraph.HasDuplicates; infoDead = _refReachGraph.HasDeadlocks; infoTrunc = _refReachGraph.HasTruncated; }
+                                                else if (_graphMode == "reachability" && _viewMode == "tree" && _refReachTree != null)
+                                                { infoNodes = _refReachTree.NodeCount; infoDup = _refReachTree.HasDuplicates; infoDead = _refReachTree.HasDeadlocks; infoTrunc = _refReachTree.IsTruncated; }
+                                                else if (_graphMode == "coverability" && _viewMode == "graph" && _refCoverGraph != null)
+                                                { infoNodes = _refCoverGraph.NodeCount; infoEdges = _refCoverGraph.EdgeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.HasTruncated; infoOmega = _refCoverGraph.HasOmega; }
+                                                else if (_graphMode == "coverability" && _viewMode == "tree" && _refCoverTree != null)
+                                                { infoNodes = _refCoverTree.NodeCount; infoDup = _refCoverTree.HasDuplicates; infoDead = _refCoverTree.HasDeadlocks; infoTrunc = _refCoverTree.IsTruncated; infoOmega = _refCoverTree.HasOmega; }
+                                                bool isGraph = _viewMode == "graph";
+                                            }
+                                            <div style="font-weight:700;color:#374151;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;">@infoTitle</div>
+                                            <div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;color:#222;font-weight:600;">
+                                                <span>@(isGraph ? "States" : "Nodes")</span><span style="color:#00a499;">@infoNodes</span>
+                                            </div>
+                                            @if (isGraph && infoEdges > 0)
+                                            {
+                                                <div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;color:#222;font-weight:600;">
+                                                    <span>Transitions</span><span style="color:#00a499;">@infoEdges</span>
+                                                </div>
+                                            }
+                                            @if (infoOmega)
+                                            {
+                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#3949ab;font-weight:500;">
+                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #5c6bc0;border-radius:@(isGraph ? "50%" : "2px");background:#f0f0fb;flex-shrink:0;"></span>
+                                                    ω (unbounded)
+                                                </div>
+                                            }
+                                            @if (infoDup)
+                                            {
+                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#f57f17;font-weight:500;">
+                                                    <span style="display:inline-block;width:10px;height:10px;border:2px dashed #f9a825;border-radius:@(isGraph ? "50%" : "2px");background:#fffde7;flex-shrink:0;"></span>
+                                                    @(isGraph ? "Duplicate" : "Back-ref")
+                                                </div>
+                                            }
+                                            @if (infoDead)
+                                            {
+                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#c62828;font-weight:500;">
+                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #e53935;border-radius:@(isGraph ? "50%" : "2px");background:#ffebee;flex-shrink:0;"></span>
+                                                    Deadlock
+                                                </div>
+                                            }
+                                            @if (infoTrunc)
+                                            {
+                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#6a1b9a;font-weight:500;">
+                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #8e24aa;border-radius:@(isGraph ? "50%" : "2px");background:#f3e5f5;flex-shrink:0;"></span>
+                                                    Children cut off
+                                                </div>
+                                            }
+                                            <div style="padding:4px 0 0;color:#bbb;font-weight:400;font-size:10px;">Hover = marking preview</div>
+                                        </div>
+                                    }
+                                </span>
+                            }
+
+                            <div style="flex:1;"></div>
+
+                            @* status indicators *@
+                            @if (_graphTruncated && !_graphRunning)
+                            {
+                                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Result truncated to @_maxStates markings">✂ @_maxStates</span>
+                            }
+                            @if (_graphError != null && !_graphRunning)
+                            {
+                                <span style="font-size:10px;color:#e53935;white-space:nowrap;" title="@_graphError">⚠ Error</span>
+                            }
+
+                            @* settings button *@
+                            <button @onclick='() => _graphSettingsOpen = !_graphSettingsOpen'
+                                    title="Settings"
+                                    style="padding:3px 6px;font-size:13px;border:1px solid @(_graphSettingsOpen ? "#00a499" : "#e4e6ea");border-radius:6px;
+                                           background:@(_graphSettingsOpen ? "#e8f5f3" : "#fff");color:@(_graphSettingsOpen ? "#00796b" : "#8a94a6");cursor:pointer;line-height:1;">⚙</button>
+
+                            @* compute / cancel *@
+                            @if (_graphRunning)
+                            {
+                                <button @onclick="CancelGraph"
+                                        style="padding:3px 8px;font-size:10px;font-weight:700;border:1.5px solid #ffcdd2;border-radius:6px;background:#fff0f0;color:#e53935;cursor:pointer;white-space:nowrap;">
+                                    Cancel
+                                </button>
+                            }
+                            @if (_graphMode != "statespace")
+                            {
                                 <button @onclick="ComputeGraph" disabled="@_graphRunning"
-                                        style="padding:4px 14px;font-size:11px;font-weight:700;border:none;border-radius:7px;white-space:nowrap;
+                                        style="padding:3px 10px;font-size:10px;font-weight:700;border:none;border-radius:6px;white-space:nowrap;
                                                cursor:@(_graphRunning ? "default" : "pointer");
                                                background:@(_graphRunning ? "#f0f0f0" : "#00a499");
-                                               color:@(_graphRunning ? "#aaa" : "#fff");display:flex;align-items:center;gap:5px;">
+                                               color:@(_graphRunning ? "#aaa" : "#fff");display:flex;align-items:center;gap:4px;">
                                     @if (_graphRunning)
                                     {
-                                        <span style="display:inline-block;width:10px;height:10px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;"></span>
-                                        <span>Computing…</span>
+                                        <span style="display:inline-block;width:9px;height:9px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;"></span>
+                                        <span>…</span>
                                     }
                                     else
                                     {
-                                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:10px;height:10px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                                         <span>Compute</span>
                                     }
                                 </button>
+                            }
+                        </div>
+
+                        @* settings modal overlay + panel *@
+                        @if (_graphSettingsOpen)
+                        {
+                            <div style="position:fixed;inset:0;z-index:199;" @onclick='() => _graphSettingsOpen = false'></div>
+                            <div style="position:absolute;top:calc(100% + 4px);right:8px;width:240px;
+                                        background:#fffffff2;border:1.5px solid #e0e0e0;border-radius:14px;
+                                        box-shadow:0 4px 24px rgba(0,0,0,0.13);backdrop-filter:blur(8px);
+                                        z-index:200;display:flex;flex-direction:column;overflow:hidden;"
+                                 @onclick:stopPropagation="true">
+                                @* header *@
+                                <div style="display:flex;align-items:center;justify-content:space-between;
+                                            padding:11px 14px 9px;border-bottom:1px solid #eee;flex-shrink:0;">
+                                    <span style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#aaa;">Graph Settings</span>
+                                    <button @onclick='() => _graphSettingsOpen = false'
+                                            style="background:none;border:none;cursor:pointer;color:#bbb;font-size:14px;line-height:1;padding:0 2px;">✕</button>
+                                </div>
+                                @* body *@
+                                <div style="padding:4px 0 10px;">
+                                    @* Mode group *@
+                                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Mode</div>
+                                    <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
+                                        @foreach (var (val, label) in new[]{("reachability","Reachability"),("coverability","Coverability"),("statespace","State-space props")})
+                                        {
+                                            string v = val, lbl = label;
+                                            <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:#444;font-weight:@(_graphMode == v ? "600" : "400");">
+                                                <input type="radio" name="graphMode" value="@v" checked="@(_graphMode == v)"
+                                                       @onchange='() => { SetGraphMode(v); }'
+                                                       style="accent-color:#00a499;width:14px;height:14px;" />
+                                                @lbl
+                                            </label>
+                                        }
+                                    </div>
+
+                                    @* View group (hidden in statespace mode) *@
+                                    @if (_graphMode != "statespace")
+                                    {
+                                        <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">View</div>
+                                        <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
+                                            @foreach (var (val, label) in new[]{("graph","Graph"),("tree","Tree")})
+                                            {
+                                                string v = val, lbl = label;
+                                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:#444;font-weight:@(_viewMode == v ? "600" : "400");">
+                                                    <input type="radio" name="viewMode" value="@v" checked="@(_viewMode == v)"
+                                                           @onchange='() => { _viewMode = v; }'
+                                                           style="accent-color:#00a499;width:14px;height:14px;" />
+                                                    @lbl
+                                                </label>
+                                            }
+                                        </div>
+                                    }
+
+                                    @* Limit group *@
+                                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Marking Limit</div>
+                                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px;gap:12px;">
+                                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Max markings</span>
+                                        <input type="number" min="10" max="10000000" step="100"
+                                               value="@_maxStates"
+                                               @onchange="OnMaxStatesChanged"
+                                               style="width:80px;padding:3px 6px;font-size:11px;border:1px solid #e4e6ea;border-radius:6px;text-align:right;" />
+                                    </div>
+                                    @if (_maxStates > 10_000)
+                                    {
+                                        <div style="padding:2px 14px 4px;">
+                                            <span style="font-size:10px;color:#e65100;">⚠ large value — may be slow</span>
+                                        </div>
+                                    }
+                                </div>
                             </div>
                         }
                     </div>
@@ -935,7 +1042,7 @@
                     @if (_graphReach != null)
                     {
                         <div style="@(_graphMode == "reachability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <ReachabilityGraphView Graph="@_graphReach" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                            <ReachabilityGraphView @ref="_refReachGraph" Graph="@_graphReach" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
                         </div>
                     }
 
@@ -943,7 +1050,7 @@
                     @if (_graphReachTree != null)
                     {
                         <div style="@(_graphMode == "reachability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <ReachabilityTreeView Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
+                            <ReachabilityTreeView @ref="_refReachTree" Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
                         </div>
                     }
 
@@ -951,7 +1058,7 @@
                     @if (_graphCover != null)
                     {
                         <div style="@(_graphMode == "coverability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeView Tree="@_graphCover" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                            <CoverabilityTreeView @ref="_refCoverGraph" Tree="@_graphCover" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
                         </div>
                     }
 
@@ -959,7 +1066,7 @@
                     @if (_graphCoverTree != null)
                     {
                         <div style="@(_graphMode == "coverability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeViewSvg Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
+                            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
                         </div>
                     }
 
@@ -1233,17 +1340,26 @@
 
     // ── Graph / Tree tab (lazy, on-demand) ────────────────────────────────
 
-    private string                     _graphMode    = "reachability"; // "reachability" | "coverability" | "statespace"
-    private string                     _viewMode     = "graph";        // "graph" | "tree"
-    private bool                       _graphRunning = false;
+    private string                     _graphMode        = "reachability"; // "reachability" | "coverability" | "statespace"
+    private string                     _viewMode         = "graph";        // "graph" | "tree"
+    private bool                       _graphRunning     = false;
     private string?                    _graphError;
-    private int                        _maxStates    = 5_000;
+    private bool                       _graphTruncated   = false;
+    private bool                       _graphSettingsOpen = false;
+    private int                        _maxStates        = 5_000;
+    private bool                       _graphInfoHover   = false;
     private ReachabilityGraphDto?      _graphReach;
     private ReachabilityGraphDto?      _graphReachTree;
     private CoverabilityTreeDto?       _graphCover;
     private CoverabilityTreeDto?       _graphCoverTree;   // same data, used by SVG tree view
     private StateSpaceSummaryDto?      _graphStateSpace;
     private CancellationTokenSource?   _graphCts;
+
+    // Component refs for Fit / info
+    private ReachabilityGraphView?     _refReachGraph;
+    private ReachabilityTreeView?      _refReachTree;
+    private CoverabilityTreeView?      _refCoverGraph;
+    private CoverabilityTreeViewSvg?   _refCoverTree;
 
     private void SetGraphMode(string mode)
     {
@@ -1256,6 +1372,18 @@
     {
         if (int.TryParse(e.Value?.ToString(), out int v))
             _maxStates = Math.Max(100, Math.Min(10_000_000, v));
+    }
+
+    private async Task FitCurrentView()
+    {
+        if (_graphMode == "reachability" && _viewMode == "graph" && _refReachGraph != null)
+            await _refReachGraph.FitGraph();
+        else if (_graphMode == "reachability" && _viewMode == "tree" && _refReachTree != null)
+            await _refReachTree.ResetView();
+        else if (_graphMode == "coverability" && _viewMode == "graph" && _refCoverGraph != null)
+            await _refCoverGraph.FitGraph();
+        else if (_graphMode == "coverability" && _viewMode == "tree" && _refCoverTree != null)
+            await _refCoverTree.ResetView();
     }
 
     private async Task ComputeGraph()
@@ -1273,19 +1401,29 @@
         _graphCts?.Cancel();
         _graphCts?.Dispose();
         _graphCts = new CancellationTokenSource();
-        _graphRunning = true;
-        _graphError   = null;
+        _graphRunning   = true;
+        _graphError     = null;
+        _graphTruncated = false;
         StateHasChanged();
         try
         {
             var coverability = _graphMode == "coverability";
             var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token, _maxStates, wantGraph: _viewMode == "graph");
-            if (result.ErrorMessage != null)
-                _graphError = result.ErrorMessage;
-            else if (coverability)
+
+            // Truncation is a warning, not an error — data is still usable
+            bool isTruncated = result.StateSpace?.ExceededLimit == true;
+            if (isTruncated)
+                _graphTruncated = true;
+            else if (result.ErrorMessage != null && result.CoverabilityTree == null && result.ReachabilityTree == null)
+                _graphError = result.ErrorMessage; // only show error if no data came back at all
+
+            if (coverability)
             {
-                _graphCover     = result.CoverabilityTree;
-                _graphCoverTree = result.CoverabilityTree; // same DTO, SVG tree renders it
+                if (result.CoverabilityTree != null)
+                {
+                    _graphCover     = result.CoverabilityTree;
+                    _graphCoverTree = result.CoverabilityTree;
+                }
             }
             else
             {
@@ -1293,14 +1431,7 @@
                 if (result.ReachabilityTree  != null) _graphReachTree = result.ReachabilityTree;
             }
             if (result.StateSpace != null)
-            {
                 _graphStateSpace = result.StateSpace;
-                // Auto-switch mode: bounded → reachability, unbounded → coverability
-                if (!coverability && !result.StateSpace.IsBounded && _graphReach == null)
-                    _graphMode = "coverability";
-                else if (coverability && result.StateSpace.IsBounded && _graphCover == null)
-                    _graphMode = "reachability";
-            }
         }
         catch (OperationCanceledException) { _graphError = "Cancelled."; }
         catch (Exception ex) { _graphError = ex.Message; }

@@ -1,6 +1,7 @@
 using Analysis;
 using Analysis.Algorithms;
 using Analysis.Engines;
+using Microsoft.Extensions.Logging;
 using PetriEditor.Server.Analysis;
 using PetriEditor.Shared.Contracts;
 using PetriEditor.Shared.Mapping;
@@ -16,6 +17,13 @@ namespace PetriEditor.Server.Analysis;
 /// </summary>
 public sealed class AnalysisOrchestrator
 {
+    private readonly ILogger<AnalysisOrchestrator> _logger;
+
+    public AnalysisOrchestrator(ILogger<AnalysisOrchestrator> logger)
+    {
+        _logger = logger;
+    }
+
     public async Task<AnalysisResultDto> RunAsync(
         PetriNetDto                          dto,
         IProgress<AnalysisProgressMessage>?  progress,
@@ -106,10 +114,11 @@ public sealed class AnalysisOrchestrator
                 if (coverability)
                 {
                     var cb = new CoverabilityTreeBuilder();
-                    cb.Build(net, ct);
-                    if (cb.HasErrors) error = cb.ErrorMessage;
+                    cb.Build(net, ct, maxStates);
+                    if (cb.HasErrors && !cb.IsTruncated) { error = cb.ErrorMessage; }
                     else
                     {
+                        if (cb.IsTruncated) error = cb.ErrorMessage;
                         coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
                         ssDto = new StateSpaceSummaryDto(
                             StateCount:     cb.Nodes.Count,
@@ -117,14 +126,15 @@ public sealed class AnalysisOrchestrator
                             IsSafe:         false,
                             IsDeadlockFree: cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock),
                             IsReversible:   false,
-                            ExceededLimit:  false);
+                            ExceededLimit:  cb.IsTruncated);
                     }
                 }
                 else
                 {
                     var ss = new StateSpaceAnalysis();
                     ss.Build(net, ct, maxStates);
-                    if (ss.HasErrors) { error = ss.ErrorMsg; return; }
+                    if (ss.HasErrors && !ss.IsTruncated) { error = ss.ErrorMsg; return; }
+                    if (ss.IsTruncated) error = ss.ErrorMsg; // surface as warning but continue
 
                     // Only build the Cytoscape graph DTO if the caller explicitly wants it
                     if (wantGraph)
@@ -136,19 +146,24 @@ public sealed class AnalysisOrchestrator
                         IsSafe:         ss.IsSafe(),
                         IsDeadlockFree: ss.IsDeadlockFree(),
                         IsReversible:   ss.IsReversible(),
-                        ExceededLimit:  ss.States.Count >= maxStates);
+                        ExceededLimit:  ss.IsTruncated || ss.States.Count >= maxStates);
 
                     if (!ct.IsCancellationRequested)
                     {
                         var rt = new ReachabilityTreeBuilder();
-                        rt.Build(net, ct);
-                        if (!rt.HasErrors)
+                        rt.Build(net, ct, maxStates);
+                        if (!rt.HasErrors || rt.IsTruncated)
                             reachTreeDto = AnalysisResultMapper.BuildReachabilityTreeDto(net, rt);
                     }
                 }
             }
-            catch (Exception ex) { error = ex.Message; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Graph analysis engine threw unexpectedly (coverability={Coverability})", coverability);
+                error = ex.Message;
+            }
         });
+
 
         var result = new GraphResultDto(reachDto, reachTreeDto, coverDto, error, ssDto);
         // Release large state-space objects before returning — they're no longer needed
@@ -156,7 +171,7 @@ public sealed class AnalysisOrchestrator
         return result;
     }
 
-    private static PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)
+    private PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)
     {
         try
         {
@@ -164,6 +179,7 @@ public sealed class AnalysisOrchestrator
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Property test {Property} threw unexpectedly", property);
             return new PropertyTestResult(
                 property,
                 TestResultStatus.Undecidable,
