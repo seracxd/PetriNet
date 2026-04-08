@@ -36,10 +36,35 @@ public sealed class AnalysisOrchestrator
 
         await Task.Run(() =>
         {
+            // ── Stage 1: Coverability tree (Karp-Miller) ─────────────────────
+            // Run this FIRST because it always terminates and tells us whether
+            // the net is bounded. If unbounded (any ω node), we skip the full
+            // state-space BFS to avoid burning through 500k states pointlessly.
             if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageStateSpace, 5, null));
-            var ss = new StateSpaceAnalysis();
-            ss.Build(net, ct);
+
+            var cb = new CoverabilityTreeBuilder();
+            cb.Build(net, ct, StateSpaceAnalysis.MaxStates);
+            if (!cb.HasErrors || cb.IsTruncated) report.CoverabilityTree = cb;
+
+            bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
+
+            // ── Stage 2: State-space (skip if unbounded) ──────────────────────
+            // For unbounded nets the BFS would just hit the limit anyway, so we
+            // create a stub that signals truncation without wasting time.
+            StateSpaceAnalysis ss;
+            if (isUnbounded)
+            {
+                ss = new StateSpaceAnalysis();
+                // Build with a tiny limit — enough to detect it's unbounded but
+                // not expensive. Property tests will see IsTruncated and report Undecidable.
+                ss.Build(net, ct, maxStates: 500);
+            }
+            else
+            {
+                ss = new StateSpaceAnalysis();
+                ss.Build(net, ct);
+            }
             report.StateSpace = ss;
 
             if (ct.IsCancellationRequested) { cancelled = true; return; }
@@ -84,6 +109,17 @@ public sealed class AnalysisOrchestrator
             results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
             results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
             report.PropertyResults = results;
+
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
+            progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 90, null));
+
+            // Reachability tree — only meaningful for bounded nets
+            if (!isUnbounded)
+            {
+                var rt = new ReachabilityTreeBuilder();
+                rt.Build(net, ct, StateSpaceAnalysis.MaxStates);
+                if (!rt.HasErrors || rt.IsTruncated) report.ReachabilityTree = rt;
+            }
         });
 
         if (cancelled)
@@ -94,79 +130,47 @@ public sealed class AnalysisOrchestrator
 
     public async Task<GraphResultDto> RunGraphAsync(
         PetriNetDto       dto,
-        bool              coverability,
         CancellationToken ct,
-        int               maxStates = StateSpaceAnalysis.MaxStates,
-        bool              wantGraph = false)
+        int               maxStates = StateSpaceAnalysis.MaxStates)
     {
         var net = PetriNetMapper.ToSnapshot(dto);
 
-        ReachabilityGraphDto? reachDto     = null;
-        ReachabilityGraphDto? reachTreeDto = null;
-        CoverabilityTreeDto?  coverDto     = null;
-        StateSpaceSummaryDto? ssDto        = null;
+        CoverabilityTreeDto?  coverDto = null;
+        StateSpaceSummaryDto? ssDto    = null;
         string? error = null;
 
         await Task.Run(() =>
         {
             try
             {
-                if (coverability)
-                {
-                    var cb = new CoverabilityTreeBuilder();
-                    cb.Build(net, ct, maxStates);
-                    if (cb.HasErrors && !cb.IsTruncated) { error = cb.ErrorMessage; }
-                    else
-                    {
-                        if (cb.IsTruncated) error = cb.ErrorMessage;
-                        coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
-                        ssDto = new StateSpaceSummaryDto(
-                            StateCount:     cb.Nodes.Count,
-                            IsBounded:      false,
-                            IsSafe:         false,
-                            IsDeadlockFree: cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock),
-                            IsReversible:   false,
-                            ExceededLimit:  cb.IsTruncated);
-                    }
-                }
-                else
-                {
-                    var ss = new StateSpaceAnalysis();
-                    ss.Build(net, ct, maxStates);
-                    if (ss.HasErrors && !ss.IsTruncated) { error = ss.ErrorMsg; return; }
-                    if (ss.IsTruncated) error = ss.ErrorMsg; // surface as warning but continue
+                // Always use the coverability tree — it handles both bounded and unbounded nets.
+                // For bounded nets the result is identical to a reachability tree (no ω appears).
+                var cb = new CoverabilityTreeBuilder();
+                cb.Build(net, ct, maxStates);
+                if (cb.HasErrors && !cb.IsTruncated) { error = cb.ErrorMessage; return; }
+                if (cb.IsTruncated) error = cb.ErrorMessage;
 
-                    // Only build the Cytoscape graph DTO if the caller explicitly wants it
-                    if (wantGraph)
-                        reachDto = AnalysisResultMapper.BuildReachabilityGraphDto(net, ss);
+                coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
 
-                    ssDto = new StateSpaceSummaryDto(
-                        StateCount:     ss.States.Count,
-                        IsBounded:      ss.IsBounded(),
-                        IsSafe:         ss.IsSafe(),
-                        IsDeadlockFree: ss.IsDeadlockFree(),
-                        IsReversible:   ss.IsReversible(),
-                        ExceededLimit:  ss.IsTruncated || ss.States.Count >= maxStates);
+                bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
+                bool isDeadlockFree = cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock && !n.IsDuplicate);
 
-                    if (!ct.IsCancellationRequested)
-                    {
-                        var rt = new ReachabilityTreeBuilder();
-                        rt.Build(net, ct, maxStates);
-                        if (!rt.HasErrors || rt.IsTruncated)
-                            reachTreeDto = AnalysisResultMapper.BuildReachabilityTreeDto(net, rt);
-                    }
-                }
+                ssDto = new StateSpaceSummaryDto(
+                    StateCount:     cb.Nodes.Count,
+                    IsBounded:      !isUnbounded,
+                    IsSafe:         false,   // coverability tree doesn't track max tokens
+                    IsDeadlockFree: isDeadlockFree,
+                    IsReversible:   false,
+                    ExceededLimit:  cb.IsTruncated);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Graph analysis engine threw unexpectedly (coverability={Coverability})", coverability);
+                _logger.LogError(ex, "Graph analysis engine threw unexpectedly");
                 error = ex.Message;
             }
         });
 
-
-        var result = new GraphResultDto(reachDto, reachTreeDto, coverDto, error, ssDto);
-        // Release large state-space objects before returning — they're no longer needed
+        var result = new GraphResultDto(null, null, coverDto, error, ssDto);
         GC.Collect(2, GCCollectionMode.Optimized, blocking: false, compacting: false);
         return result;
     }

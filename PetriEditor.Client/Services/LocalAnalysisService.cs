@@ -138,6 +138,22 @@ public sealed class LocalAnalysisService : IAnalysisService
 
         var placeNames = net.Places.Select(p => p.Name).ToList();
 
+        // ── Reachability graph DTO (flat, deduped state space) ────────────
+        ReachabilityGraphDto? reachGraph = null;
+        if (ss != null && !ss.HasErrors && ss.States.Count > 0)
+        {
+            var edgesByFrom = ss.GetEdges();
+            var zeroEdge    = new HashSet<int>(Enumerable.Range(0, ss.States.Count).Where(i => edgesByFrom[i].Count == 0));
+            var deadlocks   = ss.IsTruncated ? new HashSet<int>() : zeroEdge;
+            var truncated   = ss.IsTruncated ? zeroEdge            : new HashSet<int>();
+            var rgNodes = ss.States.Select((marking, id) => new ReachNodeDto(
+                id, marking, id == 0, deadlocks.Contains(id), false, truncated.Contains(id), -1)).ToList();
+            var rgEdges = edgesByFrom.SelectMany((edgeList, from) =>
+                edgeList.Select(e => new ReachEdgeDto(from, e.To, e.TransId,
+                    net.TransitionById.TryGetValue(e.TransId, out var t) ? t.Name : e.TransId))).ToList();
+            reachGraph = new ReachabilityGraphDto(rgNodes, rgEdges, placeNames);
+        }
+
         // ── Reachability tree DTO ─────────────────────────────────────────
         ReachabilityGraphDto? reachTree = null;
         var rt = report.ReachabilityTree;
@@ -214,12 +230,48 @@ public sealed class LocalAnalysisService : IAnalysisService
             PropertyResults:          propertyResults,
             PInvariants:              pInvariants,
             TInvariants:              tInvariants,
-            ReachabilityGraph:        reachTree,
+            ReachabilityGraph:        reachGraph,
+            ReachabilityTree:         reachTree,
             CoverabilityTree:         coverTree,
             Cycles:                   cyclesDto,
             Traps:                    trapsDto,
             NetStructure:             netStructure
         );
+    }
+
+    public async Task<GraphResultDto> ComputeGraphAsync(
+        PetriNetDto       dto,
+        CancellationToken ct        = default,
+        int               maxStates = 500_000)
+    {
+        var net = PetriNetMapper.ToSnapshot(dto);
+        var cb  = new CoverabilityTreeBuilder();
+        await Task.Yield();
+        cb.Build(net, ct, maxStates);
+
+        if (cb.HasErrors && !cb.IsTruncated)
+            return new GraphResultDto(null, null, null, cb.ErrorMessage, null);
+
+        var placeNames = net.Places.Select(p => p.Name).ToList();
+        var nodes = cb.Nodes.Select(n => new CoverNodeDto(
+            n.Id,
+            n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
+            n.IsInitial, n.IsDeadlock, n.IsDuplicate,
+            cb.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
+        var edges = cb.Edges.Select(e => new CoverEdgeDto(
+            e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
+        var coverDto = new CoverabilityTreeDto(nodes, edges, placeNames);
+
+        bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
+        var ssDto = new StateSpaceSummaryDto(
+            StateCount:     cb.Nodes.Count,
+            IsBounded:      !isUnbounded,
+            IsSafe:         false,
+            IsDeadlockFree: cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock && !n.IsDuplicate),
+            IsReversible:   false,
+            ExceededLimit:  cb.IsTruncated);
+
+        return new GraphResultDto(null, null, coverDto, cb.IsTruncated ? cb.ErrorMessage : null, ssDto);
     }
 
     private static PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)

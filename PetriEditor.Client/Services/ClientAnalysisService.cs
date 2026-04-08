@@ -70,15 +70,13 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
 
     public async Task<GraphResultDto> ComputeGraphAsync(
         PetriNetDto       net,
-        bool              coverability,
         CancellationToken ct        = default,
-        int               maxStates = 500_000,
-        bool              wantGraph = false)
+        int               maxStates = 500_000)
     {
         if (_hub.State == HubConnectionState.Disconnected)
             await _hub.StartAsync(ct);
 
-        return await _hub.InvokeAsync<GraphResultDto>("RunGraphAnalysis", net, coverability, maxStates, wantGraph, ct);
+        return await _hub.InvokeAsync<GraphResultDto>("RunGraphAnalysis", net, maxStates, ct);
     }
 
     public async ValueTask DisposeAsync() => await _hub.DisposeAsync();

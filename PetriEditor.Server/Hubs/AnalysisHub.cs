@@ -84,8 +84,8 @@ public sealed class AnalysisHub : Hub
         }
     }
 
-    /// <summary>Compute only the reachability graph or coverability tree on demand.</summary>
-    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, bool coverability, int maxStates = StateSpaceAnalysis.MaxStates, bool wantGraph = false)
+    /// <summary>Compute the coverability tree on demand (handles both bounded and unbounded nets).</summary>
+    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, int maxStates = StateSpaceAnalysis.MaxStates)
     {
         if (_ctsByConnection.TryRemove(Context.ConnectionId, out var oldCts))
         {
@@ -96,7 +96,7 @@ public sealed class AnalysisHub : Hub
         _ctsByConnection[Context.ConnectionId] = cts;
         try
         {
-            return await _orchestrator.RunGraphAsync(net, coverability, cts.Token, maxStates, wantGraph);
+            return await _orchestrator.RunGraphAsync(net, cts.Token, maxStates);
         }
         catch (Exception ex)
         {

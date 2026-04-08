@@ -17,4 +17,13 @@ public interface IAnalysisService
         PetriNetDto                          net,
         IProgress<AnalysisProgressMessage>?  progress = null,
         CancellationToken                    ct       = default);
+
+    /// <summary>
+    /// Compute only the graph/tree on demand using the coverability tree algorithm.
+    /// Always terminates; for bounded nets the result has no ω tokens.
+    /// </summary>
+    Task<GraphResultDto> ComputeGraphAsync(
+        PetriNetDto       net,
+        CancellationToken ct        = default,
+        int               maxStates = 500_000);
 }

@@ -3,7 +3,7 @@
 @implements IAsyncDisposable
 
 <div id="@_containerId" style="flex:1;min-height:0;overflow:hidden;background:#fafbfc;cursor:grab;user-select:none;touch-action:none;position:relative;">
-    <svg width="100%" height="100%" preserveAspectRatio="none" style="display:block;position:absolute;top:0;left:0;"></svg>
+    <canvas style="display:block;position:absolute;top:0;left:0;width:100%;height:100%;"></canvas>
 </div>
 
 @code {
@@ -13,11 +13,11 @@
     [Parameter] public int MaxDisplayNodes { get; set; } = 500;
 
     // Layout constants — used during AssignX; may be scaled down before passing to JS
-    const double NodeW   = 60;
-    const double NodeH   = 30;
-    const double LevelH  = 60;
-    const double MinGapX = 12;
-    const double MaxSvgW = 8000;  // cap; everything scales together so no overlaps
+    const double NodeW   = 72;
+    const double NodeH   = 22;
+    const double LevelH  = 56;
+    const double MinGapX = 14;
+    const double MaxSvgW = 1e12;  // cap; everything scales together so no overlaps
 
     private double _nodeW = NodeW;   // actual rendered size after scaling
     private double _nodeH = NodeH;

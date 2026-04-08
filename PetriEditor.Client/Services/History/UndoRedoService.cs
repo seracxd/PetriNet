@@ -10,6 +10,13 @@ public interface IDiagramCommand
 {
     void Execute();
     void Unexecute();
+
+    /// <summary>
+    /// True for commands that affect net behaviour (topology, weights, tokens, priorities,
+    /// arc types). False for cosmetic changes like node moves. Structural commands
+    /// invalidate cached analysis results.
+    /// </summary>
+    bool IsStructural => true;
 }
 
 public class UndoRedoService
@@ -27,6 +34,8 @@ public class UndoRedoService
     private bool _isUndoRedoBusy;
 
     public event Action? HistoryChanged;
+    /// <summary>Fired only when a structurally significant command is executed, undone, or redone.</summary>
+    public event Action? StructuralChanged;
 
     public UndoRedoService(IDiagramLogger? logger = null)
     {
@@ -58,6 +67,7 @@ public class UndoRedoService
         _undoStack.Push(cmd);
         _redoStack.Clear();
         HistoryChanged?.Invoke();
+        if (cmd.IsStructural) StructuralChanged?.Invoke();
     }
 
     public void Record(IDiagramCommand cmd)
@@ -72,6 +82,7 @@ public class UndoRedoService
         _undoStack.Push(cmd);
         _redoStack.Clear();
         HistoryChanged?.Invoke();
+        if (cmd.IsStructural) StructuralChanged?.Invoke();
     }
 
     public void Undo()
@@ -90,6 +101,7 @@ public class UndoRedoService
             _log.Log(DiagramLogLevel.Info, CAT, $"Undo {cmd.GetType().Name} undoStack->{_undoStack.Count}");
             cmd.Unexecute();
             _redoStack.Push(cmd);
+            if (cmd.IsStructural) StructuralChanged?.Invoke();
         }
         catch (Exception ex)
         {
@@ -122,6 +134,7 @@ public class UndoRedoService
             _log.Log(DiagramLogLevel.Info, CAT, $"Redo {cmd.GetType().Name} redoStack->{_redoStack.Count}");
             cmd.Execute();
             _undoStack.Push(cmd);
+            if (cmd.IsStructural) StructuralChanged?.Invoke();
         }
         catch (Exception ex)
         {
@@ -644,6 +657,7 @@ public class MoveNodeCommand : IDiagramCommand
         _to = to;
     }
 
+    public bool IsStructural => false;
     public void Execute() => _node.SetPosition(_to.X, _to.Y);
     public void Unexecute() => _node.SetPosition(_from.X, _from.Y);
 }
@@ -663,6 +677,7 @@ public class MoveVertexCommand : IDiagramCommand
         _to = to;
     }
 
+    public bool IsStructural => false;
     public void Execute() { _vertex.Position = _to; _vertex.Refresh(); _link.Refresh(); }
     public void Unexecute() { _vertex.Position = _from; _vertex.Refresh(); _link.Refresh(); }
 }

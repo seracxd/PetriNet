@@ -80,19 +80,56 @@ public sealed class PropertyTestResult
     };
 }
 
-/// <summary>Builder used by property tests to accumulate reasons and set final status.</summary>
+/// <summary>
+/// Builder used by property tests to accumulate reasons and set final status.
+/// Each reason is tagged with the status of the branch that produced it.
+/// On <see cref="Build"/>, only the reasons relevant to the final verdict are kept:
+/// <list type="bullet">
+///   <item>Final Pass/Fail → keep only Pass/Fail reasons (drop all Undecidable noise).</item>
+///   <item>Final Undecidable → keep only the first reason that explains the best partial
+///         result (Fail > Undecidable), so the user sees why we couldn't decide.</item>
+/// </list>
+/// </summary>
 public sealed class PropertyResultBuilder(NetProperty property)
 {
     private readonly NetProperty  _property = property;
     private TestResultStatus      _status   = TestResultStatus.Undecidable;
-    private readonly List<string> _reasons  = [];
+    private readonly List<(TestResultStatus BranchStatus, string Text)> _reasons = [];
     private readonly List<string> _errors   = [];
 
     public void SetStatus(TestResultStatus s) => _status = s;
-    public void AddReason(string r)           => _reasons.Add(r);
-    public void LogError(string e)            => _errors.Add(e);
 
-    public PropertyTestResult Build() =>
-        new(_property, _status, _reasons, _errors);
+    /// <summary>Record a reason tagged with the status of the branch that produced it.</summary>
+    public void AddReason(string r, TestResultStatus branchStatus) =>
+        _reasons.Add((branchStatus, r));
+
+    /// <summary>Convenience overload — caller passes status explicitly.</summary>
+    public void AddReason(string r) => AddReason(r, TestResultStatus.Undecidable);
+
+    public void LogError(string e) => _errors.Add(e);
+
+    public PropertyTestResult Build()
+    {
+        IEnumerable<string> filtered;
+
+        if (_status == TestResultStatus.Pass || _status == TestResultStatus.Fail)
+        {
+            // Only keep reasons from branches that produced the same decisive result.
+            filtered = _reasons
+                .Where(r => r.BranchStatus == _status)
+                .Select(r => r.Text);
+        }
+        else
+        {
+            // Undecidable overall: prefer Fail reasons (partial evidence) over pure
+            // Undecidable ones, but if there are none, fall back to the first Undecidable.
+            var failReasons = _reasons.Where(r => r.BranchStatus == TestResultStatus.Fail).ToList();
+            filtered = failReasons.Count > 0
+                ? failReasons.Select(r => r.Text)
+                : _reasons.Take(1).Select(r => r.Text);
+        }
+
+        return new(_property, _status, filtered, _errors);
+    }
 }
 

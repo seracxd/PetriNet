@@ -21,6 +21,7 @@ public sealed class MoveNodeCommand : IDiagramCommand
         _to   = to;
     }
 
+    public bool IsStructural => false;  // position changes don't affect analysis
     public void Execute()   => _node.SetPosition(_to.X, _to.Y);
     public void Unexecute() => _node.SetPosition(_from.X, _from.Y);
 }

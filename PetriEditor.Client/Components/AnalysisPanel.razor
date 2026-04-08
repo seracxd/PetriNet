@@ -382,6 +382,22 @@
                         }
                     </div>
 
+                    @if (_resultStale && _result is not null)
+                    {
+                        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+                                    background:#fff3e0;border:1px solid #ffb74d;border-radius:8px;margin-bottom:6px;">
+                            <span style="font-size:14px;line-height:1;">⚠</span>
+                            <span style="font-size:11px;color:#5f3a00;line-height:1.5;flex:1;">
+                                Net changed — results below may be outdated. Run analysis again to update.
+                            </span>
+                            <button @onclick="RunAnalysis"
+                                    style="padding:3px 10px;font-size:10px;font-weight:700;background:#ff9800;color:#fff;
+                                           border:none;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+                                Re-run
+                            </button>
+                        </div>
+                    }
+
                     @if (_result is not null)
                     {
                         @* ── Properties tab ── *@
@@ -404,8 +420,8 @@
                                 ("Repetitiveness",   "Repetitiveness"),
                             };
 
-                            bool isPlainNet = _result.NetStructure.InhibitorArcCount == 0
-                                          && _result.NetStructure.ResetArcCount == 0;
+                            var _ns = _result.NetStructure;
+                            bool isPlainNet = _ns.InhibitorArcCount == 0 && _ns.ResetArcCount == 0;
 
                             var allShownProps = isPlainNet
                                 ? behaviouralProps.Concat(structuralProps).ToArray()
@@ -433,6 +449,20 @@
                             var shownGroups = isPlainNet
                                 ? new[] { ("", behaviouralProps), ("STRUCTURAL", structuralProps) }
                                 : new[] { ("", behaviouralProps) };
+
+                            @if (!isPlainNet)
+                            {
+                                var _suppressedParts = new List<string>();
+                                if (_ns.InhibitorArcCount > 0) _suppressedParts.Add($"{_ns.InhibitorArcCount} inhibitor arc{(_ns.InhibitorArcCount > 1 ? "s" : "")}");
+                                if (_ns.ResetArcCount > 0)     _suppressedParts.Add($"{_ns.ResetArcCount} reset arc{(_ns.ResetArcCount > 1 ? "s" : "")}");
+                                <div style="display:flex;gap:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:4px;">
+                                    <span style="font-size:14px;flex-shrink:0;line-height:1.4;">⚠</span>
+                                    <div style="font-size:11px;color:#5f4400;line-height:1.6;">
+                                        <strong>Conservativeness</strong> and <strong>Repetitiveness</strong> are hidden —
+                                        they require standard P/T firing semantics but this net has @string.Join(" and ", _suppressedParts).
+                                    </div>
+                                </div>
+                            }
 
                             <div style="display:flex;flex-direction:column;gap:10px;">
                                 @foreach (var (groupLabel, group) in shownGroups)
@@ -512,6 +542,20 @@
                         {
                             var ns = _result.NetStructure;
                             var subclasses = _result.ClassificationSubclasses;
+                            bool clsIsOrdinary = ns.InhibitorArcCount == 0 && ns.ResetArcCount == 0;
+                            @if (!clsIsOrdinary)
+                            {
+                                var _clsParts = new List<string>();
+                                if (ns.InhibitorArcCount > 0) _clsParts.Add($"{ns.InhibitorArcCount} inhibitor arc{(ns.InhibitorArcCount > 1 ? "s" : "")}");
+                                if (ns.ResetArcCount > 0)     _clsParts.Add($"{ns.ResetArcCount} reset arc{(ns.ResetArcCount > 1 ? "s" : "")}");
+                                <div style="display:flex;gap:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:8px;">
+                                    <span style="font-size:14px;flex-shrink:0;line-height:1.4;">⚠</span>
+                                    <div style="font-size:11px;color:#5f4400;line-height:1.6;">
+                                        Subclass checks (State Machine, Marked Graph, Free Choice) are defined for ordinary Petri nets only.
+                                        This net has @string.Join(" and ", _clsParts) — the checks below ignore those arcs and may not reflect the actual net behaviour.
+                                    </div>
+                                </div>
+                            }
                             var clsChecks = new[]
                             {
                                 ("Ordinary",           "Ordinary",             "All arcs are ordinary unit-weight arcs (weight 1, no inhibitor/reset arcs)."),
@@ -632,6 +676,14 @@
                         @* ── Invariant tab ── *@
                         else if (_activeAnalysisTab == "invariant")
                         {
+                            var invSuppressed = TabSuppressedReason("invariant");
+                            @if (invSuppressed != null)
+                            {
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:10px;">
+                                    <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
+                                    <div style="font-size:12px;color:#5f4400;line-height:1.6;">@invSuppressed</div>
+                                </div>
+                            }
                             var nameById2 = BuildNameById();
                             string Resolve2(string id) => nameById2.GetValueOrDefault(id, id);
 
@@ -732,6 +784,14 @@
                         @* ── Traps tab ── *@
                         else if (_activeAnalysisTab == "traps")
                         {
+                            var trapsSuppressed = TabSuppressedReason("traps");
+                            @if (trapsSuppressed != null)
+                            {
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:10px;">
+                                    <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
+                                    <div style="font-size:12px;color:#5f4400;line-height:1.6;">@trapsSuppressed</div>
+                                </div>
+                            }
                             var tc = _result.Traps;
                             @if (tc == null || tc.HasErrors)
                             {
@@ -795,14 +855,14 @@
                     <div style="flex-shrink:0;border-bottom:1px solid #e4e6ea;background:#f7f8fa;position:relative;">
                         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;">
 
-                            @* mode label *@
+                            @* mode label — "Reach" for bounded, "Cover" for unbounded, "Props" for statespace *@
                             <span style="font-size:10px;font-weight:600;color:#8a94a6;white-space:nowrap;">
-                                @(_graphMode == "reachability" ? "Reach" : _graphMode == "coverability" ? "Cover" : "Props")
+                                @(_graphMode == "statespace" ? "Props" : (_graphIsUnbounded ? "Cover" : "Reach"))
                                 @(_graphMode != "statespace" ? " · " + (_viewMode == "graph" ? "Graph" : "Tree") : "")
                             </span>
 
                             @* Fit button *@
-                            @if (_graphMode != "statespace")
+                            @if (_graphMode == "graph")
                             {
                                 <button @onclick="FitCurrentView"
                                         style="padding:3px 7px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
@@ -810,7 +870,7 @@
                             }
 
                             @* info icon *@
-                            @if (_graphMode != "statespace")
+                            @if (_graphMode == "graph")
                             {
                                 <span @onmouseenter="() => _graphInfoHover = true" @onmouseleave="() => _graphInfoHover = false"
                                       style="font-size:11px;color:#9aa0ad;cursor:help;line-height:1;position:relative;">ⓘ
@@ -822,20 +882,16 @@
                                                     min-width:180px;max-width:240px;font-family:Inter,sans-serif;
                                                     font-size:11px;z-index:9999;white-space:nowrap;pointer-events:none;">
                                             @{
-                                                string infoTitle = _graphMode == "reachability"
-                                                    ? (_viewMode == "graph" ? "Reachability graph" : "Reachability tree")
-                                                    : (_viewMode == "graph" ? "Coverability graph" : "Coverability tree");
-                                                int infoNodes = 0, infoEdges = 0;
-                                                bool infoDup = false, infoDead = false, infoTrunc = false, infoOmega = false;
-                                                if (_graphMode == "reachability" && _viewMode == "graph" && _refReachGraph != null)
-                                                { infoNodes = _refReachGraph.NodeCount; infoEdges = _refReachGraph.EdgeCount; infoDup = _refReachGraph.HasDuplicates; infoDead = _refReachGraph.HasDeadlocks; infoTrunc = _refReachGraph.HasTruncated; }
-                                                else if (_graphMode == "reachability" && _viewMode == "tree" && _refReachTree != null)
-                                                { infoNodes = _refReachTree.NodeCount; infoDup = _refReachTree.HasDuplicates; infoDead = _refReachTree.HasDeadlocks; infoTrunc = _refReachTree.IsTruncated; }
-                                                else if (_graphMode == "coverability" && _viewMode == "graph" && _refCoverGraph != null)
-                                                { infoNodes = _refCoverGraph.NodeCount; infoEdges = _refCoverGraph.EdgeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.HasTruncated; infoOmega = _refCoverGraph.HasOmega; }
-                                                else if (_graphMode == "coverability" && _viewMode == "tree" && _refCoverTree != null)
-                                                { infoNodes = _refCoverTree.NodeCount; infoDup = _refCoverTree.HasDuplicates; infoDead = _refCoverTree.HasDeadlocks; infoTrunc = _refCoverTree.IsTruncated; infoOmega = _refCoverTree.HasOmega; }
                                                 bool isGraph = _viewMode == "graph";
+                                                string infoTitle = _graphIsUnbounded
+                                                    ? (isGraph ? "Coverability graph" : "Coverability tree")
+                                                    : (isGraph ? "Reachability graph" : "Reachability tree");
+                                                int infoNodes = 0, infoEdges = 0;
+                                                bool infoDup = false, infoDead = false, infoTrunc = false, infoOmega = _graphIsUnbounded;
+                                                if (isGraph && _refCoverGraph != null)
+                                                { infoNodes = _refCoverGraph.NodeCount; infoEdges = _refCoverGraph.EdgeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.HasTruncated; }
+                                                else if (!isGraph && _refCoverTree != null)
+                                                { infoNodes = _refCoverTree.NodeCount; infoDup = _refCoverTree.HasDuplicates; infoDead = _refCoverTree.HasDeadlocks; infoTrunc = _refCoverTree.IsTruncated; }
                                             }
                                             <div style="font-weight:700;color:#374151;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;">@infoTitle</div>
                                             <div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;color:#222;font-weight:600;">
@@ -907,7 +963,7 @@
                                     Cancel
                                 </button>
                             }
-                            @if (_graphMode != "statespace")
+                            @if (_graphMode == "graph")
                             {
                                 <button @onclick="ComputeGraph" disabled="@_graphRunning"
                                         style="padding:3px 10px;font-size:10px;font-weight:700;border:none;border-radius:6px;white-space:nowrap;
@@ -949,7 +1005,7 @@
                                     @* Mode group *@
                                     <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Mode</div>
                                     <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
-                                        @foreach (var (val, label) in new[]{("reachability","Reachability"),("coverability","Coverability"),("statespace","State-space props")})
+                                        @foreach (var (val, label) in new[]{("graph","Graph / Tree"),("statespace","State-space props")})
                                         {
                                             string v = val, lbl = label;
                                             <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:#444;font-weight:@(_graphMode == v ? "600" : "400");">
@@ -962,7 +1018,7 @@
                                     </div>
 
                                     @* View group (hidden in statespace mode) *@
-                                    @if (_graphMode != "statespace")
+                                    @if (_graphMode == "graph")
                                     {
                                         <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">View</div>
                                         <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
@@ -999,6 +1055,21 @@
                         }
                     </div>
 
+                    @* stale banner for graph tab *@
+                    @if (_resultStale && _HasVisibleContent())
+                    {
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;flex-shrink:0;
+                                    background:#fff3e0;border-bottom:1px solid #ffb74d;">
+                            <span style="font-size:13px;line-height:1;">⚠</span>
+                            <span style="font-size:11px;color:#5f3a00;line-height:1.4;flex:1;">Net changed — graph may be outdated.</span>
+                            <button @onclick="ComputeGraph"
+                                    style="padding:2px 8px;font-size:10px;font-weight:700;background:#ff9800;color:#fff;
+                                           border:none;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+                                Re-compute
+                            </button>
+                        </div>
+                    }
+
                     @* content area — use CSS show/hide to avoid destroying Cytoscape instances *@
                     @if (_graphMode == "statespace")
                     {
@@ -1006,7 +1077,7 @@
                         @if (_graphStateSpace == null)
                         {
                             <p style="font-size:12px;color:#bbb;text-align:center;padding:20px 0;">
-                                Compute Reachability or Coverability first — state space facts are derived automatically.
+                                Compute the graph first — state space facts are derived automatically.
                             </p>
                         }
                         else
@@ -1038,35 +1109,16 @@
                         </div>
                     }
 
-                    @* ── Reachability graph (Cytoscape) — keep alive with CSS ── *@
-                    @if (_graphReach != null)
+                    @* ── Graph (Cytoscape) — keep alive with CSS ── *@
+                    @if (_graphData != null)
                     {
-                        <div style="@(_graphMode == "reachability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <ReachabilityGraphView @ref="_refReachGraph" Graph="@_graphReach" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+                        <div style="@(_graphMode == "graph" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <CoverabilityTreeView @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
                         </div>
-                    }
 
-                    @* ── Reachability tree (SVG) — keep alive with CSS ── *@
-                    @if (_graphReachTree != null)
-                    {
-                        <div style="@(_graphMode == "reachability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <ReachabilityTreeView @ref="_refReachTree" Graph="@_graphReachTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
-                        </div>
-                    }
-
-                    @* ── Coverability graph (Cytoscape) — keep alive with CSS ── *@
-                    @if (_graphCover != null)
-                    {
-                        <div style="@(_graphMode == "coverability" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeView @ref="_refCoverGraph" Tree="@_graphCover" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
-                        </div>
-                    }
-
-                    @* ── Coverability tree (SVG) — keep alive with CSS ── *@
-                    @if (_graphCoverTree != null)
-                    {
-                        <div style="@(_graphMode == "coverability" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphCoverTree" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
+                        @* ── Tree (SVG) — keep alive with CSS ── *@
+                        <div style="@(_graphMode == "graph" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
                         </div>
                     }
 
@@ -1084,10 +1136,7 @@
                     {
                         <div style="flex:1;display:flex;align-items:center;justify-content:center;">
                             <p style="font-size:12px;color:#bbb;text-align:center;">
-                                @if (_graphMode == "reachability" && _graphReach != null && _viewMode == "tree" && _graphReachTree == null)
-                                { <span>Reachability tree not available (state space may have exceeded limit).</span> }
-                                else
-                                { <span>Press Compute to build the @(_graphMode == "coverability" ? "coverability tree" : "reachability graph").</span> }
+                                        <span>Press Compute to build the @(_graphIsUnbounded ? "coverability" : "reachability") @(_viewMode == "tree" ? "tree" : "graph").</span>
                             </p>
                         </div>
                     }
@@ -1135,14 +1184,14 @@
         // Free tree data when leaving the graph tab — components will unmount and call DisposeAsync
         if (_activeAnalysisTab == "graph" && id != "graph")
         {
-            _graphReach      = null;
-            _graphReachTree  = null;
-            _graphCover      = null;
-            _graphCoverTree  = null;
+            _graphData       = null;
+            _graphIsUnbounded = false;
             _graphStateSpace = null;
             _graphError      = null;
         }
         _activeAnalysisTab = id;
+        // Auto-populate graph tab from cached analysis if switching to it
+        if (id == "graph") TryPopulateGraphFromCache();
         StateHasChanged();
     }
 
@@ -1152,7 +1201,10 @@
     private const double FloatMinW = 280, FloatMinH = 200;
 
     private record TabDef(string Id, string Label, string Description);
-    private readonly TabDef[] _analysisTabs =
+
+    // All tabs, always shown regardless of net type.
+    // Inapplicable tabs display a suppressed-note instead of results.
+    private static readonly TabDef[] _allTabs =
     [
         new("properties",     "Properties",     "Check liveness, boundedness, safeness and reversibility."),
         new("classification", "Classification", "Classify the net type: free-choice, state machine, etc."),
@@ -1162,10 +1214,41 @@
         new("traps",          "Traps & Co-traps","Find traps, siphons and co-traps in the net."),
     ];
 
+    private IEnumerable<TabDef> _analysisTabs => _allTabs;
+
+    // Returns null if the tab is fully applicable, or an explanation string if it is suppressed.
+    private string? TabSuppressedReason(string tabId)
+    {
+        if (_result is null) return null;
+        var ns = _result.NetStructure;
+        bool hasInhibitor = ns.InhibitorArcCount > 0;
+        bool hasReset     = ns.ResetArcCount > 0;
+        bool isOrdinary   = !hasInhibitor && !hasReset;
+        if (isOrdinary) return null;
+
+        var parts = new List<string>();
+        if (hasInhibitor) parts.Add($"{ns.InhibitorArcCount} inhibitor arc{(ns.InhibitorArcCount > 1 ? "s" : "")}");
+        if (hasReset)     parts.Add($"{ns.ResetArcCount} reset arc{(ns.ResetArcCount > 1 ? "s" : "")}");
+        string arcDesc = string.Join(" and ", parts);
+
+        return tabId switch
+        {
+            "invariant" =>
+                $"P- and T-invariants are based on the state equation Y·C = 0, which assumes standard " +
+                $"firing semantics. This net has {arcDesc}, which break the token-conservation " +
+                $"assumption — invariants computed here are not guaranteed to be correct.",
+            "traps" =>
+                $"Trap and siphon theory is defined for ordinary Petri nets. This net has {arcDesc}. " +
+                $"The structural results shown here may not reflect the actual reachable behaviour.",
+            _ => null
+        };
+    }
+
     // ── Analysis state ────────────────────────────────────────────────────
     private AnalysisResultDto? _result;
     private PetriNetDto? _lastDto;
     private bool _analysisRunning = false;
+    private bool _resultStale = false;  // true when net changed since last analysis
     private string? _analysisError;
     private string? _expandedProp;
     private CancellationTokenSource? _analysisCts;
@@ -1273,13 +1356,12 @@
         _analysisRunning = true;
         _analysisError = null;
         _result = null;
-        _progressMessage = null;
-        _graphReach     = null;
-        _graphReachTree = null;
-        _graphCover     = null;
-        _graphCoverTree = null;
-        _graphStateSpace = null;
-        _graphError = null;
+        _resultStale = false;
+        _progressMessage  = null;
+        _graphData        = null;
+        _graphIsUnbounded = false;
+        _graphStateSpace  = null;
+        _graphError       = null;
         StateHasChanged();
 
         try
@@ -1299,6 +1381,8 @@
             });
 
             _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
+            // If already on the graph tab, auto-populate from the fresh result
+            if (_activeAnalysisTab == "graph") TryPopulateGraphFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
         catch (Exception ex) { _analysisError = ex.Message; }
@@ -1314,21 +1398,23 @@
     {
         _dotNetRef = DotNetObjectReference.Create(this);
         Sim.OnChanged += OnDiagramChanged;
-        Manager.Diagram.Nodes.Added += OnDiagramChanged;
-        Manager.Diagram.Nodes.Removed += OnDiagramChanged;
-        Manager.Diagram.Links.Added += OnDiagramChanged;
-        Manager.Diagram.Links.Removed += OnDiagramChanged;
-        Manager.History.HistoryChanged += OnDiagramChanged;
+        Manager.Diagram.Nodes.Added   += OnStructuralChange;
+        Manager.Diagram.Nodes.Removed += OnStructuralChange;
+        Manager.Diagram.Links.Added   += OnStructuralChange;
+        Manager.Diagram.Links.Removed += OnStructuralChange;
+        Manager.History.HistoryChanged    += OnDiagramChanged;
+        Manager.History.StructuralChanged += OnStructuralChange;
     }
 
     public void Dispose()
     {
         Sim.OnChanged -= OnDiagramChanged;
-        Manager.Diagram.Nodes.Added -= OnDiagramChanged;
-        Manager.Diagram.Nodes.Removed -= OnDiagramChanged;
-        Manager.Diagram.Links.Added -= OnDiagramChanged;
-        Manager.Diagram.Links.Removed -= OnDiagramChanged;
-        Manager.History.HistoryChanged -= OnDiagramChanged;
+        Manager.Diagram.Nodes.Added   -= OnStructuralChange;
+        Manager.Diagram.Nodes.Removed -= OnStructuralChange;
+        Manager.Diagram.Links.Added   -= OnStructuralChange;
+        Manager.Diagram.Links.Removed -= OnStructuralChange;
+        Manager.History.HistoryChanged    -= OnDiagramChanged;
+        Manager.History.StructuralChanged -= OnStructuralChange;
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
         _graphCts?.Cancel();
@@ -1340,24 +1426,20 @@
 
     // ── Graph / Tree tab (lazy, on-demand) ────────────────────────────────
 
-    private string                     _graphMode        = "reachability"; // "reachability" | "coverability" | "statespace"
-    private string                     _viewMode         = "graph";        // "graph" | "tree"
+    private string                     _graphMode        = "graph"; // "graph" | "statespace"
+    private string                     _viewMode         = "graph";  // "graph" | "tree"
     private bool                       _graphRunning     = false;
     private string?                    _graphError;
     private bool                       _graphTruncated   = false;
+    private bool                       _graphIsUnbounded = false;   // true when coverability tree has ω nodes
     private bool                       _graphSettingsOpen = false;
     private int                        _maxStates        = 5_000;
     private bool                       _graphInfoHover   = false;
-    private ReachabilityGraphDto?      _graphReach;
-    private ReachabilityGraphDto?      _graphReachTree;
-    private CoverabilityTreeDto?       _graphCover;
-    private CoverabilityTreeDto?       _graphCoverTree;   // same data, used by SVG tree view
+    private CoverabilityTreeDto?       _graphData;       // single source of truth for graph/tree
     private StateSpaceSummaryDto?      _graphStateSpace;
     private CancellationTokenSource?   _graphCts;
 
     // Component refs for Fit / info
-    private ReachabilityGraphView?     _refReachGraph;
-    private ReachabilityTreeView?      _refReachTree;
     private CoverabilityTreeView?      _refCoverGraph;
     private CoverabilityTreeViewSvg?   _refCoverTree;
 
@@ -1376,20 +1458,42 @@
 
     private async Task FitCurrentView()
     {
-        if (_graphMode == "reachability" && _viewMode == "graph" && _refReachGraph != null)
-            await _refReachGraph.FitGraph();
-        else if (_graphMode == "reachability" && _viewMode == "tree" && _refReachTree != null)
-            await _refReachTree.ResetView();
-        else if (_graphMode == "coverability" && _viewMode == "graph" && _refCoverGraph != null)
+        if (_viewMode == "graph" && _refCoverGraph != null)
             await _refCoverGraph.FitGraph();
-        else if (_graphMode == "coverability" && _viewMode == "tree" && _refCoverTree != null)
+        else if (_viewMode == "tree" && _refCoverTree != null)
             await _refCoverTree.ResetView();
+    }
+
+    /// <summary>
+    /// Populate the graph tab from cached analysis results if available and fresh.
+    /// Called automatically when switching to the graph tab. Does NOT go to the server.
+    /// </summary>
+    private void TryPopulateGraphFromCache()
+    {
+        if (_result == null || _resultStale) return;
+        if (_HasVisibleContent()) return;
+
+        _graphTruncated = false;
+        _graphError = null;
+
+        if (_result.CoverabilityTree != null)
+        {
+            _graphData = _result.CoverabilityTree;
+            _graphIsUnbounded = _result.CoverabilityTree.Nodes.Any(n => n.Marking.Any(m => m is null));
+        }
+        _graphStateSpace = new StateSpaceSummaryDto(
+            StateCount:     _result.StateCount,
+            IsBounded:      _result.IsBounded,
+            IsSafe:         _result.IsSafe,
+            IsDeadlockFree: _result.IsDeadlockFree,
+            IsReversible:   _result.IsReversible,
+            ExceededLimit:  false);
     }
 
     private async Task ComputeGraph()
     {
         if (_graphRunning) return;
-        // Build DTO from diagram if analysis hasn't been run yet
+
         if (_lastDto == null)
         {
             var places      = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
@@ -1407,28 +1511,17 @@
         StateHasChanged();
         try
         {
-            var coverability = _graphMode == "coverability";
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, coverability, _graphCts.Token, _maxStates, wantGraph: _viewMode == "graph");
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates);
 
-            // Truncation is a warning, not an error — data is still usable
-            bool isTruncated = result.StateSpace?.ExceededLimit == true;
-            if (isTruncated)
+            if (result.StateSpace?.ExceededLimit == true)
                 _graphTruncated = true;
-            else if (result.ErrorMessage != null && result.CoverabilityTree == null && result.ReachabilityTree == null)
-                _graphError = result.ErrorMessage; // only show error if no data came back at all
+            else if (result.ErrorMessage != null && result.CoverabilityTree == null)
+                _graphError = result.ErrorMessage;
 
-            if (coverability)
+            if (result.CoverabilityTree != null)
             {
-                if (result.CoverabilityTree != null)
-                {
-                    _graphCover     = result.CoverabilityTree;
-                    _graphCoverTree = result.CoverabilityTree;
-                }
-            }
-            else
-            {
-                if (result.ReachabilityGraph != null) _graphReach = result.ReachabilityGraph;
-                if (result.ReachabilityTree  != null) _graphReachTree = result.ReachabilityTree;
+                _graphData = result.CoverabilityTree;
+                _graphIsUnbounded = result.StateSpace?.IsBounded == false;
             }
             if (result.StateSpace != null)
                 _graphStateSpace = result.StateSpace;
@@ -1444,14 +1537,7 @@
 
     private void CancelGraph() => _graphCts?.Cancel();
 
-    private bool _HasVisibleContent()
-    {
-        if (_graphMode == "reachability" && _viewMode == "graph" && _graphReach != null) return true;
-        if (_graphMode == "reachability" && _viewMode == "tree" && _graphReachTree != null) return true;
-        if (_graphMode == "coverability" && _viewMode == "graph" && _graphCover != null) return true;
-        if (_graphMode == "coverability" && _viewMode == "tree" && _graphCoverTree != null) return true;
-        return false;
-    }
+    private bool _HasVisibleContent() => _graphMode == "graph" && _graphData != null;
 
     // Original tokens saved when preview starts, restored on clear
     private Dictionary<string, int>? _previewSaved;
@@ -1498,6 +1584,16 @@
     // Adapter overloads so event subscriptions with NodeModel / BaseLinkModel args also compile
     private void OnDiagramChanged(NodeModel _) => InvokeAsync(StateHasChanged);
     private void OnDiagramChanged(BaseLinkModel _) => InvokeAsync(StateHasChanged);
+
+    // Fired only for structural (functionally relevant) changes
+    private void OnStructuralChange()
+    {
+        if (_result is null && !_resultStale) return; // nothing to invalidate
+        _resultStale = true;
+        InvokeAsync(StateHasChanged);
+    }
+    private void OnStructuralChange(NodeModel _) => OnStructuralChange();
+    private void OnStructuralChange(BaseLinkModel _) => OnStructuralChange();
 
     // ── Panel state ───────────────────────────────────────────────────────
 

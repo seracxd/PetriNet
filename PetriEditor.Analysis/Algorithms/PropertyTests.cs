@@ -21,23 +21,24 @@ public sealed class LivenessTest
     private static TestResultStatus DecideFromStateSpace(AnalysisBundle b, PropertyResultBuilder r)
     {
         var ss = b.StateSpace;
-        if (ss is null) { r.AddReason("State space analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
 
         bool live = ss.IsLive(b.Net.Transitions.Count);
+        var status = live ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(live
             ? "Each final SCC of the state space contains all transitions as arc labels. Net is live."
-            : "Not all final SCCs contain every transition as arc labels. Net is not live.");
-        return live ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "Not all final SCCs contain every transition as arc labels. Net is not live.",
+            status);
+        return status;
     }
 
     private static TestResultStatus DecideFromInvariants(AnalysisBundle b, PropertyResultBuilder r)
     {
         var inv = b.Invariants;
-        if (inv is null) { r.AddReason("Invariant analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
 
-        // P-invariant check: invariant with y·M₀ ≤ 0 whose support touches transitions → not live
         var pStatus = TestResultStatus.Undecidable;
         foreach (var pinv in inv.PInvariants)
         {
@@ -46,20 +47,16 @@ public sealed class LivenessTest
             if (system <= 0 && pinv.Structure.Keys.Any(pid => b.Net.ConnectedTransitions(pid).Any()))
             {
                 pStatus = TestResultStatus.Fail;
-                r.AddReason("A P-invariant with system value ≤ 0 exists whose support contains a place connected to transitions. Net is not live.");
+                r.AddReason("A P-invariant with system value ≤ 0 exists whose support contains a place connected to transitions. Net is not live.", TestResultStatus.Fail);
                 break;
             }
         }
-        if (pStatus == TestResultStatus.Undecidable)
-            r.AddReason("No P-invariant condition determines liveness from this net.");
 
-        // T-invariant check: all transitions must be covered (necessary condition)
         var coveredTrans = new HashSet<string>(inv.TInvariants.SelectMany(ti => ti.Structure.Keys));
         bool allCovered  = b.Net.Transitions.All(t => coveredTrans.Contains(t.Id));
         var tStatus = allCovered ? TestResultStatus.Undecidable : TestResultStatus.Fail;
-        r.AddReason(allCovered
-            ? "All transitions are covered by T-invariants (necessary but not sufficient for liveness)."
-            : "Some transition is not covered by any T-invariant — a necessary condition for liveness fails.");
+        if (!allCovered)
+            r.AddReason("Some transition is not covered by any T-invariant — a necessary condition for liveness fails.", TestResultStatus.Fail);
 
         return TestResultStatusExtensions.LogicalOr(pStatus, tStatus);
     }
@@ -67,7 +64,7 @@ public sealed class LivenessTest
     private static TestResultStatus DecideFromClassification(AnalysisBundle b, PropertyResultBuilder r)
     {
         var cls = b.Classification;
-        if (cls is null) { r.AddReason("Classification results are unavailable."); return TestResultStatus.Undecidable; }
+        if (cls is null) { r.AddReason("Classification results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (cls.HasErrors) { r.LogError(cls.ErrorMsg!); return TestResultStatus.Undecidable; }
 
         return TestResultStatusExtensions.LogicalOr(
@@ -78,52 +75,45 @@ public sealed class LivenessTest
 
     private static TestResultStatus DecideStateMachine(AnalysisBundle b, PropertyResultBuilder r, ClassificationAnalysis cls)
     {
-        if (!cls.IsOfType(NetSubclass.StateMachine))
-        { r.AddReason("Net is not a State machine. Liveness cannot be decided from this."); return TestResultStatus.Undecidable; }
+        if (!cls.IsOfType(NetSubclass.StateMachine)) return TestResultStatus.Undecidable;
 
         int tokenSum = b.Net.Places.Sum(p => p.Tokens);
-        if (tokenSum <= 0)
-        { r.AddReason("Net is a State machine but initial marking has zero tokens."); return TestResultStatus.Undecidable; }
+        if (tokenSum <= 0) return TestResultStatus.Undecidable;
 
         bool sc = IsNetStronglyConnected(b.Net);
-        r.AddReason(sc
-            ? "Net is a strongly connected State machine with tokens > 0. Net is live."
-            : "Net is a State machine with tokens > 0 but is not strongly connected. Cannot decide liveness.");
+        if (sc)
+            r.AddReason("Net is a strongly connected State machine with tokens > 0. Net is live.", TestResultStatus.Pass);
         return sc ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 
     private static TestResultStatus DecideMarkedGraph(AnalysisBundle b, PropertyResultBuilder r, ClassificationAnalysis cls)
     {
-        if (!cls.IsOfType(NetSubclass.MarkedGraph))
-        { r.AddReason("Net is not a Marked graph. Liveness cannot be decided from this."); return TestResultStatus.Undecidable; }
+        if (!cls.IsOfType(NetSubclass.MarkedGraph)) return TestResultStatus.Undecidable;
 
         var cyc = b.Cycles;
-        if (cyc is null) { r.AddReason("Net is a Marked graph but cycle analysis is unavailable."); return TestResultStatus.Undecidable; }
+        if (cyc is null) return TestResultStatus.Undecidable;
 
         bool eachHasTokens = cyc.Cycles.All(c => c.TokensInCycle > 0);
-        r.AddReason(eachHasTokens
-            ? "Net is a Marked graph and every cycle contains ≥ 1 token. Net is live."
-            : "Net is a Marked graph but some cycle contains no tokens. Cannot decide liveness.");
+        if (eachHasTokens)
+            r.AddReason("Net is a Marked graph and every cycle contains ≥ 1 token. Net is live.", TestResultStatus.Pass);
         return eachHasTokens ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 
     private static TestResultStatus DecidefreeChoice(AnalysisBundle b, PropertyResultBuilder r, ClassificationAnalysis cls)
     {
-        if (!cls.IsOfType(NetSubclass.FreeChoice))
-        { r.AddReason("Net is not a Free-choice net. Liveness cannot be decided from this."); return TestResultStatus.Undecidable; }
+        if (!cls.IsOfType(NetSubclass.FreeChoice)) return TestResultStatus.Undecidable;
 
         var tc = b.TrapCotrap;
-        if (tc is null) { r.AddReason("Net is Free-choice but trap/co-trap analysis is unavailable."); return TestResultStatus.Undecidable; }
+        if (tc is null || !tc.Cotraps.Any()) return TestResultStatus.Undecidable;
 
         var trapsWithTokens = tc.Traps.Where(t => t.HasToken).ToList();
-        if (!tc.Cotraps.Any())
-        { r.AddReason("Net is Free-choice but has no co-traps. Cannot decide liveness."); return TestResultStatus.Undecidable; }
-
         bool ok = tc.Cotraps.All(ct => trapsWithTokens.Any(trap => ct.PlaceIds.IsSupersetOf(trap.PlaceIds)));
+        var status = ok ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(ok
             ? "Net is Free-choice and each co-trap contains a trap with ≥ 1 token. Net is live."
-            : "Net is Free-choice but some co-trap contains no marked trap. Net is not live.");
-        return ok ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "Net is Free-choice but some co-trap contains no marked trap. Net is not live.",
+            status);
+        return status;
     }
 
     private static bool IsNetStronglyConnected(PetriNetSnapshot net)
@@ -167,36 +157,36 @@ public sealed class BoundednessTest
     private static TestResultStatus DecideFromStateSpace(AnalysisBundle b, PropertyResultBuilder r)
     {
         var ss = b.StateSpace;
-        if (ss is null) { r.AddReason("State space analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
         bool bounded = ss.IsBounded();
+        var status = bounded ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(bounded
             ? "Token counts are finite at every reachable marking. Net is bounded."
-            : "Token count in some place may grow to infinity. Net is unbounded.");
-        return bounded ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "Token count in some place may grow to infinity. Net is unbounded.",
+            status);
+        return status;
     }
 
     private static TestResultStatus DecideFromInvariants(AnalysisBundle b, PropertyResultBuilder r)
     {
         var inv = b.Invariants;
-        if (inv is null) { r.AddReason("Invariant analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
         var covered = new HashSet<string>(inv.PInvariants.SelectMany(pi => pi.Structure.Keys));
-        bool bounded = b.Net.Places.All(p => covered.Contains(p.Id));
-        r.AddReason(bounded
-            ? "All places are covered by P-invariants. Assuming finite initial marking, net is bounded."
-            : "Some place is not covered by any P-invariant. Boundedness cannot be decided from invariants alone.");
-        return bounded ? TestResultStatus.Pass : TestResultStatus.Undecidable;
+        bool allCovered = b.Net.Places.All(p => covered.Contains(p.Id));
+        if (allCovered)
+            r.AddReason("All places are covered by P-invariants. Assuming finite initial marking, net is bounded.", TestResultStatus.Pass);
+        return allCovered ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 
     private static TestResultStatus DecideFromClassification(AnalysisBundle b, PropertyResultBuilder r)
     {
         var cls = b.Classification;
-        if (cls is null) { r.AddReason("Classification results are unavailable."); return TestResultStatus.Undecidable; }
-        if (cls.HasErrors) { r.LogError(cls.ErrorMsg!); return TestResultStatus.Undecidable; }
+        if (cls is null || cls.HasErrors) return TestResultStatus.Undecidable;
         bool sm = cls.IsOfType(NetSubclass.StateMachine);
-        r.AddReason(sm ? "Net is a State machine, therefore it is bounded."
-                       : "Net is not a State machine. Boundedness cannot be decided from classification alone.");
+        if (sm)
+            r.AddReason("Net is a State machine, therefore it is bounded.", TestResultStatus.Pass);
         return sm ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 }
@@ -219,19 +209,20 @@ public sealed class SafetyTest
     private static TestResultStatus DecideFromStateSpace(AnalysisBundle b, PropertyResultBuilder r)
     {
         var ss = b.StateSpace;
-        if (ss is null) { r.AddReason("State space analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
         bool safe = ss.IsSafe();
+        var status = safe ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(safe ? "All places have ≤ 1 token at every reachable marking. Net is safe."
-                         : "Some place has > 1 token at some reachable marking. Net is unsafe.");
-        return safe ? TestResultStatus.Pass : TestResultStatus.Fail;
+                         : "Some place has > 1 token at some reachable marking. Net is unsafe.",
+                    status);
+        return status;
     }
 
     private static TestResultStatus DecideFromClassification(AnalysisBundle b, PropertyResultBuilder r)
     {
         var cls = b.Classification;
-        if (cls is null) { r.AddReason("Classification results are unavailable."); return TestResultStatus.Undecidable; }
-        if (cls.HasErrors) { r.LogError(cls.ErrorMsg!); return TestResultStatus.Undecidable; }
+        if (cls is null || cls.HasErrors) return TestResultStatus.Undecidable;
         return TestResultStatusExtensions.LogicalOr(
             DecideStateMachine(b, r, cls),
             DecideMarkedGraph(b, r, cls));
@@ -239,26 +230,25 @@ public sealed class SafetyTest
 
     private static TestResultStatus DecideStateMachine(AnalysisBundle b, PropertyResultBuilder r, ClassificationAnalysis cls)
     {
-        if (!cls.IsOfType(NetSubclass.StateMachine))
-        { r.AddReason("Net is not a State machine. Safety cannot be decided from this."); return TestResultStatus.Undecidable; }
+        if (!cls.IsOfType(NetSubclass.StateMachine)) return TestResultStatus.Undecidable;
         int sum = b.Net.Places.Sum(p => p.Tokens);
+        var status = sum <= 1 ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(sum <= 1 ? "Net is a State machine with initial token sum ≤ 1. Net is safe."
-                             : "Net is a State machine but initial token sum > 1. Net is unsafe.");
-        return sum <= 1 ? TestResultStatus.Pass : TestResultStatus.Fail;
+                             : "Net is a State machine but initial token sum > 1. Net is unsafe.",
+                    status);
+        return status;
     }
 
     private static TestResultStatus DecideMarkedGraph(AnalysisBundle b, PropertyResultBuilder r, ClassificationAnalysis cls)
     {
-        if (!cls.IsOfType(NetSubclass.MarkedGraph))
-        { r.AddReason("Net is not a Marked graph. Safety cannot be decided from this."); return TestResultStatus.Undecidable; }
+        if (!cls.IsOfType(NetSubclass.MarkedGraph)) return TestResultStatus.Undecidable;
         var cyc = b.Cycles;
-        if (cyc is null) { r.AddReason("Cycle analysis unavailable."); return TestResultStatus.Undecidable; }
+        if (cyc is null) return TestResultStatus.Undecidable;
         var cyclePlaces = new HashSet<string>(cyc.Cycles.SelectMany(c => c.PlaceIds));
         bool allCovered = b.Net.Places.All(p => cyclePlaces.Contains(p.Id));
         bool noOverload = cyc.Cycles.All(c => c.TokensInCycle <= 1);
-        r.AddReason(allCovered && noOverload
-            ? "Net is a Marked graph; every place is in a cycle with ≤ 1 token. Net is safe."
-            : "Net is a Marked graph but some cycle has > 1 token or some place is not covered. Cannot guarantee safety.");
+        if (allCovered && noOverload)
+            r.AddReason("Net is a Marked graph; every place is in a cycle with ≤ 1 token. Net is safe.", TestResultStatus.Pass);
         return allCovered && noOverload ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 }
@@ -281,24 +271,25 @@ public sealed class ConservativenessTest
     private static TestResultStatus DecideFromInvariants(AnalysisBundle b, PropertyResultBuilder r)
     {
         var inv = b.Invariants;
-        if (inv is null) { r.AddReason("Invariant analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
         var covered = new HashSet<string>(inv.PInvariants.SelectMany(pi => pi.Structure.Keys));
         bool conservative = b.Net.Places.All(p => covered.Contains(p.Id));
+        var status = conservative ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(conservative
             ? "All places are covered by P-invariants. Net is conservative."
-            : "Some place is not covered by any P-invariant. Net is not conservative.");
-        return conservative ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "Some place is not covered by any P-invariant. Net is not conservative.",
+            status);
+        return status;
     }
 
     private static TestResultStatus DecideFromClassification(AnalysisBundle b, PropertyResultBuilder r)
     {
         var cls = b.Classification;
-        if (cls is null) { r.AddReason("Classification results are unavailable."); return TestResultStatus.Undecidable; }
-        if (cls.HasErrors) { r.LogError(cls.ErrorMsg!); return TestResultStatus.Undecidable; }
+        if (cls is null || cls.HasErrors) return TestResultStatus.Undecidable;
         bool sm = cls.IsOfType(NetSubclass.StateMachine);
-        r.AddReason(sm ? "Net is a State machine, therefore it is conservative."
-                       : "Net is not a State machine. Conservativeness cannot be decided from classification alone.");
+        if (sm)
+            r.AddReason("Net is a State machine, therefore it is conservative.", TestResultStatus.Pass);
         return sm ? TestResultStatus.Pass : TestResultStatus.Undecidable;
     }
 }
@@ -319,14 +310,16 @@ public sealed class RepetitivenessTest
     private static TestResultStatus DecideFromInvariants(AnalysisBundle b, PropertyResultBuilder r)
     {
         var inv = b.Invariants;
-        if (inv is null) { r.AddReason("Invariant analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
         var covered = new HashSet<string>(inv.TInvariants.SelectMany(ti => ti.Structure.Keys));
         bool repetitive = b.Net.Transitions.All(t => covered.Contains(t.Id));
+        var status = repetitive ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(repetitive
             ? "All transitions are covered by T-invariants. Net is repetitive."
-            : "Some transition is not covered by any T-invariant. Net is not repetitive.");
-        return repetitive ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "Some transition is not covered by any T-invariant. Net is not repetitive.",
+            status);
+        return status;
     }
 }
 
@@ -348,22 +341,22 @@ public sealed class DeadlockFreeTest
     private static TestResultStatus DecideFromStateSpace(AnalysisBundle b, PropertyResultBuilder r)
     {
         var ss = b.StateSpace;
-        if (ss is null) { r.AddReason("State space analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
         bool df = ss.IsDeadlockFree();
+        var status = df ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(df ? "Every state space node has ≥ 1 successor. Net is deadlock-free."
-                       : "Some state space node has no successors. Net is not deadlock-free.");
-        return df ? TestResultStatus.Pass : TestResultStatus.Fail;
+                       : "Some state space node has no successors. Net is not deadlock-free.",
+                    status);
+        return status;
     }
 
     private static TestResultStatus DecideFromLiveness(AnalysisBundle b, PropertyResultBuilder r)
     {
-        if (!b.PropertyResults.TryGetValue(NetProperty.Liveness, out var liveness))
-        { r.AddReason("Liveness test results are unavailable."); return TestResultStatus.Undecidable; }
-        bool live = liveness.Status == TestResultStatus.Pass;
-        r.AddReason(live ? "Net is live, therefore it is deadlock-free."
-                         : "Net is not live or liveness is undecidable. Cannot decide deadlock-freedom from liveness alone.");
-        return live ? TestResultStatus.Pass : TestResultStatus.Undecidable;
+        if (!b.PropertyResults.TryGetValue(NetProperty.Liveness, out var liveness)) return TestResultStatus.Undecidable;
+        if (liveness.Status != TestResultStatus.Pass) return TestResultStatus.Undecidable;
+        r.AddReason("Net is live, therefore it is deadlock-free.", TestResultStatus.Pass);
+        return TestResultStatus.Pass;
     }
 }
 
@@ -383,12 +376,14 @@ public sealed class ReversibilityTest
     private static TestResultStatus DecideFromStateSpace(AnalysisBundle b, PropertyResultBuilder r)
     {
         var ss = b.StateSpace;
-        if (ss is null) { r.AddReason("State space analysis results are unavailable."); return TestResultStatus.Undecidable; }
+        if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
         bool rev = ss.IsReversible();
+        var status = rev ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(rev
             ? "State space is strongly connected; initial marking is reachable from every reachable marking. Net is reversible."
-            : "State space has more than one final SCC; initial marking is not universally reachable. Net is not reversible.");
-        return rev ? TestResultStatus.Pass : TestResultStatus.Fail;
+            : "State space has more than one final SCC; initial marking is not universally reachable. Net is not reversible.",
+            status);
+        return status;
     }
 }
