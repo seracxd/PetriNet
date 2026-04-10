@@ -82,8 +82,8 @@
                         </div>
                         <input type="range" min="100" max="3000" step="100"
                                value="@Sim.FiringDelay"
-                               @oninput="e => Sim.FiringDelay = int.Parse(e.Value!.ToString()!)"
-                               style="width:100%;accent-color:#00a499;" />
+                               @oninput="e => OnFiringDelayChanged(e)"
+                               style="width:100%;accent-color:#888;" />
                     </div>
 
                     @if (Sim.IsDeadlock)
@@ -128,14 +128,16 @@
                             var name = Sim.GetTransitionName(displayHistory[i]);
                             var isCurrent = i == currentStep;
                             var isFuture = Sim.IsViewingHistory && i >= Sim.StepCount;
+                            var marking = i < Sim.MarkingCodes.Count ? Sim.MarkingCodes[i] : "";
                             <button @onclick="() => Sim.JumpToStep(stepIdx)"
                                     style="display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;background:@(isCurrent ? "#e0f5f3" : isFuture ? "#fafafa" : "transparent");font-size:12px;border:@(isFuture ? "1px dashed #e0e0e0" : "none");cursor:pointer;text-align:left;width:100%;opacity:@(isFuture ? "0.5" : "1");">
                                 <span style="color:#ccc;font-size:10px;min-width:18px;text-align:right;">@step</span>
                                 <svg viewBox="0 0 24 24" fill="@(isFuture ? "#ccc" : "#00a499")" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                                 <span style="color:@(isCurrent ? "#00a499" : isFuture ? "#ccc" : "#555");font-weight:@(isCurrent ? "700" : "400");">@name</span>
+                                <span style="color:@(isCurrent ? "#00a499" : "#888");font-size:11px;font-weight:600;margin-left:auto;white-space:nowrap;flex-shrink:0;">@marking</span>
                                 @if (!isCurrent && !isFuture)
                                 {
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;margin-left:auto;flex-shrink:0;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:10px;height:10px;flex-shrink:0;">
                                         <polyline points="1 4 1 10 7 10" />
                                         <path d="M3.51 15a9 9 0 1 0 .49-4.95" />
                                     </svg>
@@ -233,6 +235,7 @@
                     else if (SelectedModel is PetriLinkModel arcSel)
                     {
                         var arcOnlyNormal = IsArcOnlyNormal(arcSel);
+                        var siblingTypes  = SiblingArcTypes(arcSel);
                         <div class="prop-group">
                             <div class="prop-field">
                                 <label class="prop-label">Weight</label>
@@ -243,20 +246,28 @@
                             <div class="prop-field">
                                 <label class="prop-label">Arc type</label>
                                 <div class="arc-type-btns">
-                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Normal ? "active" : "")"
+                                    @{
+                                        var normalDisabled  = siblingTypes.Contains(ArcType.Normal);
+                                        // Inhibitor+Reset pair is invalid; also block if sibling already has that type
+                                        var inhibitDisabled = arcOnlyNormal || siblingTypes.Contains(ArcType.Inhibitor) || siblingTypes.Contains(ArcType.Reset);
+                                        var resetDisabled   = arcOnlyNormal || siblingTypes.Contains(ArcType.Reset)   || siblingTypes.Contains(ArcType.Inhibitor);
+                                    }
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Normal ? "active" : "") @(normalDisabled ? "arc-type-btn-disabled" : "")"
+                                            disabled="@normalDisabled"
+                                            title="@(normalDisabled ? "Sibling arc is already Normal" : "")"
                                             @onclick="() => SetArcType(arcSel, ArcType.Normal)">
                                         Normal
                                     </button>
-                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Inhibitor ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
-                                            disabled="@arcOnlyNormal"
-                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
-                                            @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Inhibitor); }">
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Inhibitor ? "active" : "") @(inhibitDisabled ? "arc-type-btn-disabled" : "")"
+                                            disabled="@inhibitDisabled"
+                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : siblingTypes.Contains(ArcType.Inhibitor) ? "Sibling arc is already Inhibitor" : "")"
+                                            @onclick="() => { if (!inhibitDisabled) SetArcType(arcSel, ArcType.Inhibitor); }">
                                         Inhibit
                                     </button>
-                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Reset ? "active" : "") @(arcOnlyNormal ? "arc-type-btn-disabled" : "")"
-                                            disabled="@arcOnlyNormal"
-                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : "")"
-                                            @onclick="() => { if (!arcOnlyNormal) SetArcType(arcSel, ArcType.Reset); }">
+                                    <button class="arc-type-btn @(arcSel.ArcType == ArcType.Reset ? "active" : "") @(resetDisabled ? "arc-type-btn-disabled" : "")"
+                                            disabled="@resetDisabled"
+                                            title="@(arcOnlyNormal ? "Only available on Place → Transition arcs" : siblingTypes.Contains(ArcType.Reset) ? "Sibling arc is already Reset" : "")"
+                                            @onclick="() => { if (!resetDisabled) SetArcType(arcSel, ArcType.Reset); }">
                                         Reset
                                     </button>
                                 </div>
@@ -328,6 +339,17 @@
                     Redo
                 </button>
                 <div class="analysis-bar-divider"></div>
+                <button class="analysis-btn undo-redo-btn" title="Export net (PDF, SVG, TikZ, PNML)"
+                        @onclick="() => _analysisPanel?.OpenExportModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Export
+                </button>
+                <div class="analysis-bar-divider"></div>
                 <button class="analysis-btn analysis-btn-icon @(_settingsOpen ? "active" : "")"
                         title="Settings"
                         @onclick="() => _settingsOpen = !_settingsOpen">
@@ -354,16 +376,7 @@
                     <div class="sel-capture-layer"></div>
                 }
 
-                @if (_selRectActive)
-                {
-                    var rx = Math.Min(_selStart.X, _selCurrent.X);
-                    var ry = Math.Min(_selStart.Y, _selCurrent.Y);
-                    var rw = Math.Abs(_selCurrent.X - _selStart.X);
-                    var rh = Math.Abs(_selCurrent.Y - _selStart.Y);
-                    <svg class="sel-rect-overlay">
-                        <rect x="@rx" y="@ry" width="@rw" height="@rh" class="sel-rect" />
-                    </svg>
-                }
+                @* Selection rectangle is drawn by JS overlay (sel-rect-overlay-js) — no Blazor roundtrip *@
 
                 @* Ghost preview shown while holding mouse during place/transition placement *@
                 <div id="placement-ghost" style="display:none;pointer-events:none;position:absolute;z-index:200;"></div>
@@ -599,6 +612,19 @@
             await JS.InvokeVoidAsync("registerGlobalKeyHandler", _dotNetRef);
             await JS.InvokeVoidAsync("setupPanHandlerOnce");
             _jsRegistered = true;
+
+            try
+            {
+                var snap = await JS.InvokeAsync<SettingsSnapshot?>("loadSettings");
+                if (snap != null)
+                {
+                    Settings.ApplySnapshot(snap);
+                    Settings.NotifyChanged();
+                    if (snap.FiringDelay > 0)
+                        Sim.FiringDelay = snap.FiringDelay;
+                }
+            }
+            catch { }
         }
     }
 
@@ -657,6 +683,14 @@
     {
         mutate(Settings);
         Settings.NotifyChanged();
+        _ = JS.InvokeVoidAsync("saveSettings", Settings.ToSnapshot(Sim.FiringDelay));
+    }
+
+    private void OnFiringDelayChanged(Microsoft.AspNetCore.Components.ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+            Sim.FiringDelay = v;
+        _ = JS.InvokeVoidAsync("saveSettings", Settings.ToSnapshot(Sim.FiringDelay));
     }
 
     private void ResetSettings() => Settings.ResetToDefaults();
@@ -799,6 +833,11 @@
     private void SetArcType(PetriLinkModel link, ArcType type)
     {
         if (link.ArcType == type) return;
+        var siblings = SiblingArcTypes(link);
+        if (siblings.Contains(type)) return; // would duplicate sibling
+        // Inhibitor+Reset pair is invalid in both directions
+        if (type == ArcType.Inhibitor && siblings.Contains(ArcType.Reset)) return;
+        if (type == ArcType.Reset     && siblings.Contains(ArcType.Inhibitor)) return;
         FlushPendingEdit();
         link.ArcType = type;
         link.Refresh();
@@ -1039,6 +1078,18 @@
 
     private bool IsArcOnlyNormal(PetriLinkModel arc)
         => GetArcSourceNode(arc) is TransitionNode;
+
+    /// <summary>Returns types already used by sibling arcs between the same node pair.</summary>
+    private HashSet<ArcType> SiblingArcTypes(PetriLinkModel arc)
+    {
+        var src = GetArcSourceNode(arc);
+        var tgt = GetArcTargetNode(arc);
+        if (src == null || tgt == null) return [];
+        return Manager.Diagram.Links.OfType<PetriLinkModel>()
+            .Where(l => l != arc && GetArcSourceNode(l) == src && GetArcTargetNode(l) == tgt)
+            .Select(l => l.ArcType)
+            .ToHashSet();
+    }
 
     private NodeModel? GetArcSourceNode(PetriLinkModel arc) => arc.Source?.Model switch
     {

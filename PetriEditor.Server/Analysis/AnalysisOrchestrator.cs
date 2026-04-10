@@ -37,49 +37,34 @@ public sealed class AnalysisOrchestrator
         await Task.Run(() =>
         {
             // ── Stage 1: Coverability tree (Karp-Miller) ─────────────────────
-            // Run this FIRST because it always terminates and tells us whether
-            // the net is bounded. If unbounded (any ω node), we skip the full
-            // state-space BFS to avoid burning through 500k states pointlessly.
             if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageStateSpace, 5, null));
 
             var cb = new CoverabilityTreeBuilder();
-            cb.Build(net, ct, StateSpaceAnalysis.MaxStates);
+            cb.Build(net, ct);
             if (!cb.HasErrors || cb.IsTruncated) report.CoverabilityTree = cb;
+            if (ct.IsCancellationRequested) { cancelled = true; return; }
 
             bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
 
             // ── Stage 2: State-space (skip if unbounded) ──────────────────────
-            // For unbounded nets the BFS would just hit the limit anyway, so we
-            // create a stub that signals truncation without wasting time.
-            StateSpaceAnalysis ss;
-            if (isUnbounded)
-            {
-                ss = new StateSpaceAnalysis();
-                // Build with a tiny limit — enough to detect it's unbounded but
-                // not expensive. Property tests will see IsTruncated and report Undecidable.
-                ss.Build(net, ct, maxStates: 500);
-            }
-            else
-            {
-                ss = new StateSpaceAnalysis();
-                ss.Build(net, ct);
-            }
+            var ss = new StateSpaceAnalysis();
+            ss.Build(net, ct, isUnbounded ? 500 : StateSpaceAnalysis.MaxStates);
             report.StateSpace = ss;
-
             if (ct.IsCancellationRequested) { cancelled = true; return; }
+
             progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
             var inv = new InvariantAnalysis();
             inv.Compute(net);
             report.Invariants = inv;
-
             if (ct.IsCancellationRequested) { cancelled = true; return; }
+
             progress?.Report(new(AnalysisProgressMessage.StageClassification, 50, null));
             var cls = new ClassificationAnalysis();
             cls.Compute(net);
             report.Classification = cls;
-
             if (ct.IsCancellationRequested) { cancelled = true; return; }
+
             progress?.Report(new(AnalysisProgressMessage.StageCycles, 65, null));
             var cyc = new CyclesAnalysis();
             cyc.Compute(net);
@@ -87,8 +72,8 @@ public sealed class AnalysisOrchestrator
             var tc = new TrapCotrapAnalysis();
             tc.Compute(net);
             report.TrapCotrap = tc;
-
             if (ct.IsCancellationRequested) { cancelled = true; return; }
+
             progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 70, null));
             var bundle = new AnalysisBundle
             {
@@ -109,11 +94,10 @@ public sealed class AnalysisOrchestrator
             results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
             results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
             report.PropertyResults = results;
-
             if (ct.IsCancellationRequested) { cancelled = true; return; }
+
             progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 90, null));
 
-            // Reachability tree — only meaningful for bounded nets
             if (!isUnbounded)
             {
                 var rt = new ReachabilityTreeBuilder();

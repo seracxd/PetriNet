@@ -260,7 +260,7 @@ public class PetriNetManager : IDisposable
             sourcePort = snapPort;
             sourceAnchor = snapPort != null
                 ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-                : new NodeRelativeAnchor(node, pos);
+                : new EdgeIntersectionAnchor(node);
         }
         else return;
 
@@ -324,27 +324,35 @@ public class PetriNetManager : IDisposable
 
         if (existingArcs.Count > 0)
         {
-            // Allow a second arc only if the two arc types are complementary
-            // (one Normal + one Inhibitor). If the pair already exists, cancel.
-            bool hasNormal    = existingArcs.Any(a => a.ArcType == ArcType.Normal);
-            bool hasInhibitor = existingArcs.Any(a => a.ArcType == ArcType.Inhibitor);
-
-            // Only Place→Transition arcs can be Inhibitor
-            bool canBeInhibitor = sourceNode is PlaceNode && targetNode is TransitionNode;
-
-            if (!canBeInhibitor || (hasNormal && hasInhibitor) || existingArcs.Count >= 2)
+            // Multiple arcs only valid for Place→Transition (input arcs)
+            bool isPlaceToTransition = sourceNode is PlaceNode && targetNode is TransitionNode;
+            if (!isPlaceToTransition || existingArcs.Count >= 2)
             {
                 CancelPendingLink();
                 return;
             }
 
-            // One arc already exists — set the pending link to the complementary type
-            _pendingLink.ArcType = hasNormal ? ArcType.Inhibitor : ArcType.Normal;
+            bool hasNormal    = existingArcs.Any(a => a.ArcType == ArcType.Normal);
+            bool hasInhibitor = existingArcs.Any(a => a.ArcType == ArcType.Inhibitor);
+            bool hasReset     = existingArcs.Any(a => a.ArcType == ArcType.Reset);
+
+            // Valid second-arc combinations: Normal+Inhibitor or Normal+Reset
+            // Inhibitor+Reset is not meaningful (semantically contradictory)
+            bool pairAlreadyFull = (hasNormal && hasInhibitor)
+                                || (hasNormal && hasReset)
+                                || (hasInhibitor && hasReset);
+            if (pairAlreadyFull) { CancelPendingLink(); return; }
+
+            // Assign the complementary type for the one arc already present
+            if (hasInhibitor || hasReset)
+                _pendingLink.ArcType = ArcType.Normal;
+            else // hasNormal — offer Inhibitor as default second arc
+                _pendingLink.ArcType = ArcType.Inhibitor;
         }
 
         Anchor targetAnchor = targetPort != null
             ? (Anchor)new SinglePortAnchor(targetPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-            : new NodeRelativeAnchor(targetNode, pos);
+            : new EdgeIntersectionAnchor(targetNode);
 
         _pendingLink.SetTarget(targetAnchor);
         _pendingLink.IsDraggingEndpoint = false;
@@ -451,7 +459,7 @@ public class PetriNetManager : IDisposable
             var snapPort = FindClosestPort(hitNode, dropPos);
             Anchor nodeAnchor = snapPort != null
                 ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-                : new NodeRelativeAnchor(hitNode, dropPos);
+                : new EdgeIntersectionAnchor(hitNode);
 
             if (fixedIsSource) tempLink.SetTarget(nodeAnchor);
             else tempLink.SetSource(nodeAnchor);
@@ -548,9 +556,25 @@ public class PetriNetManager : IDisposable
     private bool ValidatePetriLink(PetriLinkModel link, NodeModel src, NodeModel tgt)
     {
         if (src.GetType() == tgt.GetType()) { Diagram.Links.Remove(link); return false; }
-        bool dup = Diagram.Links.OfType<LinkModel>()
-            .Any(o => o != link && GetParentNode(o.Source) == src && GetParentNode(o.Target) == tgt);
-        if (dup) { Diagram.Links.Remove(link); return false; }
+
+        var siblings = Diagram.Links.OfType<PetriLinkModel>()
+            .Where(o => o != link && GetParentNode(o.Source) == src && GetParentNode(o.Target) == tgt)
+            .ToList();
+
+        if (siblings.Count == 0) return true;
+
+        // Multiple arcs only valid for Place→Transition
+        if (src is not PlaceNode || tgt is not TransitionNode) { Diagram.Links.Remove(link); return false; }
+        // Max 2 arcs
+        if (siblings.Count >= 2) { Diagram.Links.Remove(link); return false; }
+        // No duplicate arc type
+        if (siblings.Any(s => s.ArcType == link.ArcType)) { Diagram.Links.Remove(link); return false; }
+        // Inhibitor+Reset pair is invalid
+        bool sibHasInhibitor = siblings.Any(s => s.ArcType == ArcType.Inhibitor);
+        bool sibHasReset     = siblings.Any(s => s.ArcType == ArcType.Reset);
+        if ((link.ArcType == ArcType.Inhibitor && sibHasReset) ||
+            (link.ArcType == ArcType.Reset && sibHasInhibitor)) { Diagram.Links.Remove(link); return false; }
+
         return true;
     }
 

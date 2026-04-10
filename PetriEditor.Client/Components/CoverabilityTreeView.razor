@@ -49,6 +49,10 @@
 
     public async Task FitGraph() => await Cy.FitAsync(_containerId);
 
+    public async Task<string?> ExportSvgAsync() => await Cy.ExportSvgAsync(_containerId);
+
+    public async Task<string?> ExportPngAsync(int maxPx = 4096) => await Cy.ExportPngAsync(_containerId, maxPx);
+
     public async ValueTask DisposeAsync()
     {
         _cbRef?.Dispose();

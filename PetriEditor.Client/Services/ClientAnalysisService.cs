@@ -76,7 +76,30 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         if (_hub.State == HubConnectionState.Disconnected)
             await _hub.StartAsync(ct);
 
-        return await _hub.InvokeAsync<GraphResultDto>("RunGraphAnalysis", net, maxStates, ct);
+        var resultTcs = new TaskCompletionSource<GraphResultDto>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var ctReg = ct.Register(() =>
+        {
+            _ = _hub.InvokeAsync("CancelAnalysis", CancellationToken.None);
+            resultTcs.TrySetCanceled(ct);
+        });
+
+        // Run on background task so cancel can interrupt the await
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _hub.InvokeAsync<GraphResultDto>("RunGraphAnalysis", net, maxStates, CancellationToken.None);
+                resultTcs.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                resultTcs.TrySetException(ex);
+            }
+        }, CancellationToken.None);
+
+        return await resultTcs.Task;
     }
 
     public async ValueTask DisposeAsync() => await _hub.DisposeAsync();

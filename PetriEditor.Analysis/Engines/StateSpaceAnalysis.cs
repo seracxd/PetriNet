@@ -66,10 +66,15 @@ public sealed class StateSpaceAnalysis
             int sIdx = queue.Dequeue();
             var marking = _states[sIdx];
 
-            foreach (var t in net.Transitions)
+            var fireable = GetFireable(net, pIdx, marking);
+            foreach (var t in fireable)
             {
-                if (!IsEnabled(net, pIdx, marking, t.Id))
-                    continue;
+                if (ct.IsCancellationRequested)
+                {
+                    HasErrors = true;
+                    ErrorMsg = "Analysis cancelled.";
+                    return;
+                }
 
                 var next = Fire(net, pIdx, marking, t.Id);
 
@@ -117,6 +122,18 @@ public sealed class StateSpaceAnalysis
         }
 
         return true;
+    }
+
+    private static IEnumerable<Analysis.PnTransition> GetFireable(
+        Analysis.PetriNetSnapshot net,
+        Dictionary<string, int> pIdx,
+        int[] marking)
+    {
+        var enabled = net.Transitions.Where(t => IsEnabled(net, pIdx, marking, t.Id)).ToList();
+        if (enabled.Count == 0) return enabled;
+        int maxPriority = enabled.Max(t => t.Priority);
+        if (maxPriority == 0) return enabled;
+        return enabled.Where(t => t.Priority == maxPriority);
     }
 
     private static int[] Fire(

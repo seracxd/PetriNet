@@ -10,28 +10,30 @@
 @{
     var isEnabled = StateService.IsSimulating && Sim.EnabledTransitions.Contains(TransitionModel?.Data?.Id ?? "");
     var isLastFired = StateService.IsSimulating && Sim.LastFiredId == TransitionModel?.Data?.Id;
+    var _w = Node.Size?.Width  ?? Settings.TransitionWidth;
+    var _h = Node.Size?.Height ?? Settings.TransitionHeight;
 }
 
 <div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
-     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; @(StateService.IsSimulating ? "cursor:default;" : "")">
+     style="width: @(_w)px; height: @(_h)px; position: relative; @(StateService.IsSimulating ? "cursor:default;" : "")"
+     @onclick="@(StateService.IsSimulating && isEnabled ? () => Sim.StepManual(TransitionModel!.Data.Id) : null)">
 
-    <svg width="@Node.Size.Width" height="@Node.Size.Height"
+    <svg width="@_w" height="@_h"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
                 @(Node.Selected && !StateService.IsSimulating ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" :
-                           isLastFired ? "filter: drop-shadow(0 0 8px rgba(0, 137, 123, 0.9));" :
-                           isEnabled ? "filter: drop-shadow(0 0 4px rgba(0, 137, 123, 0.5));" : "")">
+                           isLastFired ? "filter: drop-shadow(0 0 6px rgba(0,230,180,1)) drop-shadow(0 0 14px rgba(0,230,180,1)) drop-shadow(0 0 28px rgba(0,230,180,0.9));" : "")">
 
         <rect x="0" y="0"
-              width="@Node.Size.Width"
-              height="@Node.Size.Height"
-              fill="@(isLastFired ? "#00897b" : isEnabled ? "#4db6ac" : Settings.ArcColor)"
+              width="@_w"
+              height="@_h"
+              fill="@(isEnabled ? "#4db6ac" : Settings.ArcColor)"
               stroke="@(Node.Selected && !StateService.IsSimulating ? Settings.ArcSelectedColor : Settings.ArcColor)"
               stroke-width="@(Node.Selected && !StateService.IsSimulating ? 3 : 2)"
               style="transition: fill 0.25s, filter 0.25s;" />
 
         @if (TransitionModel?.Data?.Priority > 0)
         {
-            var badgeX = Node.Size.Width / 2.0;
+            var badgeX = _w / 2.0;
             var badgeY = -14.0;
             <g>
                 <circle cx="@badgeX" cy="@badgeY" r="11"
@@ -56,7 +58,7 @@
         }
     }
 
-    <div class="node-title" style="@(isEnabled ? "color:#fff;" : "")">@Node.Title</div>
+    <div class="node-title">@Node.Title</div>
 </div>
 
 @code {

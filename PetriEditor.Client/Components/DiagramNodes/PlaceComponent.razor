@@ -6,8 +6,12 @@
 @inject DiagramSettings Settings
 @inject SimulationService Sim
 
+@{
+    var _w = Node.Size?.Width  ?? Settings.PlaceSize;
+    var _h = Node.Size?.Height ?? Settings.PlaceSize;
+}
 <div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
-     style="width: @(Node.Size.Width)px; height: @(Node.Size.Height)px; position: relative; box-sizing: content-box; @(StateService.IsSimulating ? "cursor:default;" : "")">
+     style="width: @(_w)px; height: @(_h)px; position: relative; box-sizing: content-box; @(StateService.IsSimulating ? "cursor:default;" : "")">
 
     <svg width="@(Node.Size?.Width ?? Settings.PlaceSize)" height="@(Node.Size?.Height ?? Settings.PlaceSize)"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">

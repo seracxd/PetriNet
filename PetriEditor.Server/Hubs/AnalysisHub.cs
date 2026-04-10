@@ -58,8 +58,9 @@ public sealed class AnalysisHub : Hub
 
         var progress = new Progress<AnalysisProgressMessage>(msg =>
         {
-            // Fire-and-forget — we're already on a thread-pool thread
-            _ = caller.SendAsync("ReceiveProgress", msg);
+            _ = caller.SendAsync("ReceiveProgress", msg).ContinueWith(
+                t => { /* swallow — client may have disconnected */ },
+                TaskContinuationOptions.OnlyOnFaulted);
         });
 
         try
@@ -69,8 +70,8 @@ public sealed class AnalysisHub : Hub
         }
         catch (OperationCanceledException)
         {
-            await caller.SendAsync("ReceiveProgress",
-                new AnalysisProgressMessage(AnalysisProgressMessage.StageError, 0, "Analysis cancelled."));
+            // Client triggered the cancellation and already handles it via its CancellationToken registration.
+            // Sending anything here would arrive on a completed TCS and crash the progress callback.
         }
         catch (Exception ex)
         {

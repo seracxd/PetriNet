@@ -77,10 +77,14 @@ public sealed class ReachabilityTreeBuilder
             var (parentId, marking) = queue.Dequeue();
             bool anyFired = false;
 
-            foreach (var t in net.Transitions)
+            foreach (var t in FireUtils.GetFireableTransitions(net, pIdx, marking))
             {
-                if (!FireUtils.IsEnabled(net, pIdx, marking, t.Id))
-                    continue;
+                if (ct.IsCancellationRequested)
+                {
+                    HasErrors    = true;
+                    ErrorMessage = "Analysis cancelled.";
+                    return;
+                }
 
                 anyFired = true;
                 var next = FireUtils.Fire(net, pIdx, marking, t.Id);

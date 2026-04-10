@@ -84,10 +84,14 @@ public sealed class CoverabilityTreeBuilder
             var marking     = parentNode.Marking;
             bool anyFired   = false;
 
-            foreach (var t in net.Transitions)
+            foreach (var t in FireUtils.GetFireableTransitions(net, pIdx, marking))
             {
-                if (!FireUtils.IsEnabled(net, pIdx, marking, t.Id))
-                    continue;
+                if (ct.IsCancellationRequested)
+                {
+                    HasErrors    = true;
+                    ErrorMessage = "Analysis cancelled.";
+                    return;
+                }
 
                 anyFired = true;
 

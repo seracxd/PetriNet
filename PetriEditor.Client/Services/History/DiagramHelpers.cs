@@ -109,8 +109,8 @@ internal static class DiagramHelpers
         }
 
         var link = new PetriLinkModel(
-            new ShapeIntersectionAnchor(srcNode),
-            new ShapeIntersectionAnchor(tgtNode))
+            new EdgeIntersectionAnchor(srcNode),
+            new EdgeIntersectionAnchor(tgtNode))
         {
             Segmentable          = false,
             TargetMarker         = LinkMarker.Arrow,

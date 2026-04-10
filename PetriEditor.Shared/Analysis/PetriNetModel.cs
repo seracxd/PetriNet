@@ -81,10 +81,11 @@ public sealed class PnPlace(string id, string name, int tokens)
     public int    Tokens { get; } = tokens;
 }
 
-public sealed class PnTransition(string id, string name)
+public sealed class PnTransition(string id, string name, int priority = 0)
 {
-    public string Id   { get; } = id;
-    public string Name { get; } = name;
+    public string Id       { get; } = id;
+    public string Name     { get; } = name;
+    public int    Priority { get; } = priority;
 }
 
 public sealed class PnArc(string sourceId, string targetId, int weight, PnArcType arcType)

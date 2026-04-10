@@ -65,8 +65,14 @@ public class PetriNetSimulator
 
     // ── Query ─────────────────────────────────────────────────────────────
 
-    public HashSet<string> GetEnabledTransitions() =>
-        Transitions.Where(t => IsEnabled(t.Id)).Select(t => t.Id).ToHashSet();
+    public HashSet<string> GetEnabledTransitions()
+    {
+        var enabled = Transitions.Where(t => IsEnabled(t.Id)).ToList();
+        if (enabled.Count == 0) return [];
+        int maxPriority = enabled.Max(t => t.Priority);
+        var fireable = maxPriority == 0 ? enabled : enabled.Where(t => t.Priority == maxPriority).ToList();
+        return fireable.Select(t => t.Id).ToHashSet();
+    }
 
     public bool IsEnabled(string transitionId)
     {

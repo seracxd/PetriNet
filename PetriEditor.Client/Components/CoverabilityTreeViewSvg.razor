@@ -222,8 +222,7 @@
         foreach (var (id, ln) in _layout)
             ln.Y = depth.GetValueOrDefault(id, 0) * LevelH;
 
-        var rowOccupied = new Dictionary<int, HashSet<int>>();
-        AssignGrid(root.Id, children, depth, rowOccupied);
+        AssignGrid(root.Id, children, depth);
 
         double pad  = 24;
         double slot = NodeW + MinGapX;
@@ -259,119 +258,12 @@
     }
 
     private void AssignGrid(int id, Dictionary<int, List<int>> children,
-                            Dictionary<int, int> depth,
-                            Dictionary<int, HashSet<int>> rowOccupied)
+                            Dictionary<int, int> depth)
     {
-        var relCol = new Dictionary<int, int>();
-        ComputeRelative(id, children, depth, relCol);
-
-        int minRel = relCol.Values.Min();
-        int shift  = -minRel;
-
-        foreach (var (nid, rc) in relCol)
-        {
-            int row = depth[nid];
-            int absCol = rc + shift;
-            if (rowOccupied.TryGetValue(row, out var occ) && occ.Contains(absCol))
-                shift = occ.Max() + 1 - rc;
-        }
-
-        foreach (var (nid, rc) in relCol)
-        {
-            int row = depth[nid];
-            int absCol = rc + shift;
-            _layout![nid].Col = absCol;
-            if (!rowOccupied.ContainsKey(row)) rowOccupied[row] = new();
-            rowOccupied[row].Add(absCol);
-        }
-    }
-
-    private (Dictionary<int, int> Left, Dictionary<int, int> Right) ComputeRelative(
-        int id, Dictionary<int, List<int>> children,
-        Dictionary<int, int> depth, Dictionary<int, int> relCol)
-    {
-        int myDepth = depth[id];
-        var ch = children[id];
-
-        if (ch.Count == 0)
-        {
-            relCol[id] = 0;
-            return (new() { [myDepth] = 0 }, new() { [myDepth] = 0 });
-        }
-
-        var childRoots = new List<(int childId, int offset)>();
-        Dictionary<int, int>? mergedLeft = null, mergedRight = null;
-        int nextOffset = 0;
-
-        for (int i = 0; i < ch.Count; i++)
-        {
-            var (cl, cr) = ComputeRelative(ch[i], children, depth, relCol);
-
-            if (i == 0)
-            {
-                childRoots.Add((ch[i], 0));
-                mergedLeft  = new(cl);
-                mergedRight = new(cr);
-            }
-            else
-            {
-                int minShift = nextOffset;
-                foreach (var (d, leftVal) in cl)
-                    if (mergedRight!.TryGetValue(d, out int rightVal))
-                    {
-                        int needed = rightVal - leftVal + 2;
-                        if (needed > minShift) minShift = needed;
-                    }
-
-                childRoots.Add((ch[i], minShift));
-
-                foreach (var (d, v) in cl)
-                {
-                    int shifted = v + minShift;
-                    if (!mergedLeft!.ContainsKey(d) || shifted < mergedLeft[d])
-                        mergedLeft[d] = shifted;
-                }
-                foreach (var (d, v) in cr)
-                {
-                    int shifted = v + minShift;
-                    if (!mergedRight!.ContainsKey(d) || shifted > mergedRight[d])
-                        mergedRight[d] = shifted;
-                }
-            }
-
-            nextOffset = childRoots[^1].offset + 1;
-        }
-
-        int leftChild  = childRoots[0].offset + relCol[ch[0]];
-        int rightChild = childRoots[^1].offset + relCol[ch[^1]];
-        int parentCol  = (leftChild + rightChild) / 2;
-
-        relCol[id] = 0;
-        foreach (var (childId, offset) in childRoots)
-            ShiftSubtree(childId, children, relCol, offset - parentCol);
-
-        int parentShift = -parentCol;
-        var finalLeft  = new Dictionary<int, int> { [myDepth] = 0 };
-        var finalRight = new Dictionary<int, int> { [myDepth] = 0 };
-        foreach (var (d, v) in mergedLeft!)
-        {
-            int sv = v + parentShift;
-            if (!finalLeft.ContainsKey(d) || sv < finalLeft[d]) finalLeft[d] = sv;
-        }
-        foreach (var (d, v) in mergedRight!)
-        {
-            int sv = v + parentShift;
-            if (!finalRight.ContainsKey(d) || sv > finalRight[d]) finalRight[d] = sv;
-        }
-        return (finalLeft, finalRight);
-    }
-
-    private void ShiftSubtree(int id, Dictionary<int, List<int>> children,
-                              Dictionary<int, int> relCol, int delta)
-    {
-        relCol[id] += delta;
-        foreach (int ch in children[id])
-            ShiftSubtree(ch, children, relCol, delta);
+        var colOut = new Dictionary<int, int>();
+        TreeLayoutEngine.AssignColumns(id, children, depth, colOut);
+        foreach (var (nid, col) in colOut)
+            _layout![nid].Col = col;
     }
 
     public int NodeCount => _layout?.Count ?? 0;
@@ -382,6 +274,12 @@
 
     public async Task ResetView() =>
         await JS.InvokeVoidAsync("treeView.resetView", _containerId);
+
+    public async Task<string?> ExportSvgAsync() =>
+        await JS.InvokeAsync<string?>("treeView.exportSvg", _containerId);
+
+    public async Task<string?> ExportPngAsync(int maxPx = 4096) =>
+        await JS.InvokeAsync<string?>("treeView.exportPng", _containerId, maxPx);
 
     public async ValueTask DisposeAsync()
     {

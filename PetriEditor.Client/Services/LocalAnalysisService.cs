@@ -36,7 +36,6 @@ public sealed class LocalAnalysisService : IAnalysisService
         var ss = new StateSpaceAnalysis();
         ss.Build(net, ct);
         report.StateSpace = ss;
-
         ct.ThrowIfCancellationRequested();
         progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
         await Task.Yield();
@@ -72,15 +71,14 @@ public sealed class LocalAnalysisService : IAnalysisService
         var rt = new ReachabilityTreeBuilder();
         rt.Build(net, ct);
         report.ReachabilityTree = rt;
-
         ct.ThrowIfCancellationRequested();
+
         progress?.Report(new(AnalysisProgressMessage.StageCoverTree, 76, null));
         await Task.Yield();
 
         var coverBuilder = new CoverabilityTreeBuilder();
         coverBuilder.Build(net, ct);
         report.CoverabilityTree = coverBuilder;
-
         ct.ThrowIfCancellationRequested();
         progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 83, null));
         await Task.Yield();
@@ -248,6 +246,7 @@ public sealed class LocalAnalysisService : IAnalysisService
         var cb  = new CoverabilityTreeBuilder();
         await Task.Yield();
         cb.Build(net, ct, maxStates);
+        ct.ThrowIfCancellationRequested();
 
         if (cb.HasErrors && !cb.IsTruncated)
             return new GraphResultDto(null, null, null, cb.ErrorMessage, null);

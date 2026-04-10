@@ -62,8 +62,19 @@ public sealed class PdfExportService
         {
             col.Spacing(15);
 
+            // ── Net diagram image ─────────────────────────────────────────
+            if (request.Options.DiagramPng is { Length: > 0 } diagPng)
+            {
+                col.Item().Element(ComposeImageSection("Net Diagram", diagPng));
+            }
+            else if (!string.IsNullOrEmpty(request.Options.DiagramSvg))
+            {
+                col.Item().Element(ComposeSvgSection("Net Diagram", request.Options.DiagramSvg));
+            }
+
             // ── Net structure ─────────────────────────────────────────────
-            col.Item().Element(ComposeNetStructure(request.Net));
+            if (request.Options.IncludeStructure)
+                col.Item().Element(ComposeNetStructure(request.Net));
 
             // ── Analysis results (if included) ────────────────────────────
             if (request.Options.IncludeAnalysis && request.Options.AnalysisResult is { } analysis)
@@ -72,6 +83,40 @@ public sealed class PdfExportService
                 col.Item().Element(ComposePropertyResults(analysis));
                 col.Item().Element(ComposeInvariants(analysis, request.Net));
             }
+
+            // ── Tree/graph image ──────────────────────────────────────────
+            var treeTitle = request.Options.AnalysisResult?.IsBounded == false
+                ? "Coverability Tree" : "Reachability Tree";
+            if (request.Options.TreePng is { Length: > 0 } png)
+            {
+                col.Item().Element(ComposeImageSection(treeTitle, png));
+            }
+            else if (!string.IsNullOrEmpty(request.Options.TreeSvg))
+            {
+                col.Item().Element(ComposeSvgSection(treeTitle, request.Options.TreeSvg));
+            }
+        });
+
+    // ── Image sections ────────────────────────────────────────────────────
+
+    private static Action<IContainer> ComposeSvgSection(string title, string svg) =>
+        c => c.Column(col =>
+        {
+            col.Item().Text(title).Bold().FontSize(13);
+            col.Item().PaddingTop(6)
+               .Border(1).BorderColor(Colors.Grey.Lighten2)
+               .Padding(4)
+               .Svg(svg);
+        });
+
+    private static Action<IContainer> ComposeImageSection(string title, byte[] png) =>
+        c => c.Column(col =>
+        {
+            col.Item().Text(title).Bold().FontSize(13);
+            col.Item().PaddingTop(6)
+               .Border(1).BorderColor(Colors.Grey.Lighten2)
+               .Padding(4)
+               .Image(png).FitArea();
         });
 
     // ── Net structure section ─────────────────────────────────────────────

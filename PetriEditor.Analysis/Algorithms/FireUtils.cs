@@ -7,7 +7,7 @@ namespace Analysis.Algorithms;
 /// </summary>
 internal static class FireUtils
 {
-    /// <summary>True if transition <paramref name="tId"/> is enabled in <paramref name="marking"/>.</summary>
+    /// <summary>True if transition <paramref name="tId"/> is enabled in <paramref name="marking"/> (ignores priority).</summary>
     internal static bool IsEnabled(
         PetriNetSnapshot        net,
         Dictionary<string, int> pIdx,
@@ -33,6 +33,26 @@ internal static class FireUtils
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Returns the subset of transitions that are actually fireable under strict priority semantics:
+    /// only transitions in the highest-priority tier among all enabled transitions.
+    /// If all transitions have priority 0, returns all enabled transitions unchanged.
+    /// </summary>
+    internal static IEnumerable<PnTransition> GetFireableTransitions(
+        PetriNetSnapshot        net,
+        Dictionary<string, int> pIdx,
+        int[]                   marking)
+    {
+        var enabled = net.Transitions.Where(t => IsEnabled(net, pIdx, marking, t.Id)).ToList();
+        if (enabled.Count == 0) return enabled;
+
+        int maxPriority = enabled.Max(t => t.Priority);
+        // If no transition has non-zero priority, no filtering needed
+        if (maxPriority == 0) return enabled;
+
+        return enabled.Where(t => t.Priority == maxPriority);
     }
 
     /// <summary>

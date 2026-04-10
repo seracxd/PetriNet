@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
+RUN dotnet test PetriEditor.Tests/PetriEditor.Tests.csproj -c Release --no-restore
 RUN dotnet publish PetriEditor.Server/PetriEditor.Server.csproj -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

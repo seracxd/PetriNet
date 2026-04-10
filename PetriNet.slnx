@@ -3,4 +3,5 @@
   <Project Path="PetriEditor.Analysis/PetriEditor.Analysis.csproj" />
   <Project Path="PetriEditor.Server/PetriEditor.Server.csproj" />
   <Project Path="PetriEditor.Client/PetriEditor.Client.csproj" />
+  <Project Path="PetriEditor.Tests/PetriEditor.Tests.csproj" />
 </Solution>

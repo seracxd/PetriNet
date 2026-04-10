@@ -1,5 +1,7 @@
 @using PetriNetAnalyzer.Services
 @inject DiagramSettings Settings
+@inject SimulationService Sim
+@inject IJSRuntime JS
 
 @if (_open)
 {
@@ -50,11 +52,13 @@
     {
         mutate(Settings);
         Settings.NotifyChanged();
+        _ = JS.InvokeVoidAsync("saveSettings", Settings.ToSnapshot(Sim.FiringDelay));
     }
 
     private void Reset()
     {
         Settings.ResetToDefaults();
+        _ = JS.InvokeVoidAsync("saveSettings", Settings.ToSnapshot(Sim.FiringDelay));
         StateHasChanged();
     }
 
@@ -69,4 +73,5 @@
 
     private static double Clamp(double value, double min, double max)
         => Math.Clamp(value, min, max);
+
 }

@@ -15,6 +15,7 @@
 @inject ClientAnalysisService ServerAnalysis
 @inject CytoscapeInterop Cy
 @inject IExportService ExportSvc
+@inject DiagramSettings Settings
 @inject BrowserFileService FileSvc
 @implements IDisposable
 
@@ -330,57 +331,15 @@
 
                     @if (_analysisError != null)
                     {
-                        <div style="padding:7px 10px;background:#ffebee;border-radius:7px;font-size:11px;color:#c62828;">⚠ @_analysisError</div>
-                    }
-
-                    @* ── Export section ── *@
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <button @onclick="() => _exportOpen = !_exportOpen"
-                                style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#f5f5f5;border:1px solid #e0e0e0;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;color:#666;cursor:pointer;width:100%;">
-                            <span style="display:flex;align-items:center;gap:6px;">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" y1="15" x2="12" y2="3"/>
-                                </svg>
-                                Export
-                            </span>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;transition:transform 0.15s;transform:rotate(@(_exportOpen ? "180deg" : "0deg"))">
-                                <polyline points="6 9 12 15 18 9"/>
-                            </svg>
-                        </button>
-                        @if (_exportOpen)
+                        @if (_analysisError == "Analysis cancelled.")
                         {
-                            <div style="display:flex;flex-direction:column;gap:4px;padding:4px 0 2px 0;">
-                                <div style="display:flex;gap:5px;">
-                                    <button @onclick='() => ExportAsync(ExportFormat.TikZ, "petri.tex", "text/plain")'
-                                            disabled="@_exportRunning"
-                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                        TikZ
-                                    </button>
-                                    <button @onclick='() => ExportAsync(ExportFormat.Pnml, "petri.pnml", "application/xml")'
-                                            disabled="@_exportRunning"
-                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                        PNML
-                                    </button>
-                                    <button @onclick="() => ExportPdfAsync(false)"
-                                            disabled="@_exportRunning"
-                                            style="flex:1;padding:6px 4px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:11px;font-weight:600;color:#444;cursor:pointer;">
-                                        PDF
-                                    </button>
-                                </div>
-                                <button @onclick="() => ExportPdfAsync(true)"
-                                        disabled="@(_exportRunning || _result is null)"
-                                        style="padding:6px 8px;background:@(_result is null ? "#f5f5f5" : "#e8f5e9");border:1px solid @(_result is null ? "#e0e0e0" : "#a5d6a7");border-radius:6px;font-size:11px;font-weight:600;color:@(_result is null ? "#bbb" : "#2e7d32");cursor:@(_result is null ? "default" : "pointer");width:100%;">
-                                    PDF + Analysis @(_result is null ? "(run analysis first)" : "")
-                                </button>
-                                @if (_exportError != null)
-                                {
-                                    <div style="padding:5px 8px;background:#ffebee;border-radius:6px;font-size:10px;color:#c62828;">⚠ @_exportError</div>
-                                }
-                            </div>
+                            <div style="padding:7px 10px;background:#f5f5f5;border-radius:7px;font-size:11px;color:#888;">✕ @_analysisError</div>
                         }
-                    </div>
+                        else
+                        {
+                            <div style="padding:7px 10px;background:#ffebee;border-radius:7px;font-size:11px;color:#c62828;">⚠ @_analysisError</div>
+                        }
+                    }
 
                     @if (_resultStale && _result is not null)
                     {
@@ -848,299 +807,13 @@
                 </div>
                 </div>@* end scrollable controls *@
 
-                @* ── Graph / Tree tab (always mounted, shown/hidden via CSS) ── *@
-                <div style="@(_activeAnalysisTab == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
+                @* ── Graph / Tree tab ── *@
+                <GraphTreePanel @ref="_refGraphTree"
+                                IsVisible="@(_activeAnalysisTab == "graph")"
+                                ResultStale="@_resultStale"
+                                HasInhibitorArcs="@GraphHasInhibitorArcs"
+                                AnalysisResult="@_result" />
 
-                    @* toolbar — compact single row *@
-                    <div style="flex-shrink:0;border-bottom:1px solid #e4e6ea;background:#f7f8fa;position:relative;">
-                        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;">
-
-                            @* mode label — "Reach" for bounded, "Cover" for unbounded, "Props" for statespace *@
-                            <span style="font-size:10px;font-weight:600;color:#8a94a6;white-space:nowrap;">
-                                @(_graphMode == "statespace" ? "Props" : (_graphIsUnbounded ? "Cover" : "Reach"))
-                                @(_graphMode != "statespace" ? " · " + (_viewMode == "graph" ? "Graph" : "Tree") : "")
-                            </span>
-
-                            @* Fit button *@
-                            @if (_graphMode == "graph")
-                            {
-                                <button @onclick="FitCurrentView"
-                                        style="padding:3px 7px;font-size:10px;font-weight:600;border:1px solid #e4e6ea;
-                                               border-radius:6px;background:#fff;color:#8a94a6;cursor:pointer;">Fit</button>
-                            }
-
-                            @* info icon *@
-                            @if (_graphMode == "graph")
-                            {
-                                <span @onmouseenter="() => _graphInfoHover = true" @onmouseleave="() => _graphInfoHover = false"
-                                      style="font-size:11px;color:#9aa0ad;cursor:help;line-height:1;position:relative;">ⓘ
-                                    @if (_graphInfoHover)
-                                    {
-                                        <div style="position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
-                                                    background:#fff;border:1px solid #e4e6ea;border-radius:8px;
-                                                    box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:8px 10px;
-                                                    min-width:180px;max-width:240px;font-family:Inter,sans-serif;
-                                                    font-size:11px;z-index:9999;white-space:nowrap;pointer-events:none;">
-                                            @{
-                                                bool isGraph = _viewMode == "graph";
-                                                string infoTitle = _graphIsUnbounded
-                                                    ? (isGraph ? "Coverability graph" : "Coverability tree")
-                                                    : (isGraph ? "Reachability graph" : "Reachability tree");
-                                                int infoNodes = 0, infoEdges = 0;
-                                                bool infoDup = false, infoDead = false, infoTrunc = false, infoOmega = _graphIsUnbounded;
-                                                if (isGraph && _refCoverGraph != null)
-                                                { infoNodes = _refCoverGraph.NodeCount; infoEdges = _refCoverGraph.EdgeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.HasTruncated; }
-                                                else if (!isGraph && _refCoverTree != null)
-                                                { infoNodes = _refCoverTree.NodeCount; infoDup = _refCoverTree.HasDuplicates; infoDead = _refCoverTree.HasDeadlocks; infoTrunc = _refCoverTree.IsTruncated; }
-                                            }
-                                            <div style="font-weight:700;color:#374151;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;">@infoTitle</div>
-                                            <div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;color:#222;font-weight:600;">
-                                                <span>@(isGraph ? "States" : "Nodes")</span><span style="color:#00a499;">@infoNodes</span>
-                                            </div>
-                                            @if (isGraph && infoEdges > 0)
-                                            {
-                                                <div style="display:flex;justify-content:space-between;gap:10px;padding:1px 0;color:#222;font-weight:600;">
-                                                    <span>Transitions</span><span style="color:#00a499;">@infoEdges</span>
-                                                </div>
-                                            }
-                                            @if (infoOmega)
-                                            {
-                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#3949ab;font-weight:500;">
-                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #5c6bc0;border-radius:@(isGraph ? "50%" : "2px");background:#f0f0fb;flex-shrink:0;"></span>
-                                                    ω (unbounded)
-                                                </div>
-                                            }
-                                            @if (infoDup)
-                                            {
-                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#f57f17;font-weight:500;">
-                                                    <span style="display:inline-block;width:10px;height:10px;border:2px dashed #f9a825;border-radius:@(isGraph ? "50%" : "2px");background:#fffde7;flex-shrink:0;"></span>
-                                                    @(isGraph ? "Duplicate" : "Back-ref")
-                                                </div>
-                                            }
-                                            @if (infoDead)
-                                            {
-                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#c62828;font-weight:500;">
-                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #e53935;border-radius:@(isGraph ? "50%" : "2px");background:#ffebee;flex-shrink:0;"></span>
-                                                    Deadlock
-                                                </div>
-                                            }
-                                            @if (infoTrunc)
-                                            {
-                                                <div style="display:flex;align-items:center;gap:6px;padding:3px 0 1px;color:#6a1b9a;font-weight:500;">
-                                                    <span style="display:inline-block;width:10px;height:10px;border:2px solid #8e24aa;border-radius:@(isGraph ? "50%" : "2px");background:#f3e5f5;flex-shrink:0;"></span>
-                                                    Children cut off
-                                                </div>
-                                            }
-                                            <div style="padding:4px 0 0;color:#bbb;font-weight:400;font-size:10px;">Hover = marking preview</div>
-                                        </div>
-                                    }
-                                </span>
-                            }
-
-                            <div style="flex:1;"></div>
-
-                            @* status indicators *@
-                            @if (_graphTruncated && !_graphRunning)
-                            {
-                                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Result truncated to @_maxStates markings">✂ @_maxStates</span>
-                            }
-                            @if (_graphError != null && !_graphRunning)
-                            {
-                                <span style="font-size:10px;color:#e53935;white-space:nowrap;" title="@_graphError">⚠ Error</span>
-                            }
-
-                            @* settings button *@
-                            <button @onclick='() => _graphSettingsOpen = !_graphSettingsOpen'
-                                    title="Settings"
-                                    style="padding:3px 6px;font-size:13px;border:1px solid @(_graphSettingsOpen ? "#00a499" : "#e4e6ea");border-radius:6px;
-                                           background:@(_graphSettingsOpen ? "#e8f5f3" : "#fff");color:@(_graphSettingsOpen ? "#00796b" : "#8a94a6");cursor:pointer;line-height:1;">⚙</button>
-
-                            @* compute / cancel *@
-                            @if (_graphRunning)
-                            {
-                                <button @onclick="CancelGraph"
-                                        style="padding:3px 8px;font-size:10px;font-weight:700;border:1.5px solid #ffcdd2;border-radius:6px;background:#fff0f0;color:#e53935;cursor:pointer;white-space:nowrap;">
-                                    Cancel
-                                </button>
-                            }
-                            @if (_graphMode == "graph")
-                            {
-                                <button @onclick="ComputeGraph" disabled="@_graphRunning"
-                                        style="padding:3px 10px;font-size:10px;font-weight:700;border:none;border-radius:6px;white-space:nowrap;
-                                               cursor:@(_graphRunning ? "default" : "pointer");
-                                               background:@(_graphRunning ? "#f0f0f0" : "#00a499");
-                                               color:@(_graphRunning ? "#aaa" : "#fff");display:flex;align-items:center;gap:4px;">
-                                    @if (_graphRunning)
-                                    {
-                                        <span style="display:inline-block;width:9px;height:9px;border:2px solid #aaa;border-top-color:#666;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;"></span>
-                                        <span>…</span>
-                                    }
-                                    else
-                                    {
-                                        <svg viewBox="0 0 24 24" fill="currentColor" style="width:9px;height:9px;flex-shrink:0;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                        <span>Compute</span>
-                                    }
-                                </button>
-                            }
-                        </div>
-
-                        @* settings modal overlay + panel *@
-                        @if (_graphSettingsOpen)
-                        {
-                            <div style="position:fixed;inset:0;z-index:199;" @onclick='() => _graphSettingsOpen = false'></div>
-                            <div style="position:absolute;top:calc(100% + 4px);right:8px;width:240px;
-                                        background:#fffffff2;border:1.5px solid #e0e0e0;border-radius:14px;
-                                        box-shadow:0 4px 24px rgba(0,0,0,0.13);backdrop-filter:blur(8px);
-                                        z-index:200;display:flex;flex-direction:column;overflow:hidden;"
-                                 @onclick:stopPropagation="true">
-                                @* header *@
-                                <div style="display:flex;align-items:center;justify-content:space-between;
-                                            padding:11px 14px 9px;border-bottom:1px solid #eee;flex-shrink:0;">
-                                    <span style="font-size:11px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#aaa;">Graph Settings</span>
-                                    <button @onclick='() => _graphSettingsOpen = false'
-                                            style="background:none;border:none;cursor:pointer;color:#bbb;font-size:14px;line-height:1;padding:0 2px;">✕</button>
-                                </div>
-                                @* body *@
-                                <div style="padding:4px 0 10px;">
-                                    @* Mode group *@
-                                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Mode</div>
-                                    <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
-                                        @foreach (var (val, label) in new[]{("graph","Graph / Tree"),("statespace","State-space props")})
-                                        {
-                                            string v = val, lbl = label;
-                                            <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:#444;font-weight:@(_graphMode == v ? "600" : "400");">
-                                                <input type="radio" name="graphMode" value="@v" checked="@(_graphMode == v)"
-                                                       @onchange='() => { SetGraphMode(v); }'
-                                                       style="accent-color:#00a499;width:14px;height:14px;" />
-                                                @lbl
-                                            </label>
-                                        }
-                                    </div>
-
-                                    @* View group (hidden in statespace mode) *@
-                                    @if (_graphMode == "graph")
-                                    {
-                                        <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">View</div>
-                                        <div style="display:flex;flex-direction:column;gap:2px;padding:0 14px;">
-                                            @foreach (var (val, label) in new[]{("graph","Graph"),("tree","Tree")})
-                                            {
-                                                string v = val, lbl = label;
-                                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:12px;color:#444;font-weight:@(_viewMode == v ? "600" : "400");">
-                                                    <input type="radio" name="viewMode" value="@v" checked="@(_viewMode == v)"
-                                                           @onchange='() => { _viewMode = v; }'
-                                                           style="accent-color:#00a499;width:14px;height:14px;" />
-                                                    @lbl
-                                                </label>
-                                            }
-                                        </div>
-                                    }
-
-                                    @* Limit group *@
-                                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Marking Limit</div>
-                                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px;gap:12px;">
-                                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Max markings</span>
-                                        <input type="number" min="10" max="10000000" step="100"
-                                               value="@_maxStates"
-                                               @onchange="OnMaxStatesChanged"
-                                               style="width:80px;padding:3px 6px;font-size:11px;border:1px solid #e4e6ea;border-radius:6px;text-align:right;" />
-                                    </div>
-                                    @if (_maxStates > 10_000)
-                                    {
-                                        <div style="padding:2px 14px 4px;">
-                                            <span style="font-size:10px;color:#e65100;">⚠ large value — may be slow</span>
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-                        }
-                    </div>
-
-                    @* stale banner for graph tab *@
-                    @if (_resultStale && _HasVisibleContent())
-                    {
-                        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;flex-shrink:0;
-                                    background:#fff3e0;border-bottom:1px solid #ffb74d;">
-                            <span style="font-size:13px;line-height:1;">⚠</span>
-                            <span style="font-size:11px;color:#5f3a00;line-height:1.4;flex:1;">Net changed — graph may be outdated.</span>
-                            <button @onclick="ComputeGraph"
-                                    style="padding:2px 8px;font-size:10px;font-weight:700;background:#ff9800;color:#fff;
-                                           border:none;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-                                Re-compute
-                            </button>
-                        </div>
-                    }
-
-                    @* content area — use CSS show/hide to avoid destroying Cytoscape instances *@
-                    @if (_graphMode == "statespace")
-                    {
-                        <div style="flex:1;overflow-y:auto;padding:12px 14px;">
-                        @if (_graphStateSpace == null)
-                        {
-                            <p style="font-size:12px;color:#bbb;text-align:center;padding:20px 0;">
-                                Compute the graph first — state space facts are derived automatically.
-                            </p>
-                        }
-                        else
-                        {
-                            var ss = _graphStateSpace;
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">
-                                @foreach (var (label, value, color) in new[]{
-                                    ("States",        ss.StateCount.ToString(),               "#00a499"),
-                                    ("Bounded",       ss.IsBounded     ? "Yes" : "No",        ss.IsBounded     ? "#2e7d32" : "#c62828"),
-                                    ("Safe",          ss.IsSafe        ? "Yes" : "No",        ss.IsSafe        ? "#2e7d32" : "#c62828"),
-                                    ("Deadlock-Free", ss.IsDeadlockFree? "Yes" : "No",        ss.IsDeadlockFree? "#2e7d32" : "#c62828"),
-                                    ("Reversible",    ss.IsReversible  ? "Yes" : "No",        ss.IsReversible  ? "#2e7d32" : "#c62828"),
-                                    ("Graph type",    ss.IsBounded ? "Reachability" : "Coverability", ss.IsBounded ? "#2e7d32" : "#e65100"),
-                                })
-                                {
-                                    <div style="background:#f7f7f7;border:1px solid #ebebeb;border-radius:8px;padding:8px 10px;">
-                                        <div style="font-size:15px;font-weight:700;color:@color;">@value</div>
-                                        <div style="font-size:10px;color:#aaa;margin-top:1px;">@label</div>
-                                    </div>
-                                }
-                            </div>
-                            @if (ss.ExceededLimit)
-                            {
-                                <div style="padding:7px 10px;background:#fff8e1;border-radius:7px;font-size:11px;color:#f57f17;">
-                                    State space exceeded the 50 000-state limit. Results may be incomplete.
-                                </div>
-                            }
-                        }
-                        </div>
-                    }
-
-                    @* ── Graph (Cytoscape) — keep alive with CSS ── *@
-                    @if (_graphData != null)
-                    {
-                        <div style="@(_graphMode == "graph" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeView @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
-                        </div>
-
-                        @* ── Tree (SVG) — keep alive with CSS ── *@
-                        <div style="@(_graphMode == "graph" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-                            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
-                        </div>
-                    }
-
-                    @* ── Loading overlay ── *@
-                    @if (_graphRunning)
-                    {
-                        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
-                            <div style="width:28px;height:28px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
-                            <span style="font-size:12px;color:#9aa0ad;">Computing...</span>
-                        </div>
-                    }
-
-                    @* ── Empty state ── *@
-                    @if (!_graphRunning && _graphMode != "statespace" && !_HasVisibleContent())
-                    {
-                        <div style="flex:1;display:flex;align-items:center;justify-content:center;">
-                            <p style="font-size:12px;color:#bbb;text-align:center;">
-                                        <span>Press Compute to build the @(_graphIsUnbounded ? "coverability" : "reachability") @(_viewMode == "tree" ? "tree" : "graph").</span>
-                            </p>
-                        </div>
-                    }
-                </div>
 
                 @* CSS for spinner *@
                 <style>
@@ -1173,6 +846,124 @@
     </div>
 }
 
+@* ── Export modal — rendered at component root so it works regardless of panel open state ── *@
+@if (_exportModalOpen)
+{
+    <div @onclick="() => _exportModalOpen = false"
+         style="position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1000;display:flex;align-items:center;justify-content:center;">
+        <div @onclick:stopPropagation
+             style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.18);width:360px;max-width:95vw;padding:20px 22px;display:flex;flex-direction:column;gap:14px;font-family:Inter,sans-serif;">
+
+            @* Title row *@
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:14px;font-weight:700;color:#111827;">Export</span>
+                <button @onclick="() => _exportModalOpen = false"
+                        style="background:none;border:none;font-size:18px;color:#9aa0ad;cursor:pointer;line-height:1;padding:0 2px;">×</button>
+            </div>
+
+            @* ── Format tabs ── *@
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
+                @foreach (var (fmt, label, desc) in ExportFormatOptions)
+                {
+                    <button @onclick="() => _expFormat = fmt"
+                            style="padding:7px 4px;border-radius:8px;border:1.5px solid @(_expFormat == fmt ? "#00a499" : "#e4e6ea");
+                                   background:@(_expFormat == fmt ? "#e8f5f3" : "#fafafa");
+                                   color:@(_expFormat == fmt ? "#00796b" : "#6b7280");
+                                   font-size:12px;font-weight:@(_expFormat == fmt ? "700" : "500");cursor:pointer;text-align:center;">
+                        @label
+                    </button>
+                }
+            </div>
+
+            @* ── Format description + options ── *@
+            @if (_expFormat == "pdf")
+            {
+                <div style="display:flex;flex-direction:column;gap:5px;">
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#9aa0ad;margin-bottom:2px;">Include in PDF</div>
+
+                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;cursor:pointer;">
+                        <input type="checkbox" checked="@_expIncludeDiagram" @onchange="e => _expIncludeDiagram = (bool)(e.Value ?? true)" style="accent-color:#00a499;" />
+                        Net diagram (visual)
+                    </label>
+
+                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;cursor:pointer;">
+                        <input type="checkbox" checked="@_expIncludeStructure" @onchange="e => _expIncludeStructure = (bool)(e.Value ?? true)" style="accent-color:#00a499;" />
+                        Net structure (places, transitions, arcs)
+                    </label>
+
+                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;cursor:pointer;">
+                        <input type="checkbox" checked="@_expIncludeAnalysis" @onchange="e => _expIncludeAnalysis = (bool)(e.Value ?? true)" style="accent-color:#00a499;" />
+                        Analysis results
+                        @if (_result == null)
+                        {
+                            <span style="font-size:10px;color:#9aa0ad;">(will run automatically)</span>
+                        }
+                    </label>
+
+                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#374151;cursor:pointer;">
+                        <input type="checkbox" checked="@_expIncludeTree" @onchange="e => _expIncludeTree = (bool)(e.Value ?? true)" style="accent-color:#00a499;" />
+                        Reachability/coverability tree
+                        @if (_refGraphTree?.GraphData == null)
+                        {
+                            <span style="font-size:10px;color:#9aa0ad;">(will compute automatically)</span>
+                        }
+                    </label>
+                </div>
+            }
+            else
+            {
+                <div style="padding:8px 10px;background:#f7f8fa;border-radius:8px;font-size:12px;color:#6b7280;line-height:1.5;">
+                    @if (_expFormat == "svg")
+                    {
+                        <span>Exports the current net diagram as a scalable vector image.</span>
+                    }
+                    else if (_expFormat == "tikz")
+                    {
+                        <span>Exports the net structure as LaTeX/TikZ source. Open in any LaTeX editor.</span>
+                    }
+                    else if (_expFormat == "pnml")
+                    {
+                        <span>Exports the net as PNML (Petri Net Markup Language) — a standard XML format.</span>
+                    }
+                </div>
+            }
+
+            @* ── Progress / status ── *@
+            @if (_exportRunning && _exportStatus != null)
+            {
+                <div style="font-size:11px;color:#00796b;display:flex;align-items:center;gap:7px;">
+                    <span style="display:inline-block;width:11px;height:11px;border:2px solid #b2dfdb;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;"></span>
+                    @_exportStatus
+                </div>
+            }
+
+            @* ── Error ── *@
+            @if (_exportError != null)
+            {
+                <div style="padding:6px 8px;background:#ffebee;border-radius:6px;font-size:11px;color:#c62828;">⚠ @_exportError</div>
+            }
+
+            @* ── Actions ── *@
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid #f0f0f0;">
+                <button @onclick="() => _exportModalOpen = false" disabled="@_exportRunning"
+                        style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid #e0e0e0;border-radius:7px;background:#fff;color:#666;cursor:@(_exportRunning ? "default" : "pointer");opacity:@(_exportRunning ? "0.5" : "1");">
+                    Cancel
+                </button>
+                <button @onclick="RunExportAsync" disabled="@_exportRunning"
+                        style="padding:6px 16px;font-size:12px;font-weight:700;border:none;border-radius:7px;
+                               background:@(_exportRunning ? "#e0e0e0" : "#00a499");color:@(_exportRunning ? "#aaa" : "#fff");
+                               cursor:@(_exportRunning ? "default" : "pointer");display:flex;align-items:center;gap:6px;">
+                    @if (_exportRunning)
+                    {
+                        <span style="display:inline-block;width:11px;height:11px;border:2px solid #bbb;border-top-color:#888;border-radius:50%;animation:spin 0.7s linear infinite;"></span>
+                    }
+                    Export
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _open = false;
     private bool _floating = false;
@@ -1181,17 +972,10 @@
 
     private void SelectTab(string id)
     {
-        // Free tree data when leaving the graph tab — components will unmount and call DisposeAsync
         if (_activeAnalysisTab == "graph" && id != "graph")
-        {
-            _graphData       = null;
-            _graphIsUnbounded = false;
-            _graphStateSpace = null;
-            _graphError      = null;
-        }
+            _refGraphTree?.Reset();
         _activeAnalysisTab = id;
-        // Auto-populate graph tab from cached analysis if switching to it
-        if (id == "graph") TryPopulateGraphFromCache();
+        if (id == "graph") _refGraphTree?.TryPopulateFromCache();
         StateHasChanged();
     }
 
@@ -1255,9 +1039,27 @@
     private AnalysisProgressMessage? _progressMessage;
 
     // ── Export state ──────────────────────────────────────────────────────
-    private bool _exportRunning = false;
-    private bool _exportOpen = false;
+    private bool    _exportRunning    = false;
+    private bool    _exportModalOpen  = false;
     private string? _exportError;
+    private string? _exportStatus;
+
+    // Modal selections
+    private bool        _expIncludeDiagram   = true;
+    private bool        _expIncludeStructure = true;
+    private bool        _expIncludeAnalysis  = true;
+    private bool        _expIncludeTree      = true;
+    private string      _expFormat           = "pdf";
+
+    public void OpenExportModal() { _exportModalOpen = true; _exportError = null; InvokeAsync(StateHasChanged); }
+
+    private static readonly (string fmt, string label, string desc)[] ExportFormatOptions =
+    [
+        ("pdf",  "PDF",  ""),
+        ("svg",  "SVG",  ""),
+        ("tikz", "TikZ", ""),
+        ("pnml", "PNML", ""),
+    ];
 
     // Stable JS interop reference — created once, disposed in Dispose()
     private DotNetObjectReference<AnalysisPanel>? _dotNetRef;
@@ -1294,6 +1096,42 @@
         };
     }
 
+    private object[] BuildDiagramNodeData(
+        System.Collections.Generic.List<PlaceNode> places,
+        System.Collections.Generic.List<TransitionNode> transitions)
+    {
+        var list = new System.Collections.Generic.List<object>();
+        foreach (var p in places)
+        {
+            if (p.Position == null) continue;
+            list.Add(new {
+                type     = "place",
+                x        = p.Position.X,
+                y        = p.Position.Y,
+                w        = p.Size?.Width  ?? 60,
+                h        = p.Size?.Height ?? 60,
+                label    = p.Data.Name,
+                tokens   = p.Data.Tokens,
+                arcColor = Settings.ArcColor,
+            });
+        }
+        foreach (var t in transitions)
+        {
+            if (t.Position == null) continue;
+            list.Add(new {
+                type     = "transition",
+                x        = t.Position.X,
+                y        = t.Position.Y,
+                w        = t.Size?.Width  ?? 36,
+                h        = t.Size?.Height ?? 72,
+                label    = t.Data.Name,
+                tokens   = 0,
+                arcColor = Settings.ArcColor,
+            });
+        }
+        return list.ToArray();
+    }
+
     private Dictionary<string, string> BuildNameById()
     {
         var dict = new Dictionary<string, string>();
@@ -1305,47 +1143,107 @@
         return dict;
     }
 
-    private async Task ExportAsync(ExportFormat format, string filename, string mimeType)
+    private async Task RunExportAsync()
     {
         if (_exportRunning) return;
         _exportRunning = true;
-        _exportError = null;
+        _exportError   = null;
+        _exportStatus  = null;
         StateHasChanged();
         try
         {
             var places      = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
             var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
             var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
-            var dto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
-            var request = new ExportRequestDto(dto, format, new ExportOptions());
-            var bytes = await ExportSvc.ExportAsync(request);
-            await FileSvc.DownloadAsync(filename, bytes, mimeType);
-        }
-        catch (Exception ex) { _exportError = ex.Message; }
-        finally { _exportRunning = false; StateHasChanged(); }
-    }
+            var dto         = DiagramAnalyzer.BuildDto(places, transitions, arcs);
 
-    private async Task ExportPdfAsync(bool includeAnalysis)
-    {
-        if (_exportRunning) return;
-        _exportRunning = true;
-        _exportError = null;
-        StateHasChanged();
-        try
-        {
-            var places      = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-            var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
-            var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
-            var dto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
-            var options = new ExportOptions(
-                IncludeAnalysis: includeAnalysis,
-                AnalysisResult: includeAnalysis ? _result : null);
-            var request = new ExportRequestDto(dto, ExportFormat.Pdf, options);
-            var bytes = await ExportSvc.ExportAsync(request);
-            await FileSvc.DownloadAsync("petri.pdf", bytes, "application/pdf");
+            switch (_expFormat)
+            {
+                case "tikz":
+                {
+                    var bytes = await ExportSvc.ExportAsync(new ExportRequestDto(dto, ExportFormat.TikZ, new ExportOptions()));
+                    await FileSvc.DownloadAsync("petri.tex", bytes, "text/plain");
+                    break;
+                }
+                case "pnml":
+                {
+                    var bytes = await ExportSvc.ExportAsync(new ExportRequestDto(dto, ExportFormat.Pnml, new ExportOptions()));
+                    await FileSvc.DownloadAsync("petri.pnml", bytes, "application/xml");
+                    break;
+                }
+                case "svg":
+                {
+                    _exportStatus = "Capturing diagram…"; StateHasChanged();
+                    var svg = await JS.InvokeAsync<string?>("petriEditor.exportDiagramSvg");
+                    if (!string.IsNullOrEmpty(svg))
+                        await FileSvc.DownloadAsync("petri-net.svg",
+                            System.Text.Encoding.UTF8.GetBytes(svg), "image/svg+xml");
+                    break;
+                }
+                case "pdf":
+                default:
+                {
+                    byte[]? diagramPng = null;
+                    if (_expIncludeDiagram)
+                    {
+                        _exportStatus = "Capturing diagram…"; StateHasChanged();
+                        var nodeData = BuildDiagramNodeData(places, transitions);
+                        var pngB64 = await JS.InvokeAsync<string?>("petriEditor.exportDiagramPng", 3072, nodeData);
+                        if (!string.IsNullOrEmpty(pngB64))
+                            diagramPng = Convert.FromBase64String(pngB64);
+                    }
+
+                    // Auto-run analysis if needed
+                    if (_expIncludeAnalysis && (_result == null || _resultStale))
+                    {
+                        _exportStatus = "Running analysis…"; StateHasChanged();
+                        _lastDto = dto;
+                        try
+                        {
+                            _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None);
+                            _resultStale = false;
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new Exception($"Analysis failed: {ex.Message}", ex);
+                        }
+                    }
+
+                    // Auto-compute graph if needed
+                    if (_expIncludeTree && _refGraphTree != null)
+                    {
+                        _exportStatus = "Computing reachability graph…"; StateHasChanged();
+                        try { await _refGraphTree.EnsureGraphDataAsync(dto); }
+                        catch (Exception ex) { throw new Exception($"Graph computation failed: {ex.Message}", ex); }
+                    }
+
+                    byte[]? treePng = null;
+                    if (_expIncludeTree && _refGraphTree?.GraphData != null)
+                    {
+                        _exportStatus = "Capturing tree…"; StateHasChanged();
+                        await Task.Delay(300);
+                        string? pngB64 = await (_refGraphTree?.ExportPngAsync() ?? Task.FromResult<string?>(null));
+                        if (!string.IsNullOrEmpty(pngB64))
+                            treePng = Convert.FromBase64String(pngB64);
+                    }
+
+                    _exportStatus = "Generating PDF…"; StateHasChanged();
+                    var options = new ExportOptions(
+                        IncludeStructure: _expIncludeStructure,
+                        IncludeAnalysis:  _expIncludeAnalysis && _result != null,
+                        AnalysisResult:   _expIncludeAnalysis ? _result : null,
+                        DiagramPng:       diagramPng,
+                        TreePng:          treePng);
+                    var bytes = await ExportSvc.ExportAsync(new ExportRequestDto(dto, ExportFormat.Pdf, options));
+                    await FileSvc.DownloadAsync("petri.pdf", bytes, "application/pdf");
+                    break;
+                }
+            }
+
+            _exportModalOpen = false;
         }
         catch (Exception ex) { _exportError = ex.Message; }
-        finally { _exportRunning = false; StateHasChanged(); }
+        finally { _exportRunning = false; _exportStatus = null; StateHasChanged(); }
     }
 
     private async Task RunAnalysis()
@@ -1357,11 +1255,8 @@
         _analysisError = null;
         _result = null;
         _resultStale = false;
-        _progressMessage  = null;
-        _graphData        = null;
-        _graphIsUnbounded = false;
-        _graphStateSpace  = null;
-        _graphError       = null;
+        _progressMessage = null;
+        _refGraphTree?.Reset();
         StateHasChanged();
 
         try
@@ -1381,8 +1276,7 @@
             });
 
             _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
-            // If already on the graph tab, auto-populate from the fresh result
-            if (_activeAnalysisTab == "graph") TryPopulateGraphFromCache();
+            if (_activeAnalysisTab == "graph") _refGraphTree?.TryPopulateFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
         catch (Exception ex) { _analysisError = ex.Message; }
@@ -1417,168 +1311,16 @@
         Manager.History.StructuralChanged -= OnStructuralChange;
         _analysisCts?.Cancel();
         _analysisCts?.Dispose();
-        _graphCts?.Cancel();
-        _graphCts?.Dispose();
         _dotNetRef?.Dispose();
     }
 
     private void CancelAnalysis() => _analysisCts?.Cancel();
 
-    // ── Graph / Tree tab (lazy, on-demand) ────────────────────────────────
+    private GraphTreePanel? _refGraphTree;
 
-    private string                     _graphMode        = "graph"; // "graph" | "statespace"
-    private string                     _viewMode         = "graph";  // "graph" | "tree"
-    private bool                       _graphRunning     = false;
-    private string?                    _graphError;
-    private bool                       _graphTruncated   = false;
-    private bool                       _graphIsUnbounded = false;   // true when coverability tree has ω nodes
-    private bool                       _graphSettingsOpen = false;
-    private int                        _maxStates        = 5_000;
-    private bool                       _graphInfoHover   = false;
-    private CoverabilityTreeDto?       _graphData;       // single source of truth for graph/tree
-    private StateSpaceSummaryDto?      _graphStateSpace;
-    private CancellationTokenSource?   _graphCts;
+    private bool GraphHasInhibitorArcs =>
+        Manager.Diagram.Links.OfType<PetriLinkModel>().Any(a => a.ArcType == ArcType.Inhibitor);
 
-    // Component refs for Fit / info
-    private CoverabilityTreeView?      _refCoverGraph;
-    private CoverabilityTreeViewSvg?   _refCoverTree;
-
-    private void SetGraphMode(string mode)
-    {
-        if (_graphMode == mode) return;
-        _graphMode = mode;
-        StateHasChanged();
-    }
-
-    private void OnMaxStatesChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out int v))
-            _maxStates = Math.Max(100, Math.Min(10_000_000, v));
-    }
-
-    private async Task FitCurrentView()
-    {
-        if (_viewMode == "graph" && _refCoverGraph != null)
-            await _refCoverGraph.FitGraph();
-        else if (_viewMode == "tree" && _refCoverTree != null)
-            await _refCoverTree.ResetView();
-    }
-
-    /// <summary>
-    /// Populate the graph tab from cached analysis results if available and fresh.
-    /// Called automatically when switching to the graph tab. Does NOT go to the server.
-    /// </summary>
-    private void TryPopulateGraphFromCache()
-    {
-        if (_result == null || _resultStale) return;
-        if (_HasVisibleContent()) return;
-
-        _graphTruncated = false;
-        _graphError = null;
-
-        if (_result.CoverabilityTree != null)
-        {
-            _graphData = _result.CoverabilityTree;
-            _graphIsUnbounded = _result.CoverabilityTree.Nodes.Any(n => n.Marking.Any(m => m is null));
-        }
-        _graphStateSpace = new StateSpaceSummaryDto(
-            StateCount:     _result.StateCount,
-            IsBounded:      _result.IsBounded,
-            IsSafe:         _result.IsSafe,
-            IsDeadlockFree: _result.IsDeadlockFree,
-            IsReversible:   _result.IsReversible,
-            ExceededLimit:  false);
-    }
-
-    private async Task ComputeGraph()
-    {
-        if (_graphRunning) return;
-
-        if (_lastDto == null)
-        {
-            var places      = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-            var transitions = Manager.Diagram.Nodes.OfType<TransitionNode>().ToList();
-            var arcs        = Manager.Diagram.Links.OfType<PetriLinkModel>().ToList();
-            if (!places.Any() && !transitions.Any()) return;
-            _lastDto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
-        }
-        _graphCts?.Cancel();
-        _graphCts?.Dispose();
-        _graphCts = new CancellationTokenSource();
-        _graphRunning   = true;
-        _graphError     = null;
-        _graphTruncated = false;
-        StateHasChanged();
-        try
-        {
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates);
-
-            if (result.StateSpace?.ExceededLimit == true)
-                _graphTruncated = true;
-            else if (result.ErrorMessage != null && result.CoverabilityTree == null)
-                _graphError = result.ErrorMessage;
-
-            if (result.CoverabilityTree != null)
-            {
-                _graphData = result.CoverabilityTree;
-                _graphIsUnbounded = result.StateSpace?.IsBounded == false;
-            }
-            if (result.StateSpace != null)
-                _graphStateSpace = result.StateSpace;
-        }
-        catch (OperationCanceledException) { _graphError = "Cancelled."; }
-        catch (Exception ex) { _graphError = ex.Message; }
-        finally
-        {
-            _graphRunning = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private void CancelGraph() => _graphCts?.Cancel();
-
-    private bool _HasVisibleContent() => _graphMode == "graph" && _graphData != null;
-
-    // Original tokens saved when preview starts, restored on clear
-    private Dictionary<string, int>? _previewSaved;
-
-    private void PreviewMarking(IReadOnlyList<int?> marking)
-    {
-        if (_lastDto == null) return;
-        var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-        var placeList = _lastDto.Places.ToList();
-
-        // Save originals once (on first hover of a session)
-        if (_previewSaved == null)
-        {
-            _previewSaved = places.ToDictionary(p => p.Data.Id, p => p.Data.Tokens);
-        }
-
-        for (int idx = 0; idx < placeList.Count && idx < marking.Count; idx++)
-        {
-            var node = places.FirstOrDefault(p => p.Data.Id == placeList[idx].Id);
-            if (node == null) continue;
-            // null = ω (unbounded); use int.MaxValue as sentinel so PlaceComponent can render ω
-            node.Data.Tokens = marking[idx] is int tokens ? tokens : int.MaxValue;
-        }
-
-        StateService.IsPreviewingMarking = true;
-        foreach (var p in places) p.Refresh();
-    }
-
-    private void ClearPreview()
-    {
-        if (_previewSaved == null) return;
-        var places = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-        foreach (var p in places)
-        {
-            if (_previewSaved.TryGetValue(p.Data.Id, out int orig))
-                p.Data.Tokens = orig;
-        }
-        _previewSaved = null;
-        StateService.IsPreviewingMarking = false;
-        foreach (var p in places) p.Refresh();
-    }
 
     private void OnDiagramChanged() => InvokeAsync(StateHasChanged);
     // Adapter overloads so event subscriptions with NodeModel / BaseLinkModel args also compile
@@ -1605,7 +1347,7 @@
         v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
 
     private void ToggleOpen() { _open = !_open; if (_open) _ = SetupJsAsync(); }
-    public void Close() { ClearPreview(); _open = false; InvokeAsync(StateHasChanged); }
+    public void Close() { _refGraphTree?.ClearPreview(); _open = false; InvokeAsync(StateHasChanged); }
     private void ToggleFloat() { _floating = !_floating; _ = SetupJsAsync(); }
     private void Maximise()
     {

@@ -235,7 +235,7 @@
 
     private void OnWeightLabelPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
-        if (e.Button != 0) return;
+        if (e.Button != 0 || StateService.IsSimulating) return;
         _draggingWeightLabel = true;
         _weightLabelSegmentBefore = ResolvedWeightSegment(_points, Link.WeightLabelSegment);
         _weightLabelFlippedBefore = Link.WeightLabelFlipped;
@@ -250,6 +250,7 @@
 
     private void OnLineDblClick(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
     {
+        if (StateService.IsSimulating) return;
         Diagram.SelectModel(Link, true);
         Manager.AddVertexToLink(Link, Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
     }
@@ -258,12 +259,14 @@
 
     private void OnSourcePointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (StateService.IsSimulating) return;
         Diagram.SelectModel(Link, true);
         Manager.StartEndpointDrag(Link, isSource: true, e.ClientX, e.ClientY);
     }
 
     private void OnTargetPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
+        if (StateService.IsSimulating) return;
         Diagram.SelectModel(Link, true);
         Manager.StartEndpointDrag(Link, isSource: false, e.ClientX, e.ClientY);
     }
@@ -273,7 +276,7 @@
     private void OnVertexPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e,
                                      PetriVertexModel vertex)
     {
-        if (e.Button != 0) return;
+        if (e.Button != 0 || StateService.IsSimulating) return;
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (vertex == _lastClickVertex && now - _lastClickTime < DblClickMs)

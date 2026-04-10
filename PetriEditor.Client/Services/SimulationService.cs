@@ -31,13 +31,19 @@ public class SimulationService : IDisposable
 
     public bool IsActive => _sim.IsInitialised;
     public bool IsAutoFiring { get; private set; }
-    public int FiringDelay { get; set; } = 1000; // ms
+
+    private int _firingDelay = 1000; // ms
+    public int FiringDelay
+    {
+        get => _firingDelay;
+        set
+        {
+            _firingDelay = value;
+            _autoTimer?.Change(value, value);
+        }
+    }
 
     public event Action? OnChanged;
-
-    // Firing mode — HighestPriority is the default for auto/step; Manual means user picks in panel
-    public enum FireMode { HighestPriority, Random }
-    public FireMode Mode { get; set; } = FireMode.HighestPriority;
 
     private readonly Random _rng = new();
 
@@ -54,6 +60,12 @@ public class SimulationService : IDisposable
 
     // Last fired transition id — for visual highlight
     public string? LastFiredId { get; private set; }
+
+    // Marking code per step (parallel to FiringHistory): "M0", "M1", ...
+    // Same code = same marking, so cycles are immediately visible.
+    private readonly List<string> _markingCodes = [];
+    private readonly Dictionary<string, string> _markingRegistry = []; // canonical-key → "M0", "M1", ...
+    public IReadOnlyList<string> MarkingCodes => _markingCodes;
 
     public SimulationService(PetriNetManager manager, DiagramStateService state)
     {
@@ -111,6 +123,8 @@ public class SimulationService : IDisposable
         _state.IsSimulating = true;
         _manager.IsSimulating = true;
         LastFiredId = null;
+        _markingCodes.Clear();
+        _markingRegistry.Clear();
         SetNodeLock(true);
         PushMarkingToDiagram();
         OnChanged?.Invoke();
@@ -125,6 +139,8 @@ public class SimulationService : IDisposable
         _savedFuture = null;
         FiringCounts.Clear();
         LastFiredId = null;
+        _markingCodes.Clear();
+        _markingRegistry.Clear();
         SetNodeLock(false);
         PushMarkingToDiagram(); // restores initial tokens
         OnChanged?.Invoke();
@@ -137,6 +153,8 @@ public class SimulationService : IDisposable
         _savedFuture = null;
         FiringCounts.Clear();
         LastFiredId = null;
+        _markingCodes.Clear();
+        _markingRegistry.Clear();
         PushMarkingToDiagram();
         OnChanged?.Invoke();
     }
@@ -154,6 +172,7 @@ public class SimulationService : IDisposable
         {
             FiringCounts.TryGetValue(transitionId, out var n);
             FiringCounts[transitionId] = n + 1;
+            _markingCodes.Add(GetOrCreateMarkingCode(_sim.Marking));
             PushMarkingToDiagram();
         }
         OnChanged?.Invoke();
@@ -172,21 +191,12 @@ public class SimulationService : IDisposable
 
         if (!candidates.Any()) return false;
 
-        string? chosen = Mode switch
-        {
-            FireMode.HighestPriority =>
-                candidates
-                    .GroupBy(t => t.Priority)
-                    .OrderByDescending(g => g.Key)
-                    .First()
-                    .OrderBy(_ => _rng.Next())
-                    .First().Id,
-            FireMode.Random =>
-                candidates[_rng.Next(candidates.Count)].Id,
-            _ => null
-        };
-
-        if (chosen == null) return false;
+        var chosen = candidates
+            .GroupBy(t => t.Priority)
+            .OrderByDescending(g => g.Key)
+            .First()
+            .OrderBy(_ => _rng.Next())
+            .First().Id;
         return StepManual(chosen);
     }
 
@@ -228,6 +238,8 @@ public class SimulationService : IDisposable
     {
         foreach (var node in _manager.Diagram.Nodes)
             node.Locked = locked;
+        foreach (var link in _manager.Diagram.Links)
+            link.Locked = locked;
     }
 
     // ── History time-travel ───────────────────────────────────────────────
@@ -242,6 +254,9 @@ public class SimulationService : IDisposable
         if (_savedFuture == null)
             _savedFuture = new List<string>(_sim.FiringHistory);
         _sim.RewindToStep(stepIndex);
+        int keep = Math.Max(0, stepIndex + 1);
+        if (_markingCodes.Count > keep)
+            _markingCodes.RemoveRange(keep, _markingCodes.Count - keep);
         LastFiredId = stepIndex >= 0 ? _sim.FiringHistory.LastOrDefault() : null;
         PushMarkingToDiagram();
         OnChanged?.Invoke();
@@ -289,6 +304,17 @@ public class SimulationService : IDisposable
     // ── Helpers ───────────────────────────────────────────────────────────
 
     public string GetTransitionName(string id) => _sim.GetTransitionName(id);
+
+    private string GetOrCreateMarkingCode(Dictionary<string, int> marking)
+    {
+        var key = string.Join(",", _sim.Places.Select(p => marking.TryGetValue(p.Id, out var t) ? t : 0));
+        if (!_markingRegistry.TryGetValue(key, out var code))
+        {
+            code = "M" + _markingRegistry.Count;
+            _markingRegistry[key] = code;
+        }
+        return code;
+    }
 
     public void Dispose()
     {

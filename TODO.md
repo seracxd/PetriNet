@@ -2,7 +2,7 @@
 
 ## Analysis correctness
 
-- [ ] **Priority-aware firing in analysis**: `TransitionDto` already has a `Priority` field (stored, editable in the UI) but the analysis engine (`StateSpaceAnalysis`, `ReachabilityTreeBuilder`, `CoverabilityTreeBuilder`) ignores it — all enabled transitions are treated as equally fireable. If priorities are intended to restrict which transition fires (e.g. highest-priority wins when multiple are enabled), the state space BFS needs to filter enabled transitions by priority tier before exploring. Decide the semantics (strict priority or just ordering hint) first.
+- [x] **Priority-aware firing in analysis**: `PnTransition` now carries `Priority`; `FireUtils.GetFireableTransitions` filters to the highest-priority tier. `StateSpaceAnalysis`, `CoverabilityTreeBuilder`, and `ReachabilityTreeBuilder` all use it. `PetriNetSimulator.GetEnabledTransitions` also filters by priority so the simulation UI only highlights fireable transitions.
 
 ## Analysis UI
 
@@ -10,7 +10,7 @@
 - [x] **Unified graph/tree view — always coverability**: removed the separate Reach/Cover mode selector. The graph tab always uses the coverability tree algorithm (which handles both bounded and unbounded nets). For bounded nets the result is identical to reachability — the label just shows "Reach" vs "Cover" based on whether any ω tokens appear.
 - [ ] **Non-ordinary arc detection in analysis engine**: expose a `NetCapabilities` flag on `AnalysisBundle` so property tests can skip invariant/classification shortcuts when inhibitor or reset arcs are present (currently the reasoning is silently skipped at the test level but there is no central gating).
 - [x] **Hide invalid properties for non-ordinary nets**: Conservativeness and Repetitiveness are hidden when inhibitor/reset arcs are present; Invariants and Traps tabs show a warning banner explaining why results may be incorrect; Classification tab warns that subclass checks are defined for ordinary nets only.
-- [ ] **Coverability tree validity with inhibitor arcs**: Karp-Miller assumes monotone firing semantics. Inhibitor arcs break monotonicity — show a warning in the Graph tab when the net has inhibitor arcs.
+- [x] **Coverability tree validity with inhibitor arcs**: Karp-Miller assumes monotone firing semantics. Inhibitor arcs break monotonicity — warning banner shown in the Graph tab when the net has inhibitor arcs.
 - [x] **Share state space between Run Analysis and Compute Graph**: full analysis now also builds the coverability tree; `AnalysisResultDto` carries `CoverabilityTree`. `ComputeGraph` uses cached data directly when `_result` is fresh — no server roundtrip.
 
 ## Performance
@@ -20,9 +20,8 @@
 - [ ] Tree layout `ComputeRelative` uses recursive DFS — could stack overflow on very deep trees (>5000 levels); convert to iterative if needed
 
 ## UX
-- [ ] Tree view: no click-to-apply-marking like the graph view has (graph sets marking on the net when you click a node)
-- [ ] No way to export tree/graph as image (SVG export or PNG screenshot)
-- [ ] Settings modal doesn't persist — resets to defaults on page reload (could use localStorage)
+- [x] **SVG export for tree and graph views**: "↓ SVG" button in graph tab exports the full tree/graph as a scalable SVG file (opens in browser, Inkscape, etc.). Tree view uses node/edge position data; graph view uses Cytoscape element positions.
+- [x] Settings modal doesn't persist — resets to defaults on page reload (grid + firing delay persisted via localStorage)
 - [ ] Marking limit slider would be more intuitive than a number input for quick adjustments
 - [ ] No visual diff when re-running analysis — hard to tell what changed between runs
 

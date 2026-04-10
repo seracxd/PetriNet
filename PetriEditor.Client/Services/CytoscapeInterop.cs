@@ -14,6 +14,12 @@ public sealed class CytoscapeInterop(IJSRuntime js)
 
     public ValueTask FitAsync(string containerId)
         => js.InvokeVoidAsync("petriEditor.fitCytoscape", containerId);
+
+    public ValueTask<string?> ExportSvgAsync(string containerId)
+        => js.InvokeAsync<string?>("petriEditor.exportCytoscapeSvg", containerId);
+
+    public ValueTask<string?> ExportPngAsync(string containerId, int maxPx = 4096)
+        => js.InvokeAsync<string?>("petriEditor.exportCytoscapePng", containerId, maxPx);
 }
 
 /// <summary>Blazor callback object passed to JS so Cytoscape node events flow back to .NET.</summary>

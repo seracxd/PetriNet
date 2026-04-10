@@ -112,4 +112,15 @@ public sealed class DiagramSettings
         DragDeadzone = o.DragDeadzone;
         LogBufferCapacity = o.LogBufferCapacity;
     }
+
+    /// <summary>Snapshot of user-facing settings for localStorage persistence.</summary>
+    public SettingsSnapshot ToSnapshot(int firingDelay) => new(GridEnabled, GridSize, firingDelay);
+
+    public void ApplySnapshot(SettingsSnapshot s)
+    {
+        GridEnabled = s.GridEnabled;
+        GridSize    = s.GridSize;
+    }
 }
+
+public record SettingsSnapshot(bool GridEnabled, double GridSize, int FiringDelay = 1000);

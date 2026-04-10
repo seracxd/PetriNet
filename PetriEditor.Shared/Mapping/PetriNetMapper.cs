@@ -25,7 +25,7 @@ public static class PetriNetMapper
             new Analysis.PnPlace(p.Id, p.Name, p.Tokens));
 
         var transitions = dto.Transitions.Select(t =>
-            new Analysis.PnTransition(t.Id, t.Name));
+            new Analysis.PnTransition(t.Id, t.Name, t.Priority));
 
         var arcs = dto.Arcs.Select(a =>
             new Analysis.PnArc(a.SourceId, a.TargetId, a.Weight, ToAnalysisArcType(a.ArcType)));

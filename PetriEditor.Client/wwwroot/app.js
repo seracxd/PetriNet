@@ -25,6 +25,20 @@ window.setSelectToolActive = (active) => {
     window._selectToolActive = active;
 };
 
+// ── Settings persistence ──────────────────────────────────────────────────────
+const SETTINGS_KEY = 'petri-diagram-settings';
+
+window.saveSettings = (obj) => {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj)); } catch (_) {}
+};
+
+window.loadSettings = () => {
+    try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+};
+
 // ── Placement ghost ───────────────────────────────────────────────────────
 // nodeW, nodeH: actual rendered node dimensions in diagram-space pixels
 // initClientX/Y: pointer position at mousedown — show ghost immediately
@@ -149,19 +163,30 @@ function setupOnContainer(container) {
             // Empty canvas — arm the selection rect.
             // We do NOT stopPropagation so Blazor still receives model==null.
             const bounds = container.getBoundingClientRect();
+            const sx = e.clientX - bounds.left;
+            const sy = e.clientY - bounds.top;
             window._selDrag = {
                 armed: true,
                 active: false,
-                startX: e.clientX - bounds.left,
-                startY: e.clientY - bounds.top,
+                startX: sx,
+                startY: sy,
                 pointerId: e.pointerId,
                 rafPending: false,
             };
+            // Create the visual rect overlay in JS — no Blazor roundtrip needed
+            let overlay = document.getElementById('sel-rect-overlay-js');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'sel-rect-overlay-js';
+                overlay.style.cssText = 'position:absolute;pointer-events:none;z-index:50;display:none;' +
+                    'border:2px dashed #00a499;background:rgba(0,164,153,0.08);';
+                container.appendChild(overlay);
+            }
+            overlay.style.display = 'none';
+            overlay._sx = sx; overlay._sy = sy;
             if (window._dotNetRef)
                 window._dotNetRef.invokeMethodAsync(
-                    'OnSelRectArmed',
-                    window._selDrag.startX,
-                    window._selDrag.startY);
+                    'OnSelRectArmed', sx, sy);
         }
 
     }, true); // capture phase
@@ -203,6 +228,25 @@ function setupOnContainer(container) {
         const bounds = cont.getBoundingClientRect();
         const cx = e.clientX - bounds.left;
         const cy = e.clientY - bounds.top;
+        const dx = cx - s.startX, dy = cy - s.startY;
+        const minDrag = 4;
+        if (!s.active && (Math.abs(dx) > minDrag || Math.abs(dy) > minDrag))
+            s.active = true;
+        if (s.active) {
+            // Update overlay directly in JS — instant, no Blazor roundtrip
+            const overlay = document.getElementById('sel-rect-overlay-js');
+            if (overlay) {
+                const rx = Math.min(s.startX, cx);
+                const ry = Math.min(s.startY, cy);
+                const rw = Math.abs(dx);
+                const rh = Math.abs(dy);
+                overlay.style.left   = rx + 'px';
+                overlay.style.top    = ry + 'px';
+                overlay.style.width  = rw + 'px';
+                overlay.style.height = rh + 'px';
+                overlay.style.display = 'block';
+            }
+        }
         if (!s.rafPending) {
             s.rafPending = true;
             requestAnimationFrame(() => {
@@ -221,6 +265,8 @@ function setupOnContainer(container) {
             return;
         }
         if (window._selDrag && window._selDrag.armed && e.button === 0) {
+            const overlay = document.getElementById('sel-rect-overlay-js');
+            if (overlay) overlay.style.display = 'none';
             window._selDrag = null;
             if (window._dotNetRef)
                 window._dotNetRef.invokeMethodAsync('OnCanvasPointerUp');
@@ -969,7 +1015,221 @@ window.treeView = (() => {
         _scheduleRedraw(s);
     }
 
-    return { init, resetView, destroy };
+    // ── SVG export ─────────────────────────────────────────────────────────
+    // Generates a self-contained SVG string for the full tree (all nodes/edges,
+    // independent of current viewport). Returns null if no data is loaded.
+    function exportSvg(containerId) {
+        const s = _state[containerId];
+        if (!s || !s.nodes || s.nodes.length === 0) return null;
+
+        const nodeW  = s.nodeW;
+        const nodeH  = s.nodeH;
+        const levelH = nodeH * 2;
+        const pad    = 20;
+        const W      = s.svgW + pad * 2;
+        const H      = s.svgH + pad * 2;
+        const ox     = pad;
+        const oy     = pad;
+
+        function esc(str) {
+            return String(str ?? '')
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+
+        function roundRect(x, y, w, h, r, fill, stroke, sw, dashArray) {
+            const d = `M${x+r},${y} H${x+w-r} Q${x+w},${y} ${x+w},${y+r} V${y+h-r} Q${x+w},${y+h} ${x+w-r},${y+h} H${x+r} Q${x},${y+h} ${x},${y+h-r} V${y+r} Q${x},${y} ${x+r},${y} Z`;
+            const dash = dashArray ? ` stroke-dasharray="${esc(dashArray)}"` : '';
+            return `<path d="${esc(d)}" fill="${esc(fill)}" stroke="${esc(stroke)}" stroke-width="${sw}"${dash}/>`;
+        }
+
+        let out = [];
+        out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+        out.push(`<rect width="${W}" height="${H}" fill="#fafbfc"/>`);
+        out.push(`<style>text{font-family:Inter,Segoe UI,sans-serif;}</style>`);
+
+        // Edges
+        for (const e of s.edges) {
+            const ax1 = ox + e.x1, ay1 = oy + e.y1;
+            const ax2 = ox + e.x2, ay2 = oy + e.y2;
+            const cy1 = oy + e.y1 + levelH * 0.4;
+            const cy2 = oy + e.y2 - levelH * 0.4;
+            const color = e.isDashed ? '#f9a825' : '#9dafc0';
+            const dash  = e.isDashed ? ' stroke-dasharray="5 3"' : '';
+
+            out.push(`<path d="M${ax1},${ay1} C${ax1},${cy1} ${ax2},${cy2} ${ax2},${ay2}" fill="none" stroke="${color}" stroke-width="1.5"${dash}/>`);
+
+            // Arrowhead
+            const tdx = ax2 - ax2, tdy = ay2 - cy2;
+            const len = Math.sqrt(tdy * tdy) || 1;
+            const ux = 0, uy = 1;
+            const nx = -1, ny = 0;
+            const asz = 7;
+            const p1x = ax2, p1y = ay2;
+            const p2x = ax2 - ux*asz + nx*asz*0.4, p2y = ay2 - uy*asz + ny*asz*0.4;
+            const p3x = ax2 - ux*asz - nx*asz*0.4, p3y = ay2 - uy*asz - ny*asz*0.4;
+            out.push(`<polygon points="${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}" fill="${color}"/>`);
+
+            // Edge label
+            if (e.label) {
+                const mx = ox + (e.x1 + e.x2) / 2;
+                const my = oy + (e.y1 + e.y2) / 2;
+                const fs = 11;
+                const tw = e.label.length * fs * 0.52;
+                const pad2 = fs * 0.3;
+                const rw = tw + pad2 * 2, rh = fs + pad2 * 2;
+                out.push(roundRect(mx - rw/2, my - rh/2, rw, rh, 3, '#ffffff', '#d1d5db', 0.5, null));
+                out.push(`<text x="${mx}" y="${my}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="600" fill="#374151">${esc(e.label)}</text>`);
+            }
+        }
+
+        // Nodes
+        for (const n of s.nodes) {
+            const ax = ox + n.x, ay = oy + n.y;
+            const c  = n._colors;
+            const rx = Math.max(2, nodeW * 0.12);
+            const dash = n.isRef ? '4 2' : null;
+            out.push(roundRect(ax, ay, nodeW, nodeH, rx, c.fill, c.stroke, c.sw, dash));
+
+            // Label
+            const cx = ax + nodeW / 2, cy2 = ay + nodeH / 2;
+            if (n._subText) {
+                const fs1 = Math.max(8, nodeW * 0.28 * 0.72);
+                const fs2 = Math.max(7, nodeW * 0.20 * 0.72);
+                out.push(`<text x="${cx}" y="${cy2 - nodeH*0.15}" text-anchor="middle" dominant-baseline="middle" font-size="${fs1}" font-weight="700" fill="${c.textC}">${esc(n.label)}</text>`);
+                out.push(`<text x="${cx}" y="${cy2 + nodeH*0.22}" text-anchor="middle" dominant-baseline="middle" font-size="${fs2}" font-weight="600" fill="${c.textC}">${esc(n._subText)}</text>`);
+            } else {
+                const fs1 = Math.max(8, nodeW * 0.28 * 0.72);
+                out.push(`<text x="${cx}" y="${cy2}" text-anchor="middle" dominant-baseline="middle" font-size="${fs1}" font-weight="700" fill="${c.textC}">${esc(n.label)}</text>`);
+            }
+        }
+
+        out.push('</svg>');
+        return out.join('\n');
+    }
+
+    // ── PNG export ────────────────────────────────────────────────────────
+    // Renders the full tree to an offscreen canvas and returns a base64 PNG.
+    // maxPx caps the longer dimension so huge trees don't produce enormous images.
+    function exportPng(containerId, maxPx) {
+        const s = _state[containerId];
+        if (!s || !s.nodes || s.nodes.length === 0) return null;
+
+        maxPx = maxPx || 4096;
+        const pad = 20;
+        const fullW = s.svgW + pad * 2;
+        const fullH = s.svgH + pad * 2;
+
+        // Scale to fit within maxPx on the longer side
+        const scale = Math.min(1, maxPx / Math.max(fullW, fullH));
+        const pw = Math.ceil(fullW * scale);
+        const ph = Math.ceil(fullH * scale);
+
+        const off = document.createElement('canvas');
+        off.width  = pw;
+        off.height = ph;
+        const ctx = off.getContext('2d');
+
+        ctx.fillStyle = '#fafbfc';
+        ctx.fillRect(0, 0, pw, ph);
+
+        const nodeW  = s.nodeW * scale;
+        const nodeH  = s.nodeH * scale;
+        const levelH = nodeH * 2;
+        const ox = pad * scale, oy = pad * scale;
+
+        // Edges
+        for (const e of s.edges) {
+            const ax1 = ox + e.x1 * scale, ay1 = oy + e.y1 * scale;
+            const ax2 = ox + e.x2 * scale, ay2 = oy + e.y2 * scale;
+            const cy1 = oy + (e.y1 + s.nodeH * 2 * 0.4) * scale;
+            const cy2 = oy + (e.y2 - s.nodeH * 2 * 0.4) * scale;
+            const color = e.isDashed ? '#f9a825' : '#9dafc0';
+
+            ctx.beginPath();
+            ctx.moveTo(ax1, ay1);
+            ctx.bezierCurveTo(ax1, cy1, ax2, cy2, ax2, ay2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth   = Math.max(1, 1.5 * scale);
+            ctx.setLineDash(e.isDashed ? [5 * scale, 3 * scale] : []);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Arrowhead
+            const tdy = ay2 - cy2;
+            const len = Math.sqrt(tdy * tdy) || 1;
+            const ux = 0, uy = 1;
+            const nx = -1, ny = 0;
+            const asz = Math.max(4, 7 * scale);
+            ctx.beginPath();
+            ctx.moveTo(ax2, ay2);
+            ctx.lineTo(ax2 - ux * asz + nx * asz * 0.4, ay2 - uy * asz + ny * asz * 0.4);
+            ctx.lineTo(ax2 - ux * asz - nx * asz * 0.4, ay2 - uy * asz - ny * asz * 0.4);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // Edge label
+            if (e.label) {
+                const mx = ox + (e.x1 + e.x2) / 2 * scale;
+                const my = oy + (e.y1 + e.y2) / 2 * scale;
+                const fs = Math.max(8, 11 * scale);
+                ctx.font = `600 ${fs}px Inter,sans-serif`;
+                const tw = ctx.measureText(e.label).width;
+                const pd = fs * 0.3;
+                const rw = tw + pd * 2, rh = fs + pd * 2;
+                ctx.fillStyle = '#ffffff';
+                ctx.strokeStyle = '#d1d5db';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.roundRect(mx - rw / 2, my - rh / 2, rw, rh, 3);
+                ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#374151';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(e.label, mx, my);
+            }
+        }
+
+        // Nodes
+        for (const n of s.nodes) {
+            const ax = ox + n.x * scale;
+            const ay = oy + n.y * scale;
+            const rx = Math.max(2, nodeW * 0.12);
+            const c  = n._colors;
+
+            ctx.beginPath();
+            ctx.roundRect(ax, ay, nodeW, nodeH, rx);
+            ctx.fillStyle = c.fill;
+            ctx.fill();
+            ctx.strokeStyle = c.stroke;
+            ctx.lineWidth = Math.max(1, c.sw * scale);
+            if (n.isRef) ctx.setLineDash([Math.max(2, 4 * scale), Math.max(1, 2 * scale)]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Text
+            const fs = Math.max(8, s.nodeW * 0.28 * 0.72 * scale);
+            ctx.fillStyle = c.textC;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `700 ${fs}px Inter,sans-serif`;
+            const cx = ax + nodeW / 2, cy = ay + nodeH / 2;
+            if (n._subText) {
+                const fs2 = Math.max(7, s.nodeW * 0.20 * 0.72 * scale);
+                ctx.fillText(n.label,    cx, cy - nodeH * 0.15);
+                ctx.font = `600 ${fs2}px Inter,sans-serif`;
+                ctx.fillText(n._subText, cx, cy + nodeH * 0.22);
+            } else {
+                ctx.fillText(n.label, cx, cy);
+            }
+        }
+
+        // Strip the "data:image/png;base64," prefix — C# side uses Convert.FromBase64String
+        return off.toDataURL('image/png').split(',')[1];
+    }
+
+    return { init, resetView, destroy, exportSvg, exportPng };
 })();
 
 // ── SVG element z-order helper ────────────────────────────────────────────
@@ -1261,6 +1521,375 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
     const resizeObs = new ResizeObserver(() => cy.resize());
     resizeObs.observe(container);
     cy.on('destroy', () => resizeObs.disconnect());
+};
+
+// ── Diagram PNG export ────────────────────────────────────────────────────
+// Draws the Petri net onto an offscreen canvas by reading node positions from
+// the DOM and arc paths from the SVG layer. Crops tightly to node bounds.
+// Returns a Promise<string|null> (base64 PNG, no data: prefix).
+window.petriEditor.exportDiagramPng = function (maxPx, nodes) {
+    // nodes: array of { id, type:'place'|'transition', x, y, w, h, label, tokens, arcColor }
+    // passed from Blazor since JS can't read Blazor component state directly
+    maxPx = maxPx || 3072;
+    const pad = 32;
+
+    const container = document.getElementById('diagram-container');
+    if (!container) return Promise.resolve(null);
+
+    // ── 1. Compute tight bounding box from node list ──────────────────────
+    if (!nodes || nodes.length === 0) return Promise.resolve(null);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + n.w);
+        maxY = Math.max(maxY, n.y + n.h);
+    }
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+    const fullW = contentW + pad * 2;
+    const fullH = contentH + pad * 2;
+
+    // ── 2. Scale to maxPx ─────────────────────────────────────────────────
+    const scale = Math.min(2, maxPx / Math.max(fullW, fullH));
+    const pw = Math.ceil(fullW * scale);
+    const ph = Math.ceil(fullH * scale);
+
+    // Offset: world coords → canvas coords
+    const ox = (pad - minX) * scale;
+    const oy = (pad - minY) * scale;
+
+    const off = document.createElement('canvas');
+    off.width  = pw;
+    off.height = ph;
+    const ctx = off.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, pw, ph);
+
+    // ── 3. Draw arcs from the live SVG ────────────────────────────────────
+    // Blazor.Diagrams renders arcs as <path> elements in the top-level SVG.
+    // Their coordinates are in diagram world space (same coordinate system as node x/y).
+    // The SVG has a <g> with a transform="translate(tx,ty) scale(s)" — extract it.
+    const liveSvg = container.querySelector('svg');
+    if (liveSvg) {
+        // Find the pan/zoom group — Blazor.Diagrams wraps everything in a <g class="diagram-canvas">
+        const panGroup = liveSvg.querySelector('g[class*="diagram"]') || liveSvg.querySelector('g');
+        let tx = 0, ty = 0, sc = 1;
+        if (panGroup) {
+            const tf = panGroup.getAttribute('transform') || '';
+            const tMatch = tf.match(/translate\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/);
+            const sMatch = tf.match(/scale\(\s*([-\d.]+)\s*\)/);
+            if (tMatch) { tx = parseFloat(tMatch[1]); ty = parseFloat(tMatch[2]); }
+            if (sMatch) { sc = parseFloat(sMatch[1]); }
+        }
+
+        // Collect all arc paths (skip UI chrome)
+        const paths = liveSvg.querySelectorAll('path[d]');
+        ctx.save();
+        for (const path of paths) {
+            // Skip if it's inside a foreignObject or is a UI element
+            if (path.closest('foreignObject')) continue;
+            if (path.closest('.endpoint-handle, .vertex-handle, [data-id="sel-rect"]')) continue;
+
+            const d = path.getAttribute('d');
+            if (!d) continue;
+            const stroke = path.getAttribute('stroke') || path.style.stroke || '#555';
+            const sw = parseFloat(path.getAttribute('stroke-width') || '2');
+            const fill = path.getAttribute('fill') || 'none';
+            const dashArr = path.getAttribute('stroke-dasharray') || '';
+
+            // Re-parse the path data, applying the pan/zoom transform then our offset
+            // We need to transform from SVG coords → world coords → canvas coords
+            // SVG coords = world*sc + [tx,ty], so world = (SVG - [tx,ty]) / sc
+            // canvas = world * scale + [ox, oy]
+            // Combined: canvas = (SVG - [tx,ty]) / sc * scale + [ox, oy]
+            const combinedScale = scale / sc;
+            const ctx2d = _transformPath(ctx, d, tx, ty, combinedScale, ox, oy);
+
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = Math.max(1, sw * combinedScale);
+            ctx.fillStyle = fill === 'none' ? 'transparent' : fill;
+            if (dashArr) ctx.setLineDash(dashArr.split(/[\s,]+/).map(Number).map(v => v * combinedScale));
+            else ctx.setLineDash([]);
+            if (fill !== 'none') ctx.fill();
+            ctx.stroke();
+        }
+
+        // Draw circles (inhibitor arc endpoints)
+        const circles = liveSvg.querySelectorAll('circle');
+        for (const el of circles) {
+            if (el.closest('foreignObject')) continue;
+            if (el.closest('marker')) continue;
+            const r = el.getAttribute('r');
+            if (!r || parseFloat(r) < 3) continue; // skip tiny port dots
+            const cxAttr = parseFloat(el.getAttribute('cx') || '0');
+            const cyAttr = parseFloat(el.getAttribute('cy') || '0');
+            const [pcx, pcy] = [(cxAttr - tx) * combinedScale + ox, (cyAttr - ty) * combinedScale + oy];
+            const pr = parseFloat(r) * combinedScale;
+            const fill = el.getAttribute('fill') || 'white';
+            const stroke = el.getAttribute('stroke') || '#555';
+            const sw = parseFloat(el.getAttribute('stroke-width') || '2');
+            ctx.beginPath();
+            ctx.arc(pcx, pcy, pr, 0, Math.PI * 2);
+            ctx.fillStyle = fill;
+            ctx.fill();
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = Math.max(1, sw * combinedScale);
+            ctx.stroke();
+        }
+
+        // Draw arc weight labels (text elements outside foreignObject)
+        const texts = liveSvg.querySelectorAll('text');
+        for (const el of texts) {
+            if (el.closest('foreignObject')) continue;
+            const xAttr = parseFloat(el.getAttribute('x') || '0');
+            const yAttr = parseFloat(el.getAttribute('y') || '0');
+            const [px, py] = [(xAttr - tx) * combinedScale + ox, (yAttr - ty) * combinedScale + oy];
+            const content = el.textContent?.trim();
+            if (!content) continue;
+            const fill = el.getAttribute('fill') || '#333';
+            const fontSize = parseFloat(el.getAttribute('font-size') || '12') * combinedScale;
+            const anchor = el.getAttribute('text-anchor') || 'start';
+            ctx.save();
+            ctx.font = `bold ${Math.max(8, fontSize)}px Inter,sans-serif`;
+            ctx.fillStyle = fill;
+            ctx.textAlign = anchor === 'middle' ? 'center' : anchor === 'end' ? 'right' : 'left';
+            ctx.textBaseline = el.getAttribute('dominant-baseline') === 'central' ? 'middle' : 'alphabetic';
+            ctx.fillText(content, px, py);
+            ctx.restore();
+        }
+
+        ctx.restore();
+    }
+
+    // ── 4. Draw nodes ─────────────────────────────────────────────────────
+    for (const n of nodes) {
+        const cx = ox + (n.x + n.w / 2) * scale;
+        const cy = oy + (n.y + n.h / 2) * scale;
+        const nw = n.w * scale;
+        const nh = n.h * scale;
+        const color = n.arcColor || '#555555';
+
+        ctx.save();
+        if (n.type === 'place') {
+            const r = nw / 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r - scale, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+
+            // Tokens
+            const tokens = n.tokens || 0;
+            if (tokens > 0) {
+                ctx.fillStyle = '#000000';
+                if (tokens <= 5) {
+                    const positions = _tokenPositions(tokens, 0, 0, r * 0.5);
+                    for (const [tx2, ty2] of positions) {
+                        ctx.beginPath();
+                        ctx.arc(cx + tx2 * scale, cy + ty2 * scale, 5 * scale, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                } else {
+                    ctx.font = `bold ${Math.max(11, r * 0.6)}px Inter,sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(String(tokens), cx, cy);
+                }
+            }
+        } else {
+            // Transition — rectangle
+            ctx.beginPath();
+            ctx.rect(ox + n.x * scale, oy + n.y * scale, nw, nh);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2 * scale;
+            ctx.stroke();
+        }
+
+        // Label (node title)
+        if (n.label) {
+            const fs = Math.max(10, Math.min(14, nw * 0.28)) * scale;
+            ctx.font = `600 ${fs}px Inter,sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = '#333333';
+            ctx.fillText(n.label, cx, oy + (n.y + n.h + 4) * scale);
+        }
+        ctx.restore();
+    }
+
+    return Promise.resolve(off.toDataURL('image/png').split(',')[1]);
+};
+
+// Parse SVG path "d" attribute and stroke it on a canvas context,
+// transforming from SVG space (with pan tx/ty and zoom sc) to canvas space.
+function _transformPath(ctx, d, tx, ty, combinedScale, ox, oy) {
+    // Transform a single coordinate pair
+    function T(x, y) {
+        return [(x - tx) * combinedScale + ox, (y - ty) * combinedScale + oy];
+    }
+    // Very small subset parser for M, L, C, Q, Z (covers Blazor.Diagrams arc paths)
+    const tokens = d.trim().match(/[MLCQZmlcqz]|[-+]?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/gi) || [];
+    ctx.beginPath();
+    let i = 0, cx = 0, cy = 0;
+    while (i < tokens.length) {
+        const cmd = tokens[i];
+        if (!/[a-z]/i.test(cmd)) { i++; continue; }
+        i++;
+        if (cmd === 'M' || cmd === 'm') {
+            const x = parseFloat(tokens[i++]), y = parseFloat(tokens[i++]);
+            const [px, py] = T(x, y);
+            ctx.moveTo(px, py); cx = x; cy = y;
+        } else if (cmd === 'L' || cmd === 'l') {
+            const x = parseFloat(tokens[i++]), y = parseFloat(tokens[i++]);
+            const [px, py] = T(x, y);
+            ctx.lineTo(px, py); cx = x; cy = y;
+        } else if (cmd === 'C' || cmd === 'c') {
+            const x1 = parseFloat(tokens[i++]), y1 = parseFloat(tokens[i++]);
+            const x2 = parseFloat(tokens[i++]), y2 = parseFloat(tokens[i++]);
+            const x  = parseFloat(tokens[i++]), y  = parseFloat(tokens[i++]);
+            const [p1x,p1y] = T(x1,y1), [p2x,p2y] = T(x2,y2), [px,py] = T(x,y);
+            ctx.bezierCurveTo(p1x,p1y,p2x,p2y,px,py); cx=x; cy=y;
+        } else if (cmd === 'Q' || cmd === 'q') {
+            const x1 = parseFloat(tokens[i++]), y1 = parseFloat(tokens[i++]);
+            const x  = parseFloat(tokens[i++]), y  = parseFloat(tokens[i++]);
+            const [p1x,p1y] = T(x1,y1), [px,py] = T(x,y);
+            ctx.quadraticCurveTo(p1x,p1y,px,py); cx=x; cy=y;
+        } else if (cmd === 'Z' || cmd === 'z') {
+            ctx.closePath();
+        } else { i++; }
+    }
+}
+
+// Token dot positions for ≤5 tokens (relative offsets from center, in world units)
+function _tokenPositions(count, cx, cy, r) {
+    const positions = {
+        1: [[0,0]],
+        2: [[-r*0.4,0],[r*0.4,0]],
+        3: [[0,-r*0.4],[-r*0.4,r*0.3],[r*0.4,r*0.3]],
+        4: [[-r*0.35,-r*0.35],[r*0.35,-r*0.35],[-r*0.35,r*0.35],[r*0.35,r*0.35]],
+        5: [[0,0],[-r*0.4,-r*0.4],[r*0.4,-r*0.4],[-r*0.4,r*0.4],[r*0.4,r*0.4]],
+    };
+    return (positions[count] || positions[1]).map(([dx,dy]) => [cx+dx, cy+dy]);
+}
+
+// Keep old SVG export for standalone .svg file downloads
+window.petriEditor.exportDiagramSvg = function () {
+    const container = document.getElementById('diagram-container');
+    if (!container) return null;
+    const liveSvg = container.querySelector('svg');
+    if (!liveSvg) return null;
+    const clone = liveSvg.cloneNode(true);
+    clone.querySelectorAll(
+        '.endpoint-handle, .vertex-handle, [data-id="sel-rect"], ' +
+        '.link--pending, .link--dragging-endpoint'
+    ).forEach(el => el.remove());
+    clone.querySelectorAll('foreignObject').forEach(el => el.remove());
+    let styleText = '';
+    try {
+        for (const sheet of document.styleSheets) {
+            try { for (const rule of sheet.cssRules) styleText += rule.cssText + '\n'; } catch { }
+        }
+    } catch { }
+    const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleEl.textContent = styleText;
+    clone.insertBefore(styleEl, clone.firstChild);
+    clone.setAttribute('style', 'background:#ffffff;');
+    return new XMLSerializer().serializeToString(clone);
+};
+
+window.petriEditor.exportCytoscapeSvg = function (containerId) {
+    const cy = window.petriEditor._cy[containerId];
+    if (!cy) return null;
+
+    function esc(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    const ext   = cy.extent();
+    const pad   = 60;
+    const ox    = -ext.x1 + pad;
+    const oy    = -ext.y1 + pad;
+    const W     = ext.x2 - ext.x1 + pad * 2;
+    const H     = ext.y2 - ext.y1 + pad * 2;
+    const nodeR = 31; // radius (cy node width = 62)
+
+    // Node colour map matching the cytoscape styles
+    function nodeColors(node) {
+        const cls = node.classes();
+        if (cls.has('initial'))   return { fill: '#e8faf8', stroke: '#00a499', text: '#00695c', sw: 3 };
+        if (cls.has('deadlock'))  return { fill: '#ffebee', stroke: '#e53935', text: '#b71c1c', sw: 2 };
+        if (cls.has('omega'))     return { fill: '#f0f0fb', stroke: '#5c6bc0', text: '#283593', sw: 2 };
+        if (cls.has('duplicate')) return { fill: '#fffde7', stroke: '#f9a825', text: '#e65100', sw: 2 };
+        if (cls.has('cutoff'))    return { fill: '#f3e5f5', stroke: '#8e24aa', text: '#6a1b9a', sw: 2 };
+        return { fill: '#ffffff', stroke: '#9dafc0', text: '#111827', sw: 2 };
+    }
+
+    let out = [];
+    out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+    out.push(`<rect width="${W}" height="${H}" fill="#fafbfc"/>`);
+    out.push(`<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 Z" fill="#9dafc0"/></marker></defs>`);
+    out.push(`<style>text{font-family:Inter,Segoe UI,sans-serif;}</style>`);
+
+    // Edges first (under nodes)
+    cy.edges().forEach(edge => {
+        const src = edge.source().position();
+        const tgt = edge.target().position();
+        const sx = src.x + ox, sy = src.y + oy;
+        const tx = tgt.x + ox, ty = tgt.y + oy;
+
+        // Shorten line to circle boundary
+        const dx = tx - sx, dy = ty - sy;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        const ux = dx/dist, uy = dy/dist;
+        const x1 = sx + ux * nodeR, y1 = sy + uy * nodeR;
+        const x2 = tx - ux * (nodeR + 8), y2 = ty - uy * (nodeR + 8);
+
+        const label = edge.data('label') ?? '';
+        // Slight curve for parallel edges
+        const mx = (x1+x2)/2, my = (y1+y2)/2;
+        const cx1 = mx - uy*20, cy1 = my + ux*20;
+        out.push(`<path d="M${x1},${y1} Q${cx1},${cy1} ${x2},${y2}" fill="none" stroke="#9dafc0" stroke-width="1.5" marker-end="url(#arr)"/>`);
+        if (label) {
+            const lx = (x1 + cx1 + x2) / 3, ly = (y1 + cy1 + y2) / 3;
+            const fs = 11;
+            const tw = label.length * fs * 0.52 + 8;
+            out.push(`<rect x="${lx - tw/2}" y="${ly - 9}" width="${tw}" height="16" rx="3" fill="#fff" stroke="#d1d5db" stroke-width="0.5"/>`);
+            out.push(`<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="600" fill="#374151">${esc(label)}</text>`);
+        }
+    });
+
+    // Nodes
+    cy.nodes().forEach(node => {
+        const p = node.position();
+        const x = p.x + ox, y = p.y + oy;
+        const c = nodeColors(node);
+        const label = node.data('label') ?? '';
+        out.push(`<circle cx="${x}" cy="${y}" r="${nodeR}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="${c.sw}"/>`);
+        if (label) {
+            const fs = Math.min(14, Math.max(8, nodeR * 0.42));
+            out.push(`<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="800" fill="${c.text}">${esc(label)}</text>`);
+        }
+    });
+
+    out.push('</svg>');
+    return out.join('\n');
+};
+
+// Returns base64 PNG (no data: prefix) of the full Cytoscape graph, capped at maxPx on the longer side.
+window.petriEditor.exportCytoscapePng = function (containerId, maxPx) {
+    const cy = window.petriEditor._cy[containerId];
+    if (!cy) return null;
+    maxPx = maxPx || 4096;
+    const bb = cy.elements().boundingBox();
+    const w = bb.w || 1, h = bb.h || 1;
+    const scale = Math.min(2, maxPx / Math.max(w, h));   // up to 2× for sharpness
+    const dataUrl = cy.png({ scale, full: true, bg: '#fafbfc' });
+    return dataUrl.split(',')[1];   // strip "data:image/png;base64,"
 };
 
 window.petriEditor.destroyCytoscape = function (containerId) {

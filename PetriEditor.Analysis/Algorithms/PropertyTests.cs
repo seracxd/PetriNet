@@ -343,6 +343,8 @@ public sealed class DeadlockFreeTest
         var ss = b.StateSpace;
         if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
+        // Truncated state space: frontier nodes have no outgoing edges but are not true deadlocks.
+        if (ss.IsTruncated) return TestResultStatus.Undecidable;
         bool df = ss.IsDeadlockFree();
         var status = df ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(df ? "Every state space node has ≥ 1 successor. Net is deadlock-free."
