@@ -252,15 +252,13 @@ public class PetriNetManager : IDisposable
         if (model is PortModel port)
         {
             sourcePort = port;
-            sourceAnchor = new SinglePortAnchor(port) { MiddleIfNoMarker = false, UseShapeAndAlignment = true };
+            sourceAnchor = MakeAnchor(port.Parent, port);
         }
         else if (model is NodeModel node)
         {
             var snapPort = FindClosestPort(node, pos);
             sourcePort = snapPort;
-            sourceAnchor = snapPort != null
-                ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-                : new EdgeIntersectionAnchor(node);
+            sourceAnchor = MakeAnchor(node, snapPort);
         }
         else return;
 
@@ -350,9 +348,7 @@ public class PetriNetManager : IDisposable
                 _pendingLink.ArcType = ArcType.Inhibitor;
         }
 
-        Anchor targetAnchor = targetPort != null
-            ? (Anchor)new SinglePortAnchor(targetPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-            : new EdgeIntersectionAnchor(targetNode);
+        Anchor targetAnchor = MakeAnchor(targetNode, targetPort);
 
         _pendingLink.SetTarget(targetAnchor);
         _pendingLink.IsDraggingEndpoint = false;
@@ -457,9 +453,7 @@ public class PetriNetManager : IDisposable
             }
 
             var snapPort = FindClosestPort(hitNode, dropPos);
-            Anchor nodeAnchor = snapPort != null
-                ? (Anchor)new SinglePortAnchor(snapPort) { MiddleIfNoMarker = false, UseShapeAndAlignment = true }
-                : new EdgeIntersectionAnchor(hitNode);
+            Anchor nodeAnchor = MakeAnchor(hitNode, snapPort);
 
             if (fixedIsSource) tempLink.SetTarget(nodeAnchor);
             else tempLink.SetSource(nodeAnchor);
@@ -516,8 +510,8 @@ public class PetriNetManager : IDisposable
     public void RestoreLink(NodeModel source, NodeModel target, int weight, ArcType arcType,
                             IEnumerable<Point> vertices)
     {
-        var src = new ShapeIntersectionAnchor(source);
-        var tgt = new ShapeIntersectionAnchor(target);
+        var src = MakeAnchor(source, null);
+        var tgt = MakeAnchor(target, null);
         RestoreLinkDirect(src, tgt, weight, arcType, null, vertices.ToList());
     }
 
@@ -580,6 +574,20 @@ public class PetriNetManager : IDisposable
 
     // ── Node management ───────────────────────────────────────────────────────
 
+    private string NextPlaceName()
+    {
+        var used = Diagram.Nodes.OfType<PlaceNode>().Select(p => p.Data.Name).ToHashSet();
+        while (used.Contains($"P{_placeCounter}")) _placeCounter++;
+        return $"P{_placeCounter++}";
+    }
+
+    private string NextTransitionName()
+    {
+        var used = Diagram.Nodes.OfType<TransitionNode>().Select(t => t.Data.Name).ToHashSet();
+        while (used.Contains($"T{_transitionCounter}")) _transitionCounter++;
+        return $"T{_transitionCounter++}";
+    }
+
     public void AddNodeAt(string type, Point clientPoint)
     {
         var point = SnapToGrid(Diagram.GetRelativeMousePoint(clientPoint.X, clientPoint.Y));
@@ -589,7 +597,7 @@ public class PetriNetManager : IDisposable
 
         if (type == "place")
         {
-            var place = new Place { Name = $"P{_placeCounter++}" };
+            var place = new Place { Name = NextPlaceName() };
             var node = new PlaceNode(place, _settings);
             node.SetPosition(
                 point.X - (node.Size?.Width ?? _settings.PlaceSize) / 2.0,
@@ -599,7 +607,7 @@ public class PetriNetManager : IDisposable
         }
         else if (type == "transition")
         {
-            var transition = new Transition { Name = $"T{_transitionCounter++}" };
+            var transition = new Transition { Name = NextTransitionName() };
             var node = new TransitionNode(transition, _settings);
             node.SetPosition(
                 point.X - (node.Size?.Width ?? _settings.TransitionWidth) / 2.0,
@@ -749,12 +757,29 @@ public class PetriNetManager : IDisposable
         return ddx * ddx + ddy * ddy <= PortSnapRadius * PortSnapRadius ? closest : null;
     }
 
+    /// <summary>
+    /// Creates the right anchor for a node+port pair.
+    /// PlaceNodes with a port use PortCircleAnchor (fixed direction on circle edge);
+    /// PlaceNodes without a port use EdgeIntersectionAnchor (dynamic circle intersection);
+    /// TransitionNodes use SinglePortAnchor when a port is available, else EdgeIntersectionAnchor.
+    /// </summary>
+    private static Anchor MakeAnchor(NodeModel node, PortModel? port)
+    {
+        if (node is PlaceNode place)
+            return port != null
+                ? (Anchor)new PortCircleAnchor(place, port)
+                : new EdgeIntersectionAnchor(node);
+        if (port != null)
+            return new SinglePortAnchor(port) { MiddleIfNoMarker = false, UseShapeAndAlignment = true };
+        return new EdgeIntersectionAnchor(node);
+    }
+
     private LinkModel? LinkFactory(Diagram diagram, ILinkable source, Anchor? targetAnchor)
     {
         Anchor? src = source switch
         {
-            NodeModel n => new ShapeIntersectionAnchor(n),
-            PortModel pm => new SinglePortAnchor(pm) { MiddleIfNoMarker = false, UseShapeAndAlignment = true },
+            PortModel pm => MakeAnchor(pm.Parent, pm),
+            NodeModel n => MakeAnchor(n, null),
             _ => null
         };
         if (src is null) return null;

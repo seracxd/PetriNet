@@ -24,6 +24,25 @@ public sealed class LivenessTest
         if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
 
+        if (ss.IsTruncated)
+        {
+            // Full liveness verdict is unavailable. Report partial L1-liveness:
+            // any transition that fired at least once in the partial space is confirmed
+            // L1-live. Transitions that didn't fire may still fire in unexplored states.
+            var fired   = ss.FiredTransitions();
+            var notFired = b.Net.Transitions.Where(t => !fired.Contains(t.Id)).Select(t => t.Name).ToList();
+            if (fired.Count > 0)
+                r.AddReason(
+                    $"State space is truncated. {fired.Count} transition(s) fired at least once (confirmed L1-live). " +
+                    (notFired.Count > 0
+                        ? $"The following were not observed firing and may or may not be live: {string.Join(", ", notFired)}."
+                        : "All transitions were observed firing at least once."),
+                    TestResultStatus.Undecidable);
+            else
+                r.AddReason("State space is truncated and no transitions fired — full liveness verdict is unavailable.", TestResultStatus.Undecidable);
+            return TestResultStatus.Undecidable;
+        }
+
         bool live = ss.IsLive(b.Net.Transitions.Count);
         var status = live ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(live
@@ -37,7 +56,14 @@ public sealed class LivenessTest
     {
         var inv = b.Invariants;
         if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
+        if (inv.WasSkipped) { r.AddReason(inv.ErrorMsg!, TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. Invariant-based liveness checks use the ordinary incidence matrix and are not reliable for this net.", TestResultStatus.Undecidable);
+            return TestResultStatus.Undecidable;
+        }
 
         var pStatus = TestResultStatus.Undecidable;
         foreach (var pinv in inv.PInvariants)
@@ -66,6 +92,13 @@ public sealed class LivenessTest
         var cls = b.Classification;
         if (cls is null) { r.AddReason("Classification results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (cls.HasErrors) { r.LogError(cls.ErrorMsg!); return TestResultStatus.Undecidable; }
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. Structural liveness theorems (Marked graph, Free-choice) require ordinary nets and are skipped.", TestResultStatus.Undecidable);
+            // StateMachine check is still valid: SM classification already requires all-normal arcs.
+            return DecideStateMachine(b, r, cls);
+        }
 
         return TestResultStatusExtensions.LogicalOr(
             DecideStateMachine(b, r, cls),
@@ -172,7 +205,15 @@ public sealed class BoundednessTest
     {
         var inv = b.Invariants;
         if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
+        if (inv.WasSkipped) { r.AddReason(inv.ErrorMsg!, TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. P-invariant coverage does not guarantee boundedness for non-ordinary nets.", TestResultStatus.Undecidable);
+            return TestResultStatus.Undecidable;
+        }
+
         var covered = new HashSet<string>(inv.PInvariants.SelectMany(pi => pi.Structure.Keys));
         bool allCovered = b.Net.Places.All(p => covered.Contains(p.Id));
         if (allCovered)
@@ -223,6 +264,14 @@ public sealed class SafetyTest
     {
         var cls = b.Classification;
         if (cls is null || cls.HasErrors) return TestResultStatus.Undecidable;
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. Structural safety theorem (Marked graph) requires ordinary nets and is skipped.", TestResultStatus.Undecidable);
+            // StateMachine safety check is purely token-count based — still valid.
+            return DecideStateMachine(b, r, cls);
+        }
+
         return TestResultStatusExtensions.LogicalOr(
             DecideStateMachine(b, r, cls),
             DecideMarkedGraph(b, r, cls));
@@ -272,7 +321,15 @@ public sealed class ConservativenessTest
     {
         var inv = b.Invariants;
         if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
+        if (inv.WasSkipped) { r.AddReason(inv.ErrorMsg!, TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. Conservativeness is defined via P-invariants of the ordinary incidence matrix, which does not capture non-ordinary arc effects.", TestResultStatus.Undecidable);
+            return TestResultStatus.Undecidable;
+        }
+
         var covered = new HashSet<string>(inv.PInvariants.SelectMany(pi => pi.Structure.Keys));
         bool conservative = b.Net.Places.All(p => covered.Contains(p.Id));
         var status = conservative ? TestResultStatus.Pass : TestResultStatus.Fail;
@@ -311,7 +368,15 @@ public sealed class RepetitivenessTest
     {
         var inv = b.Invariants;
         if (inv is null) { r.AddReason("Invariant analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
+        if (inv.WasSkipped) { r.AddReason(inv.ErrorMsg!, TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (inv.HasErrors) { r.LogError(inv.ErrorMsg!); return TestResultStatus.Undecidable; }
+
+        if (!b.IsOrdinaryNet)
+        {
+            r.AddReason("Net contains inhibitor or reset arcs. Repetitiveness is defined via T-invariants of the ordinary incidence matrix, which does not capture non-ordinary arc effects.", TestResultStatus.Undecidable);
+            return TestResultStatus.Undecidable;
+        }
+
         var covered = new HashSet<string>(inv.TInvariants.SelectMany(ti => ti.Structure.Keys));
         bool repetitive = b.Net.Transitions.All(t => covered.Contains(t.Id));
         var status = repetitive ? TestResultStatus.Pass : TestResultStatus.Fail;
@@ -343,8 +408,20 @@ public sealed class DeadlockFreeTest
         var ss = b.StateSpace;
         if (ss is null) { r.AddReason("State space analysis results are unavailable.", TestResultStatus.Undecidable); return TestResultStatus.Undecidable; }
         if (ss.HasErrors) { r.LogError(ss.ErrorMsg!); return TestResultStatus.Undecidable; }
-        // Truncated state space: frontier nodes have no outgoing edges but are not true deadlocks.
-        if (ss.IsTruncated) return TestResultStatus.Undecidable;
+
+        if (ss.IsTruncated)
+        {
+            // Full verdict is unavailable, but we can still report definite deadlocks:
+            // a state with no outgoing edges AND no enabled transitions is a true deadlock
+            // regardless of how many other states were cut off.
+            if (ss.HasDefiniteDeadlock())
+            {
+                r.AddReason("State space is truncated, but at least one reachable state has no enabled transitions. Net is not deadlock-free.", TestResultStatus.Fail);
+                return TestResultStatus.Fail;
+            }
+            return TestResultStatus.Undecidable;
+        }
+
         bool df = ss.IsDeadlockFree();
         var status = df ? TestResultStatus.Pass : TestResultStatus.Fail;
         r.AddReason(df ? "Every state space node has ≥ 1 successor. Net is deadlock-free."

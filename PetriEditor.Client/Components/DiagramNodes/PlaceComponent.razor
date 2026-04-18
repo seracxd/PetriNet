@@ -9,12 +9,17 @@
 @{
     var _w = Node.Size?.Width  ?? Settings.PlaceSize;
     var _h = Node.Size?.Height ?? Settings.PlaceSize;
+    var _isHighlighted = !StateService.IsPreviewingMarking && !StateService.IsSimulating
+        && StateService.HighlightedNodeIds.Count > 0
+        && PlaceModel?.Data?.Id != null
+        && StateService.HighlightedNodeIds.Contains(PlaceModel.Data.Id);
 }
 <div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
      style="width: @(_w)px; height: @(_h)px; position: relative; box-sizing: content-box; @(StateService.IsSimulating ? "cursor:default;" : "")">
 
     <svg width="@(Node.Size?.Width ?? Settings.PlaceSize)" height="@(Node.Size?.Height ?? Settings.PlaceSize)"
-         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;">
+         style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
+                @(_isHighlighted ? "filter: drop-shadow(0 0 4px rgba(124,58,237,0.5)) drop-shadow(0 0 10px rgba(124,58,237,0.25));" : "")">
 
         @if (StateService.IsSimulating && Sim.EnabledTransitions.Count > 0)
         {
@@ -22,7 +27,8 @@
         }
 
         @{
-            var _accentColor = StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue
+        var _accentColor = _isHighlighted ? "#7c3aed"
+                : StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue
                 ? "#5c6bc0"
                 : StateService.IsPreviewingMarking ? "#00a499" : (StateService.IsSimulating ? "#00897b" : null);
         }
@@ -30,8 +36,9 @@
                 cy="@((Node.Size?.Height ?? Settings.PlaceSize) / 2)"
                 r="@(((Node.Size?.Width ?? Settings.PlaceSize) / 2) - 2)"
                 stroke="@(_accentColor ?? (Node.Selected ? Settings.ArcSelectedColor : Settings.ArcColor))"
-                stroke-width="@(Node.Selected && !StateService.IsSimulating && !StateService.IsPreviewingMarking ? 3 : 2)"
-                fill="@(StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue ? "#ede7f6" : StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens > 0 ? "#e8faf8" : (Node.Selected && !StateService.IsSimulating ? "#e3f2fd" : "white"))"
+                stroke-width="@(_isHighlighted || (Node.Selected && !StateService.IsSimulating && !StateService.IsPreviewingMarking) ? 3 : 2)"
+                stroke-dasharray="@(_isHighlighted ? "6 3" : "none")"
+                fill="@(_isHighlighted ? "#faf5ff" : StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens == int.MaxValue ? "#ede7f6" : StateService.IsPreviewingMarking && PlaceModel?.Data?.Tokens > 0 ? "#e8faf8" : (Node.Selected && !StateService.IsSimulating ? "#e3f2fd" : "white"))"
                 style="transition: stroke 0.15s, fill 0.15s;" />
 
         @{
@@ -91,10 +98,14 @@
     [Parameter] public NodeModel Node { get; set; } = null!;
     private PlaceNode? PlaceModel => Node as PlaceNode;
 
+    private void OnPreviewChanged() => InvokeAsync(StateHasChanged);
+
     protected override void OnInitialized()
     {
         StateService.OnToolChanged += StateHasChanged;
         StateService.OnSimulationChanged += StateHasChanged;
+        StateService.OnMarkingPreviewChanged += OnPreviewChanged;
+        StateService.OnHighlightChanged += StateHasChanged;
         Settings.Changed += StateHasChanged;
         Sim.OnChanged += StateHasChanged;
     }
@@ -103,6 +114,8 @@
     {
         StateService.OnToolChanged -= StateHasChanged;
         StateService.OnSimulationChanged -= StateHasChanged;
+        StateService.OnMarkingPreviewChanged -= OnPreviewChanged;
+        StateService.OnHighlightChanged -= StateHasChanged;
         Settings.Changed -= StateHasChanged;
         Sim.OnChanged -= StateHasChanged;
     }
@@ -142,7 +155,6 @@
     private static IEnumerable<(double X, double Y)> GetTokenPositions(int count, double cx, double cy)
     {
         const double s = 9;
-        const double l = 13;
         return count switch
         {
             1 => [(cx,     cy)],

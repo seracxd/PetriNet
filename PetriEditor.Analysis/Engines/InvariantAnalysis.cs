@@ -7,11 +7,23 @@ namespace Analysis.Engines;
 /// </summary>
 public sealed class InvariantAnalysis
 {
-    public bool HasErrors { get; private set; }
+    public bool HasErrors  { get; private set; }
+    public bool WasSkipped { get; private set; }
     public string? ErrorMsg { get; private set; }
 
     public IReadOnlyList<Invariant> PInvariants { get; private set; } = [];
     public IReadOnlyList<Invariant> TInvariants { get; private set; } = [];
+
+    /// <summary>
+    /// Marks the invariant computation as skipped because the net is unbounded.
+    /// P-invariants are only meaningful for bounded nets (they represent token-conservation laws).
+    /// </summary>
+    public void SkipUnbounded()
+    {
+        WasSkipped = true;
+        HasErrors  = true;
+        ErrorMsg   = "Net is unbounded — invariant computation skipped (P-invariants are only meaningful for bounded nets).";
+    }
 
     public void Compute(Analysis.PetriNetSnapshot net)
     {

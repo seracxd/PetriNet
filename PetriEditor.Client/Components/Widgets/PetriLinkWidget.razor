@@ -14,7 +14,16 @@
 
 @if (Link != null && _points != null && _points.Count >= 2)
 {
-    var color = Link.Selected ? Settings.ArcSelectedColor : Settings.ArcColor;
+    var _hlIds = StateService.HighlightedNodeIds;
+    var _srcDomainId = Link.CanonicalSourceId;
+    var _tgtNode = Link.Target?.Model;
+    var _tgtDomainId = _tgtNode is PetriNetAnalyzer.DiagramModels.PlaceNode pn2 ? pn2.Data.Id
+                     : _tgtNode is PetriNetAnalyzer.DiagramModels.TransitionNode tn2 ? tn2.Data.Id
+                     : null;
+    var _arcHighlighted = _hlIds.Count > 0
+        && _srcDomainId != null && _tgtDomainId != null
+        && _hlIds.Contains(_srcDomainId) && _hlIds.Contains(_tgtDomainId);
+    var color = _arcHighlighted ? "#7c3aed" : Link.Selected ? Settings.ArcSelectedColor : Settings.ArcColor;
     var dSmooth = BuildRoundedPath(_points, 14);
     var srcPt = _points[0];
     var tgtPt = _points[^1];
@@ -22,7 +31,8 @@
     <g class="petri-link-group" @ref="_groupRef">
 
         @* ── Visible line ── *@
-        <path d="@dSmooth" fill="none" stroke="@color" stroke-width="2" />
+        <path d="@dSmooth" fill="none" stroke="@color" stroke-width="@(_arcHighlighted ? 3.5 : 2)"
+              stroke-dasharray="@(_arcHighlighted ? "8 4" : "none")" />
 
         @* ── Weight label ── *@
         @if (Link.Weight != 1)
@@ -109,7 +119,7 @@
         }
 
         @* ── Source endpoint diamond ── *@
-        @if (!Link.IsDraggingEndpoint)
+        @if (!Link.IsDraggingEndpoint && !StateService.IsSimulating)
         {
             @if (Link.Selected)
             {
@@ -126,7 +136,7 @@
         }
 
         @* ── Target endpoint diamond ── *@
-        @if (!Link.IsDraggingEndpoint)
+        @if (!Link.IsDraggingEndpoint && !StateService.IsSimulating)
         {
             @if (Link.Selected)
             {
@@ -171,6 +181,7 @@
     {
         if (Link != null) Link.Changed += OnLinkChanged;
         StateService.OnToolChanged += OnToolChanged;
+        StateService.OnHighlightChanged += OnHighlightChanged;
         Settings.Changed += OnSettingsChanged;
         Diagram.PointerMove += OnDiagramPointerMove;
         Diagram.PointerUp += OnDiagramPointerUp;
@@ -178,6 +189,7 @@
     }
 
     private void OnToolChanged() => InvokeAsync(StateHasChanged);
+    private void OnHighlightChanged() => InvokeAsync(StateHasChanged);
     private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
 
     private void OnLinkChanged(Blazor.Diagrams.Core.Models.Base.Model _)
@@ -194,6 +206,7 @@
     {
         if (Link != null) Link.Changed -= OnLinkChanged;
         StateService.OnToolChanged -= OnToolChanged;
+        StateService.OnHighlightChanged -= OnHighlightChanged;
         Settings.Changed -= OnSettingsChanged;
         Diagram.PointerMove -= OnDiagramPointerMove;
         Diagram.PointerUp -= OnDiagramPointerUp;

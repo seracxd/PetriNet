@@ -13,6 +13,7 @@
 @inject DiagramStateService StateService
 @inject DiagramAnalyzer Analyzer
 @inject ClientAnalysisService ServerAnalysis
+@inject LocalAnalysisService LocalAnalysis
 @inject CytoscapeInterop Cy
 @inject IExportService ExportSvc
 @inject DiagramSettings Settings
@@ -616,13 +617,27 @@
                                                 @for (int ci = 0; ci < cyc.Cycles.Count; ci++)
                                                 {
                                                     var cycle = cyc.Cycles[ci];
-                                                    var cycleMarkup = string.Join(" → ", cycle.NodeIds.Select(id => Resolve(id)));
-                                                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
-                                                        <div style="font-size:12px;color:#666;line-height:1.7;min-width:0;">
+                                                    var cycleNodes = cycle.NodeIds.Select(id => Resolve(id)).ToList();
+                                                    if (cycleNodes.Count > 0) cycleNodes.Add(cycleNodes[0]);
+                                                    var cycleMarkup = string.Join(" → ", cycleNodes);
+                                                    var cycleKey = $"cycle_{ci}";
+                                                    var cycleActive = _highlightedItemKey == cycleKey;
+                                                    var cycleEyeLit = cycleActive || _hoverItemKey == cycleKey;
+                                                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+                                                        <div style="font-size:12px;color:#666;line-height:1.7;min-width:0;flex:1;">
                                                             <span style="font-weight:700;color:#666;">C<sub>@(ci + 1)</sub></span>
                                                             <span> = @cycleMarkup</span>
                                                         </div>
-                                                        <div style="white-space:nowrap;font-size:11px;color:@(cycle.TokensInCycle > 0 ? "#2e7d32" : "#9a9a9a");font-weight:600;">@cycle.TokensInCycle token(s)</div>
+                                                        <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;flex-shrink:0;">
+                                                            <span style="font-size:11px;color:@(cycle.TokensInCycle > 0 ? "#2e7d32" : "#9a9a9a");font-weight:600;">@cycle.TokensInCycle token(s)</span>
+                                                            <button title="@(cycleActive ? "Clear highlight" : "Highlight in net")"
+                                                                    @onclick='() => ToggleHighlight(cycleKey, cycle.NodeIds)'
+                                                                    @onmouseenter='() => OnEyeHoverEnter(cycleKey, cycle.NodeIds)'
+                                                                    @onmouseleave='OnEyeHoverLeave'
+                                                                    style="padding:2px 5px;border:1px solid @(cycleEyeLit ? "#7c3aed" : "#ddd");border-radius:5px;background:@(cycleActive ? "#f5f3ff" : cycleEyeLit ? "#faf5ff" : "#fafafa");color:@(cycleEyeLit ? "#7c3aed" : "#aaa");cursor:pointer;font-size:13px;line-height:1;">
+                                                                👁
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 }
                                             </div>
@@ -668,6 +683,15 @@
                                 return total;
                             }
 
+                            int ComputeTInvariantWeight(InvariantDto inv)
+                                => inv.Structure.Values.Sum();
+
+                            // Transitions that actually fired in the (possibly truncated) state space
+                            var _firedTransIds = _result.ReachabilityGraph?.Edges
+                                .Select(e => e.TransitionId).ToHashSet()
+                                ?? new HashSet<string>();
+                            bool _ssAvailable = _result.ReachabilityGraph != null;
+
                             @if (!_result.PInvariants.Any() && !_result.TInvariants.Any())
                             {
                                 <div style="font-size:12px;color:#e53935;">Invariant analysis not available.</div>
@@ -687,19 +711,31 @@
                                                 @for (int i = 0; i < _result.PInvariants.Count; i++)
                                                 {
                                                     var pInv = _result.PInvariants[i];
-                                                    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
-                                                        <div>
-                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
-                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(pInv)</span>
+                                                    var pInvKey = $"pinv_{i}";
+                                                    var pInvActive = _highlightedItemKey == pInvKey;
+                                                    var pInvEyeLit = pInvActive || _hoverItemKey == pInvKey;
+                                                    <div style="position:relative;">
+                                                        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
+                                                            <div>
+                                                                <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
+                                                                <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                    <span>Y<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(pInv)</span>
+                                                                </div>
+                                                            </div>
+                                                            <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
+                                                                <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
+                                                                <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                    <span>Y<sup>T</sup><sub>@(i + 1)</sub> · M<sup>0</sup> = @ComputePInvariantConstant(pInv)</span>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
-                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
-                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>Y<sup>T</sup><sub>@(i + 1)</sub> · M<sup>0</sup> = @ComputePInvariantConstant(pInv)</span>
-                                                            </div>
-                                                        </div>
+                                                        <button title="@(pInvActive ? "Clear highlight" : "Highlight places in net")"
+                                                                @onclick='() => ToggleHighlight(pInvKey, pInv.Structure.Keys)'
+                                                                @onmouseenter='() => OnEyeHoverEnter(pInvKey, pInv.Structure.Keys)'
+                                                                @onmouseleave='OnEyeHoverLeave'
+                                                                style="position:absolute;top:0;right:0;padding:2px 5px;border:1px solid @(pInvEyeLit ? "#7c3aed" : "#ddd");border-radius:5px;background:@(pInvActive ? "#f5f3ff" : pInvEyeLit ? "#faf5ff" : "#fafafa");color:@(pInvEyeLit ? "#7c3aed" : "#aaa");cursor:pointer;font-size:13px;line-height:1;">
+                                                            👁
+                                                        </button>
                                                     </div>
                                                 }
                                             </div>
@@ -718,19 +754,50 @@
                                                 @for (int i = 0; i < _result.TInvariants.Count; i++)
                                                 {
                                                     var tInv = _result.TInvariants[i];
-                                                    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
-                                                        <div>
-                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
-                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>X<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(tInv)</span>
+                                                    var tInvKey = $"tinv_{i}";
+                                                    var tInvActive = _highlightedItemKey == tInvKey;
+                                                    var tInvEyeLit = tInvActive || _hoverItemKey == tInvKey;
+                                                    <div style="position:relative;">
+                                                        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;">
+                                                            <div>
+                                                                <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">Structural</div>
+                                                                <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                    <span>X<sup>T</sup><sub>@(i + 1)</sub> = @FormatInvariant(tInv)</span>
+                                                                </div>
+                                                            </div>
+                                                            <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
+                                                                <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
+                                                                <div style="font-size:12px;color:#666;line-height:1.7;">
+                                                                    @{
+                                                                        // Order transitions by their position in the net definition,
+                                                                        // expand each by its coefficient (firing count)
+                                                                        var _tSeq = (_lastDto?.Transitions ?? [])
+                                                                            .Where(t => tInv.Structure.ContainsKey(t.Id))
+                                                                            .SelectMany(t => Enumerable.Repeat(Resolve2(t.Id), tInv.Structure[t.Id]))
+                                                                            .ToList();
+                                                                        if (_tSeq.Count == 0)
+                                                                            _tSeq = tInv.Structure
+                                                                                .SelectMany(kv => Enumerable.Repeat(Resolve2(kv.Key), kv.Value))
+                                                                                .ToList();
+                                                                        var _notFired2 = _ssAvailable
+                                                                            ? tInv.Structure.Keys.Where(id => !_firedTransIds.Contains(id)).ToHashSet()
+                                                                            : new HashSet<string>();
+                                                                    }
+                                                                    <span>σ<sub>@(i + 1)</sub> = @string.Join(", ", _tSeq)</span>
+                                                                    @if (_ssAvailable && _notFired2.Count > 0)
+                                                                    {
+                                                                        <span title="@string.Join(", ", _notFired2.Select(Resolve2)) not observed in state space" style="color:#bf360c;margin-left:4px;">⚠</span>
+                                                                    }
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                        <div style="border-left:1px solid #e1e1e1;padding-left:18px;">
-                                                            <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:6px;">System</div>
-                                                            <div style="font-size:12px;color:#666;line-height:1.7;">
-                                                                <span>σ<sub>@(i + 1)</sub> = Not evaluated</span>
-                                                            </div>
-                                                        </div>
+                                                        <button title="@(tInvActive ? "Clear highlight" : "Highlight transitions in net")"
+                                                                @onclick='() => ToggleHighlight(tInvKey, tInv.Structure.Keys)'
+                                                                @onmouseenter='() => OnEyeHoverEnter(tInvKey, tInv.Structure.Keys)'
+                                                                @onmouseleave='OnEyeHoverLeave'
+                                                                style="position:absolute;top:0;right:0;padding:2px 5px;border:1px solid @(tInvEyeLit ? "#7c3aed" : "#ddd");border-radius:5px;background:@(tInvActive ? "#f5f3ff" : tInvEyeLit ? "#faf5ff" : "#fafafa");color:@(tInvEyeLit ? "#7c3aed" : "#aaa");cursor:pointer;font-size:13px;line-height:1;">
+                                                            👁
+                                                        </button>
                                                     </div>
                                                 }
                                             </div>
@@ -765,14 +832,27 @@
                                 {
                                     <div style="font-size:12px;color:#aaa;margin-bottom:10px;">None found.</div>
                                 }
-                                @foreach (var trap in tc.Traps)
+                                @for (int ti = 0; ti < tc.Traps.Count; ti++)
                                 {
-                                    <div style="padding:5px 8px;background:@(trap.HasToken ? "#e8f5e9" : "#fafafa");border:1px solid @(trap.HasToken ? "#a5d6a7" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
-                                        { @string.Join(", ", trap.PlaceIds.Select(id => Resolve3(id))) }
-                                        @if (trap.HasToken)
-                                        {
-                                            <span style="color:#2e7d32;font-weight:700;"> ● marked</span>
-                                        }
+                                    var trap = tc.Traps[ti];
+                                    var trapKey = $"trap_{ti}";
+                                    var trapActive = _highlightedItemKey == trapKey;
+                                    var trapEyeLit = trapActive || _hoverItemKey == trapKey;
+                                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                                        <div style="flex:1;padding:5px 8px;background:@(trap.HasToken ? "#e8f5e9" : "#fafafa");border:1px solid @(trap.HasToken ? "#a5d6a7" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;">
+                                            { @string.Join(", ", trap.PlaceIds.Select(id => Resolve3(id))) }
+                                            @if (trap.HasToken)
+                                            {
+                                                <span style="color:#2e7d32;font-weight:700;"> ● marked</span>
+                                            }
+                                        </div>
+                                        <button title="@(trapActive ? "Clear highlight" : "Highlight in net")"
+                                                @onclick='() => ToggleHighlight(trapKey, trap.PlaceIds)'
+                                                @onmouseenter='() => OnEyeHoverEnter(trapKey, trap.PlaceIds)'
+                                                @onmouseleave='OnEyeHoverLeave'
+                                                style="padding:2px 5px;border:1px solid @(trapEyeLit ? "#7c3aed" : "#ddd");border-radius:5px;background:@(trapActive ? "#f5f3ff" : trapEyeLit ? "#faf5ff" : "#fafafa");color:@(trapEyeLit ? "#7c3aed" : "#aaa");cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;">
+                                            👁
+                                        </button>
                                     </div>
                                 }
                                 <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin:8px 0 4px;">Siphons / Co-traps (@tc.Siphons.Count)</div>
@@ -780,20 +860,33 @@
                                 {
                                     <div style="font-size:12px;color:#aaa;">None found.</div>
                                 }
-                                @foreach (var siphon in tc.Siphons)
+                                @for (int si = 0; si < tc.Siphons.Count; si++)
                                 {
+                                    var siphon = tc.Siphons[si];
                                     var siphonPlaceSet = new HashSet<string>(siphon.PlaceIds);
                                     var isDangerous = !tc.Traps.Any(trap => trap.HasToken && trap.PlaceIds.All(pid => siphonPlaceSet.Contains(pid)));
-                                    <div style="padding:5px 8px;background:@(isDangerous ? "#fff3e0" : "#fafafa");border:1px solid @(isDangerous ? "#ffb74d" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;margin-bottom:3px;">
-                                        { @string.Join(", ", siphon.PlaceIds.Select(id => Resolve3(id))) }
-                                        @if (isDangerous)
-                                        {
-                                            <span style="color:#e65100;font-weight:700;"> ⚠ no marked trap inside this siphon/co-trap</span>
-                                        }
-                                        @if (isDangerous)
-                                        {
-                                            <div style="margin-top:4px;color:#9a6a00;font-size:10px;line-height:1.5;">This means the set does not currently contain any trap that already has a token. If this siphon/co-trap becomes empty, the net may not be able to mark it again.</div>
-                                        }
+                                    var siphonKey = $"siphon_{si}";
+                                    var siphonActive = _highlightedItemKey == siphonKey;
+                                    var siphonEyeLit = siphonActive || _hoverItemKey == siphonKey;
+                                    <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:3px;">
+                                        <div style="flex:1;padding:5px 8px;background:@(isDangerous ? "#fff3e0" : "#fafafa");border:1px solid @(isDangerous ? "#ffb74d" : "#ebebeb");border-radius:6px;font-size:11px;color:#555;">
+                                            { @string.Join(", ", siphon.PlaceIds.Select(id => Resolve3(id))) }
+                                            @if (isDangerous)
+                                            {
+                                                <span style="color:#e65100;font-weight:700;"> ⚠ no marked trap inside this siphon/co-trap</span>
+                                            }
+                                            @if (isDangerous)
+                                            {
+                                                <div style="margin-top:4px;color:#9a6a00;font-size:10px;line-height:1.5;">This means the set does not currently contain any trap that already has a token. If this siphon/co-trap becomes empty, the net may not be able to mark it again.</div>
+                                            }
+                                        </div>
+                                        <button title="@(siphonActive ? "Clear highlight" : "Highlight in net")"
+                                                @onclick='() => ToggleHighlight(siphonKey, siphon.PlaceIds)'
+                                                @onmouseenter='() => OnEyeHoverEnter(siphonKey, siphon.PlaceIds)'
+                                                @onmouseleave='OnEyeHoverLeave'
+                                                style="padding:2px 5px;border:1px solid @(siphonEyeLit ? "#7c3aed" : "#ddd");border-radius:5px;background:@(siphonActive ? "#f5f3ff" : siphonEyeLit ? "#faf5ff" : "#fafafa");color:@(siphonEyeLit ? "#7c3aed" : "#aaa");cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;margin-top:3px;">
+                                            👁
+                                        </button>
                                     </div>
                                 }
                             }
@@ -811,6 +904,7 @@
                 <GraphTreePanel @ref="_refGraphTree"
                                 IsVisible="@(_activeAnalysisTab == "graph")"
                                 ResultStale="@_resultStale"
+                                NetVersion="@_netVersion"
                                 HasInhibitorArcs="@GraphHasInhibitorArcs"
                                 AnalysisResult="@_result" />
 
@@ -976,6 +1070,10 @@
             _refGraphTree?.Reset();
         _activeAnalysisTab = id;
         if (id == "graph") _refGraphTree?.TryPopulateFromCache();
+        _highlightedItemKey = null;
+        _highlightedItemIds = null;
+        _hoverItemKey = null;
+        StateService.ClearHighlight();
         StateHasChanged();
     }
 
@@ -1032,11 +1130,52 @@
     private AnalysisResultDto? _result;
     private PetriNetDto? _lastDto;
     private bool _analysisRunning = false;
-    private bool _resultStale = false;  // true when net changed since last analysis
+    private int  _netVersion      = 0;   // increments on every structural change
+    private int  _analyzedVersion = -1;  // value of _netVersion when last analysis ran
+    private bool _resultStale => _result != null && _analyzedVersion != _netVersion;
     private string? _analysisError;
     private string? _expandedProp;
     private CancellationTokenSource? _analysisCts;
     private AnalysisProgressMessage? _progressMessage;
+
+    // ── Highlight state ────────────────────────────────────────────────────
+    private string?   _highlightedItemKey;   // pinned (click) highlight key
+    private string[]? _highlightedItemIds;   // node IDs for the pinned item
+    private string?   _hoverItemKey;         // transient (hover) key
+
+    private void ToggleHighlight(string key, IEnumerable<string> nodeIds)
+    {
+        _hoverItemKey = null;
+        if (_highlightedItemKey == key)
+        {
+            _highlightedItemKey = null;
+            _highlightedItemIds = null;
+            StateService.ClearHighlight();
+        }
+        else
+        {
+            var ids = nodeIds.ToArray();
+            _highlightedItemKey = key;
+            _highlightedItemIds = ids;
+            StateService.SetHighlight(ids);
+        }
+    }
+
+    private void OnEyeHoverEnter(string key, IEnumerable<string> nodeIds)
+    {
+        _hoverItemKey = key;
+        StateService.SetHighlight(nodeIds);
+    }
+
+    private void OnEyeHoverLeave()
+    {
+        _hoverItemKey = null;
+        // Restore pinned highlight, or clear if nothing is pinned
+        if (_highlightedItemIds != null)
+            StateService.SetHighlight(_highlightedItemIds);
+        else
+            StateService.ClearHighlight();
+    }
 
     // ── Export state ──────────────────────────────────────────────────────
     private bool    _exportRunning    = false;
@@ -1194,14 +1333,15 @@
                     }
 
                     // Auto-run analysis if needed
-                    if (_expIncludeAnalysis && (_result == null || _resultStale))
+                    if (_expIncludeAnalysis && (_result == null || _analyzedVersion != _netVersion))
                     {
                         _exportStatus = "Running analysis…"; StateHasChanged();
                         _lastDto = dto;
                         try
                         {
-                            _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None);
-                            _resultStale = false;
+                            try { _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
+                            catch { _result = await LocalAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
+                            _analyzedVersion = _netVersion;
                         }
                         catch (Exception ex)
                         {
@@ -1254,7 +1394,7 @@
         _analysisRunning = true;
         _analysisError = null;
         _result = null;
-        _resultStale = false;
+        var versionAtStart = _netVersion;
         _progressMessage = null;
         _refGraphTree?.Reset();
         StateHasChanged();
@@ -1275,13 +1415,26 @@
                 _ = InvokeAsync(StateHasChanged);
             });
 
-            _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
+            try
+            {
+                _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch
+            {
+                _result = await LocalAnalysis.RunAnalysisAsync(dto, progress, ct);
+            }
             if (_activeAnalysisTab == "graph") _refGraphTree?.TryPopulateFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
         catch (Exception ex) { _analysisError = ex.Message; }
         finally
         {
+            // Mark as analyzed at the version captured before analysis started.
+            // If the net changed during analysis, _netVersion > versionAtStart and
+            // _resultStale will remain true — correct, since result reflects the old net.
+            if (_analysisError == null)
+                _analyzedVersion = versionAtStart;
             _analysisRunning = false;
             _progressMessage = null;
             await InvokeAsync(StateHasChanged);
@@ -1330,8 +1483,7 @@
     // Fired only for structural (functionally relevant) changes
     private void OnStructuralChange()
     {
-        if (_result is null && !_resultStale) return; // nothing to invalidate
-        _resultStale = true;
+        _netVersion++;
         InvokeAsync(StateHasChanged);
     }
     private void OnStructuralChange(NodeModel _) => OnStructuralChange();
@@ -1347,7 +1499,7 @@
         v.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
 
     private void ToggleOpen() { _open = !_open; if (_open) _ = SetupJsAsync(); }
-    public void Close() { _refGraphTree?.ClearPreview(); _open = false; InvokeAsync(StateHasChanged); }
+    public void Close() { _refGraphTree?.ClearPreview(); _highlightedItemKey = null; _highlightedItemIds = null; _hoverItemKey = null; StateService.ClearHighlight(); _open = false; InvokeAsync(StateHasChanged); }
     private void ToggleFloat() { _floating = !_floating; _ = SetupJsAsync(); }
     private void Maximise()
     {

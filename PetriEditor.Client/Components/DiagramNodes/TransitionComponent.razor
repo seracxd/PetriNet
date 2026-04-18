@@ -10,6 +10,10 @@
 @{
     var isEnabled = StateService.IsSimulating && Sim.EnabledTransitions.Contains(TransitionModel?.Data?.Id ?? "");
     var isLastFired = StateService.IsSimulating && Sim.LastFiredId == TransitionModel?.Data?.Id;
+    var isHighlighted = !StateService.IsSimulating
+        && StateService.HighlightedNodeIds.Count > 0
+        && TransitionModel?.Data?.Id != null
+        && StateService.HighlightedNodeIds.Contains(TransitionModel.Data.Id);
     var _w = Node.Size?.Width  ?? Settings.TransitionWidth;
     var _h = Node.Size?.Height ?? Settings.TransitionHeight;
 }
@@ -20,16 +24,18 @@
 
     <svg width="@_w" height="@_h"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
-                @(Node.Selected && !StateService.IsSimulating ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" :
-                           isLastFired ? "filter: drop-shadow(0 0 6px rgba(0,230,180,1)) drop-shadow(0 0 14px rgba(0,230,180,1)) drop-shadow(0 0 28px rgba(0,230,180,0.9));" : "")">
+                @(isHighlighted ? "filter: drop-shadow(0 0 4px rgba(124,58,237,0.5)) drop-shadow(0 0 10px rgba(124,58,237,0.25));" :
+                  Node.Selected && !StateService.IsSimulating ? "filter: drop-shadow(0 0 5px rgba(0, 123, 255, 0.8));" :
+                  isLastFired ? "filter: drop-shadow(0 0 6px rgba(0,230,180,1)) drop-shadow(0 0 14px rgba(0,230,180,1)) drop-shadow(0 0 28px rgba(0,230,180,0.9));" : "")">
 
         <rect x="0" y="0"
               width="@_w"
               height="@_h"
-              fill="@(isEnabled ? "#4db6ac" : Settings.ArcColor)"
-              stroke="@(Node.Selected && !StateService.IsSimulating ? Settings.ArcSelectedColor : Settings.ArcColor)"
-              stroke-width="@(Node.Selected && !StateService.IsSimulating ? 3 : 2)"
-              style="transition: fill 0.25s, filter 0.25s;" />
+              fill="@(isHighlighted ? "#ede9fe" : isEnabled ? "#4db6ac" : Settings.ArcColor)"
+              stroke="@(isHighlighted ? "#7c3aed" : Node.Selected && !StateService.IsSimulating ? Settings.ArcSelectedColor : Settings.ArcColor)"
+              stroke-width="@(isHighlighted || (Node.Selected && !StateService.IsSimulating) ? 3 : 2)"
+              stroke-dasharray="@(isHighlighted ? "6 3" : "none")"
+              style="transition: fill 0.2s;" />
 
         @if (TransitionModel?.Data?.Priority > 0)
         {
@@ -69,6 +75,7 @@
     {
         StateService.OnToolChanged += StateHasChanged;
         StateService.OnSimulationChanged += StateHasChanged;
+        StateService.OnHighlightChanged += StateHasChanged;
         Settings.Changed += StateHasChanged;
         Sim.OnChanged += StateHasChanged;
     }
@@ -77,6 +84,7 @@
     {
         StateService.OnToolChanged -= StateHasChanged;
         StateService.OnSimulationChanged -= StateHasChanged;
+        StateService.OnHighlightChanged -= StateHasChanged;
         Settings.Changed -= StateHasChanged;
         Sim.OnChanged -= StateHasChanged;
     }

@@ -21,9 +21,10 @@ public sealed class CyclesAnalysis
         int n = nodeIds.Count;
 
         var adj = Enumerable.Range(0, n).Select(_ => new List<int>()).ToList();
-        foreach (var arc in net.Arcs.Where(a => a.ArcType == Analysis.PnArcType.Normal))
+        foreach (var arc in net.Arcs)
             if (idx.TryGetValue(arc.SourceId, out int s) && idx.TryGetValue(arc.TargetId, out int t))
-                adj[s].Add(t);
+                if (!adj[s].Contains(t))
+                    adj[s].Add(t);
 
         var foundCycles = new List<List<string>>();
         var uniqueCycleKeys = new HashSet<string>(StringComparer.Ordinal);

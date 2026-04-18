@@ -5,6 +5,7 @@
 @inject PetriNetManager Manager
 @inject DiagramStateService StateService
 @inject ClientAnalysisService ServerAnalysis
+@inject LocalAnalysisService LocalAnalysis
 
 @* ── Graph / Tree tab (always mounted, shown/hidden via CSS) ── *@
 <div style="@(IsVisible ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
@@ -206,16 +207,19 @@
 
                     @* Limit group *@
                     <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Marking Limit</div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px;gap:12px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;gap:10px;">
                         <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Max markings</span>
-                        <input type="number" min="10" max="10000000" step="100"
-                               value="@_maxStates"
-                               @onchange="OnMaxStatesChanged"
-                               style="width:80px;padding:3px 6px;font-size:11px;border:1px solid #e4e6ea;border-radius:6px;text-align:right;" />
+                        <span style="font-size:12px;color:#00a499;font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_maxStates)</span>
+                    </div>
+                    <div style="padding:2px 14px 4px;">
+                        <input type="range" min="0" max="@(_maxStatesSteps.Length - 1)" step="1"
+                               value="@_maxStatesSliderPos"
+                               @oninput="OnMaxStatesSliderChanged"
+                               style="width:100%;accent-color:#888;" />
                     </div>
                     @if (_maxStates > 10_000)
                     {
-                        <div style="padding:2px 14px 4px;">
+                        <div style="padding:0 14px 4px;">
                             <span style="font-size:10px;color:#e65100;">⚠ large value — may be slow</span>
                         </div>
                     }
@@ -237,7 +241,7 @@
     }
 
     @* stale banner *@
-    @if (ResultStale && _HasVisibleContent())
+    @if (_graphStale)
     {
         <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;flex-shrink:0;
                     background:#fff3e0;border-bottom:1px solid #ffb74d;">
@@ -324,10 +328,22 @@
 </div>
 
 @code {
-    [Parameter] public bool IsVisible      { get; set; }
-    [Parameter] public bool ResultStale    { get; set; }
+    [Parameter] public bool IsVisible        { get; set; }
+    [Parameter] public bool ResultStale      { get; set; }
+    [Parameter] public int  NetVersion       { get; set; }
     [Parameter] public bool HasInhibitorArcs { get; set; }
     [Parameter] public AnalysisResultDto? AnalysisResult { get; set; }
+
+    private int _computedAtVersion = -1;
+    private bool _graphStale => _HasVisibleContent() && _computedAtVersion != NetVersion;
+
+    protected override void OnParametersSet()
+    {
+        // When the analysis result is refreshed (ResultStale goes false), sync our version too
+        // so the graph banner doesn't lag behind the analysis banner.
+        if (!ResultStale && _computedAtVersion == -1)
+            _computedAtVersion = NetVersion;
+    }
 
     private string                   _graphMode        = "graph"; // "graph" | "statespace"
     private string                   _viewMode         = "tree";  // "graph" | "tree"
@@ -363,7 +379,9 @@
     public async Task EnsureGraphDataAsync(PetriNetDto dto)
     {
         if (_graphData != null) return;
-        var result = await ServerAnalysis.ComputeGraphAsync(dto, CancellationToken.None, _maxStates);
+        GraphResultDto result;
+        try { result = await ServerAnalysis.ComputeGraphAsync(dto, CancellationToken.None, _maxStates); }
+        catch { result = await LocalAnalysis.ComputeGraphAsync(dto, CancellationToken.None, _maxStates); }
         if (result.CoverabilityTree != null)
         {
             _graphData = result.CoverabilityTree;
@@ -405,6 +423,7 @@
             IsDeadlockFree: AnalysisResult.IsDeadlockFree,
             IsReversible:   AnalysisResult.IsReversible,
             ExceededLimit:  false);
+        _computedAtVersion = NetVersion;
     }
 
     private void SetGraphMode(string mode)
@@ -414,11 +433,26 @@
         StateHasChanged();
     }
 
-    private void OnMaxStatesChanged(ChangeEventArgs e)
+    // Logarithmic steps for the marking-limit slider
+    private static readonly int[] _maxStatesSteps = [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000];
+
+    private int _maxStatesSliderPos = 3; // default index → 5 000
+
+    private void OnMaxStatesSliderChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value?.ToString(), out int v))
-            _maxStates = Math.Max(100, Math.Min(10_000_000, v));
+        if (int.TryParse(e.Value?.ToString(), out int pos))
+        {
+            _maxStatesSliderPos = Math.Clamp(pos, 0, _maxStatesSteps.Length - 1);
+            _maxStates = _maxStatesSteps[_maxStatesSliderPos];
+        }
     }
+
+    private static string FormatMaxStates(int v) => v switch
+    {
+        >= 1_000_000 => $"{v / 1_000_000}M",
+        >= 1_000     => $"{v / 1_000}k",
+        _            => v.ToString()
+    };
 
     private async Task FitCurrentView()
     {
@@ -452,6 +486,8 @@
             if (!places.Any() && !transitions.Any()) return;
             _lastDto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
         }
+        // Clear layout cache so the re-computed graph gets a fresh layout
+        await JS.InvokeVoidAsync("petriEditor.clearCytoscapeLayoutCache");
         _graphCts?.Cancel();
         _graphCts?.Dispose();
         _graphCts        = new CancellationTokenSource();
@@ -462,7 +498,10 @@
         StateHasChanged();
         try
         {
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates);
+            GraphResultDto result;
+            try { result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates); }
+            catch (OperationCanceledException) { throw; }
+            catch { result = await LocalAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates); }
 
             if (result.StateSpace?.ExceededLimit == true)
                 _graphTruncated = true;
@@ -473,6 +512,7 @@
             {
                 _graphData = result.CoverabilityTree;
                 _graphIsUnbounded = result.StateSpace?.IsBounded == false;
+                _computedAtVersion = NetVersion;
             }
             if (result.StateSpace != null)
                 _graphStateSpace = result.StateSpace;
@@ -492,22 +532,23 @@
 
     private void PreviewMarking(IReadOnlyList<int?> marking)
     {
-        if (_lastDto == null) return;
-        var places    = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
-        var placeList = _lastDto.Places.ToList();
+        if (_graphData == null) return;
+        var placeNames = _graphData.PlaceNames;
+        var places     = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
 
         if (_previewSaved == null)
             _previewSaved = places.ToDictionary(p => p.Data.Id, p => p.Data.Tokens);
 
-        for (int idx = 0; idx < placeList.Count && idx < marking.Count; idx++)
+        for (int idx = 0; idx < placeNames.Count && idx < marking.Count; idx++)
         {
-            var node = places.FirstOrDefault(p => p.Data.Id == placeList[idx].Id);
+            var node = places.FirstOrDefault(p => p.Data.Name == placeNames[idx]);
             if (node == null) continue;
             node.Data.Tokens = marking[idx] is int tokens ? tokens : int.MaxValue;
         }
 
+        // Setting IsPreviewingMarking always fires OnMarkingPreviewChanged (even if already true),
+        // so PlaceComponents re-render whenever the hovered node changes.
         StateService.IsPreviewingMarking = true;
-        foreach (var p in places) p.Refresh();
     }
 
     public void ClearPreview()
@@ -521,7 +562,6 @@
         }
         _previewSaved = null;
         StateService.IsPreviewingMarking = false;
-        foreach (var p in places) p.Refresh();
     }
 
     public async ValueTask DisposeAsync()

@@ -170,7 +170,12 @@
 
         int labelIdx = 0;
         _nodeLabels.Clear();
-        var root = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
+        // Prefer the node flagged as initial. If the display subset doesn't contain it
+        // (shouldn't happen — root is always kept), fall back to the node with no parent,
+        // then to the first node in the list.
+        var root = allNodes.FirstOrDefault(n => n.IsInitial)
+                ?? allNodes.FirstOrDefault(n => n.ParentId < 0)
+                ?? allNodes[0];
         var bfsQ = new Queue<int>();
         var bfsVisited = new HashSet<int>();
         bfsQ.Enqueue(root.Id);
@@ -183,6 +188,18 @@
             foreach (int ch in children[cur])
                 if (canonical[ch] == ch && bfsVisited.Add(ch))
                     bfsQ.Enqueue(ch);
+        }
+
+        // If every node is a reference to the root (fully circular net), the BFS above only
+        // labels the root. Ensure every canonical node referenced by duplicates has a label.
+        foreach (var n in allNodes)
+        {
+            int cId = canonical[n.Id];
+            if (!_nodeLabels.ContainsKey(cId))
+            {
+                _nodeLabels[cId] = $"M{labelIdx}";
+                labelIdx++;
+            }
         }
 
         var nodeById = allNodes.ToDictionary(n => n.Id);

@@ -24,6 +24,7 @@ public class SimulationService : IDisposable
     // Time-travel: when viewing a past step we keep the full history here
     // so the user can always "return to present"
     private List<string>? _savedFuture = null;
+    private List<string>? _savedMarkingCodes = null;
     public bool IsViewingHistory => _savedFuture != null;
     public int LiveStepCount => IsViewingHistory ? _savedFuture!.Count : _sim.FiringHistory.Count;
     /// <summary>Full history including future steps when time-travelling.</summary>
@@ -137,6 +138,7 @@ public class SimulationService : IDisposable
         _state.IsSimulating = false;
         _manager.IsSimulating = false;
         _savedFuture = null;
+        _savedMarkingCodes = null;
         FiringCounts.Clear();
         LastFiredId = null;
         _markingCodes.Clear();
@@ -151,6 +153,7 @@ public class SimulationService : IDisposable
         StopAuto();
         _sim.Reset();
         _savedFuture = null;
+        _savedMarkingCodes = null;
         FiringCounts.Clear();
         LastFiredId = null;
         _markingCodes.Clear();
@@ -252,7 +255,10 @@ public class SimulationService : IDisposable
         StopAuto();
         // Save full history before truncating (only if not already viewing history)
         if (_savedFuture == null)
+        {
             _savedFuture = new List<string>(_sim.FiringHistory);
+            _savedMarkingCodes = new List<string>(_markingCodes);
+        }
         _sim.RewindToStep(stepIndex);
         int keep = Math.Max(0, stepIndex + 1);
         if (_markingCodes.Count > keep)
@@ -267,13 +273,20 @@ public class SimulationService : IDisposable
     {
         if (_savedFuture == null) return;
         var full = _savedFuture;
+        var fullCodes = _savedMarkingCodes;
         _savedFuture = null;
+        _savedMarkingCodes = null;
         _sim.RewindToStep(full.Count - 1);
         // The rewind may have cleared future steps beyond current; replay the full list
         while (_sim.FiringHistory.Count < full.Count)
         {
             var id = full[_sim.FiringHistory.Count];
             _sim.Fire(id);
+        }
+        if (fullCodes != null)
+        {
+            _markingCodes.Clear();
+            _markingCodes.AddRange(fullCodes);
         }
         LastFiredId = _sim.FiringHistory.LastOrDefault();
         PushMarkingToDiagram();

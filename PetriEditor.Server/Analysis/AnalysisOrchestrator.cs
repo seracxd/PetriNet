@@ -55,7 +55,10 @@ public sealed class AnalysisOrchestrator
 
             progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
             var inv = new InvariantAnalysis();
-            inv.Compute(net);
+            if (!isUnbounded)
+                inv.Compute(net);
+            else
+                inv.SkipUnbounded();
             report.Invariants = inv;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 

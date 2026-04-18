@@ -50,12 +50,38 @@
             get => _isPreviewingMarking;
             set
             {
-                if (_isPreviewingMarking != value)
-                {
-                    _isPreviewingMarking = value;
-                    OnSimulationChanged?.Invoke(); // reuse same event — PlaceComponent re-renders
-                }
+                _isPreviewingMarking = value;
+                OnMarkingPreviewChanged?.Invoke(); // always fire — tokens may have changed between same hover nodes
             }
         }
+
+        /// <summary>Fired whenever a marking preview starts, updates, or ends. Always fires even if IsPreviewingMarking didn't change.</summary>
+        public event Action? OnMarkingPreviewChanged;
+
+        // ── Analysis highlight ────────────────────────────────────────────
+
+        /// <summary>Domain IDs of places/transitions currently highlighted from the analysis panel.</summary>
+        public HashSet<string> HighlightedNodeIds { get; } = [];
+
+        /// <summary>
+        /// Highlights the given node IDs in the diagram.
+        /// Pass empty enumerables to clear all highlights.
+        /// </summary>
+        public void SetHighlight(IEnumerable<string> nodeIds)
+        {
+            HighlightedNodeIds.Clear();
+            foreach (var id in nodeIds)
+                HighlightedNodeIds.Add(id);
+            OnHighlightChanged?.Invoke();
+        }
+
+        public void ClearHighlight()
+        {
+            if (HighlightedNodeIds.Count == 0) return;
+            HighlightedNodeIds.Clear();
+            OnHighlightChanged?.Invoke();
+        }
+
+        public event Action? OnHighlightChanged;
     }
 }

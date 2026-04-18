@@ -17,6 +17,10 @@ public sealed class StateSpaceAnalysis
     private readonly Dictionary<int[], int> _stateIdx = new(TokenArrayComparer.Instance);
     private readonly List<List<(int To, string TransId)>> _edges = [];
 
+    // Retained after Build for truncated-deadlock detection
+    private Analysis.PetriNetSnapshot? _net;
+    private Dictionary<string, int>?   _pIdx;
+
     public IReadOnlyList<int[]> States => _states;
 
     /// <summary>
@@ -53,6 +57,9 @@ public sealed class StateSpaceAnalysis
         var pIdx = net.Places
             .Select((p, i) => (p.Id, i))
             .ToDictionary(x => x.Id, x => x.i);
+
+        _net  = net;
+        _pIdx = pIdx;
 
         while (queue.Count > 0)
         {
@@ -172,10 +179,48 @@ public sealed class StateSpaceAnalysis
 
     // ── Graph queries ─────────────────────────────────────────────────────
 
-    public bool IsBounded()     => !HasErrors && !IsTruncated;
+    public bool IsBounded()      => !HasErrors && !IsTruncated;
     public bool IsDeadlockFree() => !HasErrors && !IsTruncated && Enumerable.Range(0, _states.Count).All(i => _edges[i].Count > 0);
-    public bool IsReversible()  => !HasErrors && !IsTruncated && FindSCCs().Count == 1;
-    public bool IsSafe()        => !HasErrors && !IsTruncated && _states.All(s => s.All(t => t <= 1));
+    public bool IsReversible()   => !HasErrors && !IsTruncated && FindSCCs().Count == 1;
+    public bool IsSafe()         => !HasErrors && !IsTruncated && _states.All(s => s.All(t => t <= 1));
+
+    /// <summary>
+    /// Returns the set of transition IDs that fired at least once in the (possibly
+    /// truncated) state space. A transition in this set is confirmed L1-live —
+    /// it fires in at least one reachable state. Safe to call when truncated.
+    /// </summary>
+    public HashSet<string> FiredTransitions()
+    {
+        if (HasErrors) return [];
+        var fired = new HashSet<string>();
+        foreach (var edgeList in _edges)
+            foreach (var (_, tid) in edgeList)
+                fired.Add(tid);
+        return fired;
+    }
+
+    /// <summary>
+    /// Returns true if at least one reachable state has no enabled transitions,
+    /// even when <see cref="IsTruncated"/> is true. Frontier nodes (states cut off
+    /// by the node cap) are excluded — they may have successors we never computed.
+    /// Safe to call on truncated state spaces.
+    /// </summary>
+    public bool HasDefiniteDeadlock()
+    {
+        if (HasErrors || _net is null || _pIdx is null) return false;
+
+        // Frontier nodes: states with no outgoing edges only because BFS was cut off.
+        // A frontier node is identified by having no outgoing edges yet being encountered
+        // during a run that truncated. We conservatively treat any no-edge state as a
+        // definite deadlock only if GetFireable returns nothing for that marking.
+        for (int i = 0; i < _states.Count; i++)
+        {
+            if (_edges[i].Count > 0) continue;
+            if (!GetFireable(_net, _pIdx, _states[i]).Any())
+                return true;
+        }
+        return false;
+    }
 
     public bool IsLive(int transCount)
     {
