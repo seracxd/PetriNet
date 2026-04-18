@@ -535,16 +535,22 @@ public class PetriNetManager : IDisposable
 
     private async void OnLinkTargetAttached(BaseLinkModel baseLink)
     {
-        if (baseLink is not PetriLinkModel link) return;
-        if (link.IsDraggingEndpoint) return;
-        await Task.Yield();
-        // Skip validation during undo/redo — the restored link is already known-good
-        if (History.IsBusy) return;
-        var src = GetParentNode(link.Source);
-        var tgt = GetParentNode(link.Target);
-        if (src == null || tgt == null) return;
-        if (ValidatePetriLink(link, src, tgt))
-            link.CanonicalSourceId ??= src.Id;
+        try
+        {
+            if (baseLink is not PetriLinkModel link) return;
+            if (link.IsDraggingEndpoint) return;
+            await Task.Yield();
+            if (History.IsBusy) return;
+            var src = GetParentNode(link.Source);
+            var tgt = GetParentNode(link.Target);
+            if (src == null || tgt == null) return;
+            if (ValidatePetriLink(link, src, tgt))
+                link.CanonicalSourceId ??= src.Id;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("LinkAttach", $"EXCEPTION {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private bool ValidatePetriLink(PetriLinkModel link, NodeModel src, NodeModel tgt)

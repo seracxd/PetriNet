@@ -1,23 +1,35 @@
 ﻿// ── Global keyboard handler ───────────────────────────────────────────────
+window.petriEditor = window.petriEditor || {};
+
 window.registerGlobalKeyHandler = (dotnetRef) => {
-    document.addEventListener('keydown', (e) => {
-        // Don't steal keys while the user is typing in an input field
+    // If a previous handler is still attached (e.g. after a Blazor Server
+    // circuit reconnect), detach it before wiring a new one.
+    if (window.petriEditor._keyHandler) {
+        document.removeEventListener('keydown', window.petriEditor._keyHandler);
+    }
+
+    const handler = (e) => {
         const tag = e.target?.tagName;
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
             || e.target?.isContentEditable;
         if (isEditable) {
-            // Still allow Escape to blur/cancel, but nothing else
             if (e.key !== 'Escape') return;
         }
-        dotnetRef.invokeMethodAsync('OnGlobalKey', e.key, e.ctrlKey, e.shiftKey, e.altKey);
-    });
-    window._dotNetRef = dotnetRef;
+        if (!window.petriEditor._dotNetRef) return;
+        window.petriEditor._dotNetRef.invokeMethodAsync('OnGlobalKey', e.key, e.ctrlKey, e.shiftKey, e.altKey);
+    };
+
+    document.addEventListener('keydown', handler);
+    window.petriEditor._keyHandler = handler;
+    window.petriEditor._dotNetRef = dotnetRef;
 };
 
 window.unregisterGlobalKeyHandler = () => {
-    // dotNetRef disposed — nothing further needed; the keydown listener
-    // will stop invoking because the ref is gone.
-    window._dotNetRef = null;
+    if (window.petriEditor._keyHandler) {
+        document.removeEventListener('keydown', window.petriEditor._keyHandler);
+        window.petriEditor._keyHandler = null;
+    }
+    window.petriEditor._dotNetRef = null;
 };
 
 // Called by Blazor when the select tool is activated / deactivated
@@ -184,8 +196,8 @@ function setupOnContainer(container) {
             }
             overlay.style.display = 'none';
             overlay._sx = sx; overlay._sy = sy;
-            if (window._dotNetRef)
-                window._dotNetRef.invokeMethodAsync(
+            if (window.petriEditor._dotNetRef)
+                window.petriEditor._dotNetRef.invokeMethodAsync(
                     'OnSelRectArmed', sx, sy);
         }
 
@@ -208,8 +220,8 @@ function setupOnContainer(container) {
                     const ddx = (drag.lastX - drag.startX) - drag.prevDx;
                     const ddy = (drag.lastY - drag.startY) - drag.prevDy;
                     drag.prevDx += ddx; drag.prevDy += ddy;
-                    if ((ddx || ddy) && window._dotNetRef)
-                        window._dotNetRef.invokeMethodAsync('PanByDelta', ddx, ddy);
+                    if ((ddx || ddy) && window.petriEditor._dotNetRef)
+                        window.petriEditor._dotNetRef.invokeMethodAsync('PanByDelta', ddx, ddy);
                 });
             }
             return;
@@ -252,8 +264,8 @@ function setupOnContainer(container) {
             requestAnimationFrame(() => {
                 if (!window._selDrag) return;
                 window._selDrag.rafPending = false;
-                if (window._dotNetRef)
-                    window._dotNetRef.invokeMethodAsync('OnSelPointerMoveJS', cx, cy);
+                if (window.petriEditor._dotNetRef)
+                    window.petriEditor._dotNetRef.invokeMethodAsync('OnSelPointerMoveJS', cx, cy);
             });
         }
     });
@@ -268,8 +280,8 @@ function setupOnContainer(container) {
             const overlay = document.getElementById('sel-rect-overlay-js');
             if (overlay) overlay.style.display = 'none';
             window._selDrag = null;
-            if (window._dotNetRef)
-                window._dotNetRef.invokeMethodAsync('OnCanvasPointerUp');
+            if (window.petriEditor._dotNetRef)
+                window.petriEditor._dotNetRef.invokeMethodAsync('OnCanvasPointerUp');
         }
     });
 }

@@ -73,7 +73,7 @@ public sealed class AnalysisOrchestrator
             cyc.Compute(net);
             report.Cycles = cyc;
             var tc = new TrapCotrapAnalysis();
-            tc.Compute(net);
+            tc.Compute(net, ct);
             report.TrapCotrap = tc;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 
@@ -157,9 +157,7 @@ public sealed class AnalysisOrchestrator
             }
         });
 
-        var result = new GraphResultDto(null, null, coverDto, error, ssDto);
-        GC.Collect(2, GCCollectionMode.Optimized, blocking: false, compacting: false);
-        return result;
+        return new GraphResultDto(null, null, coverDto, error, ssDto);
     }
 
     private PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)

@@ -30,64 +30,127 @@ public sealed class CyclesAnalysis
         var uniqueCycleKeys = new HashSet<string>(StringComparer.Ordinal);
         var blocked = new bool[n];
         var blockMap = Enumerable.Range(0, n).Select(_ => new HashSet<int>()).ToList();
-        var stack = new Stack<int>();
+        var pathStack = new Stack<int>();
 
-        bool Circuit(int v, int s)
+        // Iterative Johnson's elementary-circuits search — explicit frame stack
+        // so long chains don't blow the CLR stack. Each frame tracks the node,
+        // its current edge index, and whether any descendant found a cycle.
+        void RunCircuit(int start)
         {
-            bool found = false;
-            stack.Push(v); blocked[v] = true;
+            var frames = new Stack<Frame>();
+            frames.Push(new Frame(start, 0, false));
+            pathStack.Push(start);
+            blocked[start] = true;
 
-            foreach (int w in adj[v])
+            while (frames.Count > 0)
             {
-                if (w == s)
+                var top = frames.Peek();
+                var neighbours = adj[top.V];
+
+                if (top.EdgeIdx < neighbours.Count)
                 {
-                    var cycle = stack.Reverse().Select(i => nodeIds[i]).ToList();
-                    var key = CanonicalCycleKey(cycle);
-                    if (uniqueCycleKeys.Add(key))
-                        foundCycles.Add(cycle);
-                    found = true;
+                    int w = neighbours[top.EdgeIdx++];
+                    if (w == start)
+                    {
+                        var cycle = pathStack.Reverse().Select(i => nodeIds[i]).ToList();
+                        var key = CanonicalCycleKey(cycle);
+                        if (uniqueCycleKeys.Add(key))
+                            foundCycles.Add(cycle);
+                        top.Found = true;
+                    }
+                    else if (!blocked[w])
+                    {
+                        frames.Push(new Frame(w, 0, false));
+                        pathStack.Push(w);
+                        blocked[w] = true;
+                    }
+                    continue;
                 }
-                else if (!blocked[w] && Circuit(w, s)) found = true;
+
+                // All neighbours processed — post-visit
+                if (top.Found) UnblockIterative(top.V);
+                else foreach (int w in neighbours) blockMap[w].Add(top.V);
+
+                pathStack.Pop();
+                frames.Pop();
+                if (frames.Count > 0 && top.Found) frames.Peek().Found = true;
             }
-
-            if (found) Unblock(v);
-            else foreach (int w in adj[v]) blockMap[w].Add(v);
-
-            stack.Pop(); return found;
         }
 
-        void Unblock(int v)
+        void UnblockIterative(int start)
         {
-            blocked[v] = false;
-            foreach (int w in blockMap[v].ToList())
-            { blockMap[v].Remove(w); if (blocked[w]) Unblock(w); }
+            var queue = new Stack<int>();
+            queue.Push(start);
+            while (queue.Count > 0)
+            {
+                int v = queue.Pop();
+                if (!blocked[v]) continue;
+                blocked[v] = false;
+                foreach (int w in blockMap[v])
+                    if (blocked[w]) queue.Push(w);
+                blockMap[v].Clear();
+            }
         }
 
         for (int s = 0; s < n; s++)
         {
             Array.Clear(blocked, 0, n);
             foreach (var b in blockMap) b.Clear();
-            Circuit(s, s);
+            RunCircuit(s);
             if (foundCycles.Count > 200) break; // safety cap
         }
 
         Cycles = foundCycles.Select(c => new PnCycle(c, net)).ToList();
     }
 
+    // Booth's algorithm: find lexicographically smallest rotation of the cycle in O(n).
+    // The cycle is compared element-wise (string IDs), not character-wise across the joined string.
     private static string CanonicalCycleKey(IReadOnlyList<string> cycle)
     {
-        if (cycle.Count == 0)
-            return string.Empty;
+        int n = cycle.Count;
+        if (n == 0) return string.Empty;
+        if (n == 1) return cycle[0];
 
-        var best = string.Join("|", cycle);
-        for (int shift = 1; shift < cycle.Count; shift++)
+        var f = new int[2 * n];
+        Array.Fill(f, -1);
+        int k = 0;
+        for (int j = 1; j < 2 * n; j++)
         {
-            var rotated = string.Join("|", cycle.Skip(shift).Concat(cycle.Take(shift)));
-            if (string.CompareOrdinal(rotated, best) < 0)
-                best = rotated;
+            int i = f[j - k - 1];
+            while (i != -1 && !string.Equals(cycle[j % n], cycle[(k + i + 1) % n], StringComparison.Ordinal))
+            {
+                int cmp = string.CompareOrdinal(cycle[j % n], cycle[(k + i + 1) % n]);
+                if (cmp < 0) k = j - i - 1;
+                i = f[i];
+            }
+            if (i == -1)
+            {
+                int cmp = string.CompareOrdinal(cycle[j % n], cycle[(k + i + 1) % n]);
+                if (cmp != 0)
+                {
+                    if (cmp < 0) k = j;
+                    f[j - k] = -1;
+                }
+                else f[j - k] = i + 1;
+            }
+            else f[j - k] = i + 1;
         }
 
-        return best;
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < n; i++)
+        {
+            if (i > 0) sb.Append('|');
+            sb.Append(cycle[(k + i) % n]);
+        }
+        return sb.ToString();
+    }
+
+    private sealed class Frame
+    {
+        public int V;
+        public int EdgeIdx;
+        public bool Found;
+        public Frame(int v, int edgeIdx, bool found) { V = v; EdgeIdx = edgeIdx; Found = found; }
     }
 }
 
@@ -141,7 +204,7 @@ public sealed class TrapCotrapAnalysis
     public IReadOnlyList<PlaceSubset> Traps { get; private set; } = [];
     public IReadOnlyList<PlaceSubset> Cotraps { get; private set; } = [];
 
-    public void Compute(Analysis.PetriNetSnapshot net)
+    public void Compute(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
     {
         HasErrors = false; ErrorMsg = null;
         Traps = []; Cotraps = [];
@@ -162,6 +225,8 @@ public sealed class TrapCotrapAnalysis
 
         for (int mask = 1; mask < (1 << n); mask++)
         {
+            if ((mask & 0x1FFF) == 0) ct.ThrowIfCancellationRequested();
+
             var subset = new HashSet<string>();
             for (int i = 0; i < n; i++)
                 if ((mask & (1 << i)) != 0) subset.Add(placeIds[i]);

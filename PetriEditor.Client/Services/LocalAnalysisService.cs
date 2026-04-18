@@ -61,7 +61,7 @@ public sealed class LocalAnalysisService : IAnalysisService
         report.Cycles = cyc;
 
         var tc = new TrapCotrapAnalysis();
-        tc.Compute(net);
+        tc.Compute(net, ct);
         report.TrapCotrap = tc;
 
         ct.ThrowIfCancellationRequested();
@@ -228,6 +228,7 @@ public sealed class LocalAnalysisService : IAnalysisService
             PropertyResults:          propertyResults,
             PInvariants:              pInvariants,
             TInvariants:              tInvariants,
+            InvariantsTruncated:      report.Invariants?.WasTruncated ?? false,
             ReachabilityGraph:        reachGraph,
             ReachabilityTree:         reachTree,
             CoverabilityTree:         coverTree,

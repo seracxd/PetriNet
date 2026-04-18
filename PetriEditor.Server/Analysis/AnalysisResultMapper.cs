@@ -95,6 +95,7 @@ public static class AnalysisResultMapper
             PropertyResults:          propertyResults,
             PInvariants:              pInvariants,
             TInvariants:              tInvariants,
+            InvariantsTruncated:      report.Invariants?.WasTruncated ?? false,
             ReachabilityGraph:        reachGraph,
             ReachabilityTree:         reachTree,
             CoverabilityTree:         coverTree,

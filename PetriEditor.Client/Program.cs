@@ -13,7 +13,7 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 // ── Diagram / editor services ─────────────────────────────────────────────
-builder.Services.AddSingleton<DiagramStateService>();
+builder.Services.AddScoped<DiagramStateService>();
 builder.Services.AddScoped<PetriNetManager>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.Configure<DiagramSettingsOptions>(

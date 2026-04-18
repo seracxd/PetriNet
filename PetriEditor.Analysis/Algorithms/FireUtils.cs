@@ -58,6 +58,8 @@ internal static class FireUtils
     /// <summary>
     /// Fire transition <paramref name="tId"/> on <paramref name="marking"/> and return the next marking.
     /// Does NOT apply the omega-propagation step — that is the caller's responsibility.
+    /// Processing order: normal consumptions → resets → productions, so reset always
+    /// wins on a place and the result is independent of arc iteration order.
     /// </summary>
     internal static int[] Fire(
         PetriNetSnapshot        net,
@@ -67,32 +69,28 @@ internal static class FireUtils
     {
         var next = (int[])marking.Clone();
 
+        // Pass 1 — normal consumptions (skip inhibitor, skip reset)
         foreach (var arc in net.InputArcs(tId))
         {
-            if (!pIdx.TryGetValue(arc.SourceId, out int pi))
-                continue;
-
-            if (arc.ArcType == PnArcType.Inhibitor)
-                continue;
-
-            if (arc.ArcType == PnArcType.Reset)
-            {
-                next[pi] = 0;
-                continue;
-            }
-
-            // Omega stays omega
-            if (next[pi] != int.MaxValue)
-                next[pi] -= arc.Weight;
+            if (arc.ArcType != PnArcType.Normal) continue;
+            if (!pIdx.TryGetValue(arc.SourceId, out int pi)) continue;
+            if (next[pi] != int.MaxValue) next[pi] -= arc.Weight;
         }
 
+        // Pass 2 — resets (always clear to 0, regardless of prior subtractions)
+        foreach (var arc in net.InputArcs(tId))
+        {
+            if (arc.ArcType != PnArcType.Reset) continue;
+            if (!pIdx.TryGetValue(arc.SourceId, out int pi)) continue;
+            next[pi] = 0;
+        }
+
+        // Pass 3 — productions
         foreach (var arc in net.OutputArcs(tId))
         {
             if (pIdx.TryGetValue(arc.TargetId, out int pi))
             {
-                // Omega stays omega
-                if (next[pi] != int.MaxValue)
-                    next[pi] += arc.Weight;
+                if (next[pi] != int.MaxValue) next[pi] += arc.Weight;
             }
         }
 

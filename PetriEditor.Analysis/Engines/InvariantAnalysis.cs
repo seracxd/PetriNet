@@ -7,9 +7,13 @@ namespace Analysis.Engines;
 /// </summary>
 public sealed class InvariantAnalysis
 {
-    public bool HasErrors  { get; private set; }
-    public bool WasSkipped { get; private set; }
-    public string? ErrorMsg { get; private set; }
+    /// <summary>Maximum candidate vectors kept per Farkas elimination step.</summary>
+    public const int MaxCandidates = 500;
+
+    public bool HasErrors    { get; private set; }
+    public bool WasSkipped   { get; private set; }
+    public bool WasTruncated { get; private set; }
+    public string? ErrorMsg  { get; private set; }
 
     public IReadOnlyList<Invariant> PInvariants { get; private set; } = [];
     public IReadOnlyList<Invariant> TInvariants { get; private set; } = [];
@@ -27,7 +31,7 @@ public sealed class InvariantAnalysis
 
     public void Compute(Analysis.PetriNetSnapshot net)
     {
-        HasErrors = false; ErrorMsg = null;
+        HasErrors = false; ErrorMsg = null; WasTruncated = false;
         PInvariants = []; TInvariants = [];
 
         if (!net.Places.Any() || !net.Transitions.Any())
@@ -64,7 +68,7 @@ public sealed class InvariantAnalysis
 
     // ── Farkas algorithm (support-based, non-negative solutions to A·x = 0) ──
 
-    private static List<int[]> ComputeInvariants(int[,] A, int cols)
+    private List<int[]> ComputeInvariants(int[,] A, int cols)
     {
         var candidates = new List<int[]>();
         for (int i = 0; i < cols; i++)
@@ -79,8 +83,8 @@ public sealed class InvariantAnalysis
 
             foreach (var v in candidates)
             {
-                int dot = 0;
-                for (int j = 0; j < cols; j++) dot += A[r, j] * v[j];
+                long dot = 0;
+                for (int j = 0; j < cols; j++) dot += (long)A[r, j] * v[j];
                 if (dot > 0) pos.Add(v);
                 else if (dot < 0) neg.Add(v);
                 else zer.Add(v);
@@ -90,22 +94,37 @@ public sealed class InvariantAnalysis
             foreach (var vp in pos)
                 foreach (var vn in neg)
                 {
-                    int dotp = 0, dotn = 0;
+                    long dotp = 0, dotn = 0;
                     for (int j = 0; j < cols; j++)
-                    { dotp += A[r, j] * vp[j]; dotn += A[r, j] * vn[j]; }
+                    { dotp += (long)A[r, j] * vp[j]; dotn += (long)A[r, j] * vn[j]; }
 
-                    int alpha = Math.Abs(dotn), beta = dotp;
+                    long alpha = Math.Abs(dotn), beta = dotp;
+                    var longCombined = new long[cols];
+                    for (int j = 0; j < cols; j++) longCombined[j] = alpha * vp[j] + beta * vn[j];
+
+                    long g = GcdArray(longCombined);
+                    if (g > 1) for (int j = 0; j < cols; j++) longCombined[j] /= g;
+
+                    // Narrow to int; if any entry no longer fits, drop this candidate.
                     var combined = new int[cols];
-                    for (int j = 0; j < cols; j++) combined[j] = alpha * vp[j] + beta * vn[j];
-
-                    int g = GcdArray(combined);
-                    if (g > 1) for (int j = 0; j < cols; j++) combined[j] /= g;
+                    bool overflow = false;
+                    for (int j = 0; j < cols; j++)
+                    {
+                        if (longCombined[j] > int.MaxValue || longCombined[j] < int.MinValue)
+                        { overflow = true; break; }
+                        combined[j] = (int)longCombined[j];
+                    }
+                    if (overflow) continue;
 
                     if (combined.Any(x => x > 0)) next.Add(combined);
                 }
 
             candidates = Deduplicate(next);
-            if (candidates.Count > 500) candidates = candidates.Take(500).ToList();
+            if (candidates.Count > MaxCandidates)
+            {
+                WasTruncated = true;
+                candidates = candidates.Take(MaxCandidates).ToList();
+            }
         }
 
         return candidates.Where(v => v.Any(x => x > 0)).ToList();
@@ -120,14 +139,14 @@ public sealed class InvariantAnalysis
         return T;
     }
 
-    private static int GcdArray(int[] v)
+    private static long GcdArray(long[] v)
     {
-        int g = 0;
+        long g = 0;
         foreach (var x in v) g = Gcd(g, Math.Abs(x));
         return g == 0 ? 1 : g;
     }
 
-    private static int Gcd(int a, int b) => b == 0 ? a : Gcd(b, a % b);
+    private static long Gcd(long a, long b) => b == 0 ? a : Gcd(b, a % b);
 
     private static List<int[]> Deduplicate(List<int[]> vecs)
     {

@@ -1,3 +1,5 @@
+using Analysis.Engines;
+
 namespace Analysis.Algorithms;
 
 /// <summary>
@@ -39,6 +41,9 @@ public sealed class CoverabilityTreeBuilder
     private readonly List<CoverTreeEdge> _edges        = [];
     private readonly HashSet<int>        _truncatedIds = [];
 
+    // Marking → node index, for O(1) duplicate detection during build.
+    private readonly Dictionary<int[], int> _markingIndex = new(TokenArrayComparer.Instance);
+
     public void Build(
         PetriNetSnapshot  net,
         CancellationToken ct       = default,
@@ -47,6 +52,7 @@ public sealed class CoverabilityTreeBuilder
         _nodes.Clear();
         _edges.Clear();
         _truncatedIds.Clear();
+        _markingIndex.Clear();
         HasErrors    = false;
         IsTruncated  = false;
         ErrorMessage = null;
@@ -61,6 +67,7 @@ public sealed class CoverabilityTreeBuilder
         var initial = net.Places.Select(p => p.Tokens).ToArray();
         var root    = new CoverTreeNode(0, initial, IsInitial: true, IsDeadlock: false, IsDuplicate: false, ParentId: -1);
         _nodes.Add(root);
+        _markingIndex[initial] = 0;
 
         var pIdx = net.Places
             .Select((p, i) => (p.Id, i))
@@ -109,16 +116,18 @@ public sealed class CoverabilityTreeBuilder
                     continue;
                 }
 
-                // Step c/d: check for duplicate marking anywhere in existing tree
-                bool isDup   = FindDuplicate(next, out _);
-                int  newId   = _nodes.Count;
-                bool isDeadlock = false;
+                // Step c/d: O(1) duplicate check via marking index
+                bool isDup = _markingIndex.ContainsKey(next);
+                int  newId = _nodes.Count;
 
                 _nodes.Add(new CoverTreeNode(newId, next,
                     IsInitial:   false,
                     IsDeadlock:  false,
                     IsDuplicate: isDup,
                     ParentId:    parentId));
+
+                if (!isDup)
+                    _markingIndex[next] = newId;
 
                 _edges.Add(new CoverTreeEdge(parentId, newId, t.Id, t.Name));
 
@@ -148,56 +157,26 @@ public sealed class CoverabilityTreeBuilder
             var ancestor = _nodes[cur];
             var am       = ancestor.Marking;
 
-            // Check: ancestor ≤ next (component-wise), with at least one strict increase
+            // Check: ancestor ≤ next (component-wise), with at least one strict increase.
+            // Omega (int.MaxValue) compares correctly as larger than any finite value.
             bool dominated = true;
             bool strict    = false;
             for (int i = 0; i < am.Length; i++)
             {
-                int ai = am[i] == Omega ? Omega : am[i];
-                int ni = next[i] == Omega ? Omega : next[i];
-
-                if (ai > ni) { dominated = false; break; }
-                if (ai < ni)  strict = true;
+                if (am[i] > next[i]) { dominated = false; break; }
+                if (am[i] < next[i]) strict = true;
             }
 
             if (dominated && strict)
             {
                 // Set omega wherever ancestor is strictly smaller
                 for (int i = 0; i < am.Length; i++)
-                {
-                    int ai = am[i] == Omega ? Omega : am[i];
-                    if (ai < next[i])
+                    if (am[i] < next[i])
                         next[i] = Omega;
-                }
             }
 
             cur = ancestor.ParentId;
         }
-    }
-
-    /// <summary>
-    /// True if an existing node in the tree has the same marking as <paramref name="marking"/>.
-    /// </summary>
-    private bool FindDuplicate(int[] marking, out int existingId)
-    {
-        for (int i = 0; i < _nodes.Count; i++)
-        {
-            if (MarkingsEqual(_nodes[i].Marking, marking))
-            {
-                existingId = i;
-                return true;
-            }
-        }
-        existingId = -1;
-        return false;
-    }
-
-    private static bool MarkingsEqual(int[] a, int[] b)
-    {
-        if (a.Length != b.Length) return false;
-        for (int i = 0; i < a.Length; i++)
-            if (a[i] != b[i]) return false;
-        return true;
     }
 }
 

@@ -21,6 +21,15 @@ public class SimulationService : IDisposable
 
     private System.Threading.Timer? _autoTimer;
 
+    /// <summary>
+    /// Optional dispatcher used to marshal auto-firing timer callbacks back onto
+    /// the UI thread. Set by the consuming component (typically to
+    /// <c>ComponentBase.InvokeAsync</c>). Required in Blazor Server / Auto server-mode
+    /// because the timer fires on a thread-pool thread; omitted for pure WASM where
+    /// JavaScript interop is single-threaded.
+    /// </summary>
+    public Func<Func<Task>, Task>? Dispatcher { get; set; }
+
     // Time-travel: when viewing a past step we keep the full history here
     // so the user can always "return to present"
     private List<string>? _savedFuture = null;
@@ -211,14 +220,23 @@ public class SimulationService : IDisposable
         IsAutoFiring = true;
         _autoTimer = new System.Threading.Timer(_ =>
         {
-            if (!IsActive || IsDeadlock)
-            {
-                StopAuto();
-                return;
-            }
-            StepAuto();
+            var dispatcher = Dispatcher;
+            if (dispatcher != null)
+                _ = dispatcher(() => { AutoStepOnce(); return Task.CompletedTask; });
+            else
+                AutoStepOnce();
         }, null, FiringDelay, FiringDelay);
         OnChanged?.Invoke();
+    }
+
+    private void AutoStepOnce()
+    {
+        if (!IsActive || IsDeadlock)
+        {
+            StopAuto();
+            return;
+        }
+        StepAuto();
     }
 
     public void StopAuto()

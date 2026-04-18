@@ -28,9 +28,13 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.HttpsPolicy", LogLevel.Error);
 builder.Logging.AddFilter("Microsoft.AspNetCore.StaticFiles", LogLevel.Warning);
 
 // Keep Data Protection keys stable across container restarts so antiforgery tokens
-// from existing browser sessions remain valid after a redeploy.
+// from existing browser sessions remain valid after a redeploy. Override the path
+// via DP_KEYS_PATH on hosts with non-default layouts (e.g. ephemeral containers).
+var keysPath = Environment.GetEnvironmentVariable("DP_KEYS_PATH")
+               ?? Path.Combine(AppContext.BaseDirectory, "dataprotection-keys");
+Directory.CreateDirectory(keysPath);
 builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo("/tmp/dataprotection-keys"));
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents()

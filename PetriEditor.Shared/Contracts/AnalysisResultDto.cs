@@ -16,6 +16,7 @@ public sealed record AnalysisResultDto(
     IReadOnlyList<PropertyResultDto>   PropertyResults,
     IReadOnlyList<InvariantDto>        PInvariants,
     IReadOnlyList<InvariantDto>        TInvariants,
+    bool                               InvariantsTruncated,
     ReachabilityGraphDto?              ReachabilityGraph,
     ReachabilityGraphDto?              ReachabilityTree,
     CoverabilityTreeDto?               CoverabilityTree,

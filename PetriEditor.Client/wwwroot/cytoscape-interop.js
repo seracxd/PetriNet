@@ -2,9 +2,14 @@
 // ── Cytoscape.js interop ───────────────────────────────────────────────────
 window.petriEditor = window.petriEditor || {};
 window.petriEditor._cy = {};
+// Pending visibility observers per container — kept so teardown can disconnect them
+// even when the container never becomes visible (component disposed while hidden).
+window.petriEditor._cyPendingRo = {};
 // Layout position cache: fingerprint → { nodeId: {x, y} }
 // Avoids re-running expensive breadthfirst layout when the same graph is shown again.
-window.petriEditor._cyLayoutCache = {};
+// Map preserves insertion order, re-setting a key moves it to the end → simple LRU.
+window.petriEditor._cyLayoutCache = new Map();
+window.petriEditor._cyLayoutCacheMax = 20;
 
 function _cyFingerprint(elements) {
     return elements
@@ -146,14 +151,18 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
 
     // If container is hidden (display:none), defer init until it becomes visible
     if (container.offsetWidth === 0 && container.offsetHeight === 0) {
+        // Replace any existing pending observer for this container
+        window.petriEditor._cyPendingRo[containerId]?.disconnect();
         const ro = new ResizeObserver((entries, obs) => {
             const el = entries[0].target;
             if (el.offsetWidth > 0 || el.offsetHeight > 0) {
                 obs.disconnect();
+                delete window.petriEditor._cyPendingRo[containerId];
                 window.petriEditor.initCytoscape(containerId, elements, layoutName, dotnetCallback);
             }
         });
         ro.observe(container);
+        window.petriEditor._cyPendingRo[containerId] = ro;
         return;
     }
 
@@ -173,8 +182,11 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
         style: CY_STYLES,
         layout: (function() {
             const fp = _cyFingerprint(elements);
-            const cached = window.petriEditor._cyLayoutCache[fp];
+            const cached = window.petriEditor._cyLayoutCache.get(fp);
             if (cached) {
+                // Touch: re-insert to mark as most-recently-used
+                window.petriEditor._cyLayoutCache.delete(fp);
+                window.petriEditor._cyLayoutCache.set(fp, cached);
                 // Restore saved positions — no layout computation needed
                 return {
                     name: 'preset',
@@ -277,10 +289,13 @@ window.petriEditor.initCytoscape = function (containerId, elements, layoutName, 
         const fp = _cyFingerprint(elements);
         const pos = {};
         cy.nodes().forEach(n => { pos[n.id()] = { x: n.position('x'), y: n.position('y') }; });
-        window.petriEditor._cyLayoutCache[fp] = pos;
-        // Evict old entries if cache grows large (keep newest 20)
-        const keys = Object.keys(window.petriEditor._cyLayoutCache);
-        if (keys.length > 20) delete window.petriEditor._cyLayoutCache[keys[0]];
+        const cache = window.petriEditor._cyLayoutCache;
+        cache.delete(fp);
+        cache.set(fp, pos);
+        // Evict least-recently-used (oldest insertion) once over the cap
+        while (cache.size > window.petriEditor._cyLayoutCacheMax) {
+            cache.delete(cache.keys().next().value);
+        }
         separateParallelEdges();
         routeEdgesAroundNodes();
     });
@@ -783,6 +798,10 @@ window.petriEditor.destroyCytoscape = function (containerId) {
         window.petriEditor._cy[containerId].destroy();
         delete window.petriEditor._cy[containerId];
     }
+    if (window.petriEditor._cyPendingRo[containerId]) {
+        window.petriEditor._cyPendingRo[containerId].disconnect();
+        delete window.petriEditor._cyPendingRo[containerId];
+    }
 };
 
 window.petriEditor.fitCytoscape = function (containerId) {
@@ -790,7 +809,7 @@ window.petriEditor.fitCytoscape = function (containerId) {
 };
 
 window.petriEditor.clearCytoscapeLayoutCache = function () {
-    window.petriEditor._cyLayoutCache = {};
+    window.petriEditor._cyLayoutCache.clear();
 };
 
 // ── File download ─────────────────────────────────────────────────────────

@@ -596,6 +596,7 @@
         Settings.Changed += OnSettingsChanged;
         StateService.OnSimulationChanged += OnSimulationStateChanged;
         Sim.OnChanged += OnSimulationStateChanged;
+        Sim.Dispatcher = InvokeAsync;
         RebuildNavLists();
     }
 
@@ -624,7 +625,11 @@
                         Sim.FiringDelay = snap.FiringDelay;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                try { await JS.InvokeVoidAsync("console.warn", $"Settings load failed: {ex.Message}"); }
+                catch { }
+            }
         }
     }
 
@@ -1135,6 +1140,7 @@
         Settings.Changed -= OnSettingsChanged;
         StateService.OnSimulationChanged -= OnSimulationStateChanged;
         Sim.OnChanged -= OnSimulationStateChanged;
+        Sim.Dispatcher = null;
         _ = JS.InvokeVoidAsync("unregisterGlobalKeyHandler");
         _dotNetRef?.Dispose();
     }

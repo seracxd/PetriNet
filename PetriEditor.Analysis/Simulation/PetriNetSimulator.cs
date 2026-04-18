@@ -110,23 +110,26 @@ public class PetriNetSimulator
     private void ApplyFiring(string transitionId)
     {
         if (!_arcsByTransition.TryGetValue(transitionId, out var arcs)) return;
+
+        // Pass 1 — normal consumptions
         foreach (var arc in arcs)
         {
-            int current = Marking.GetValueOrDefault(arc.PlaceId, 0);
-            if (arc.PlaceIsSource)
-            {
-                Marking[arc.PlaceId] = arc.Type switch
-                {
-                    ArcType.Normal => current - arc.Weight,
-                    ArcType.Reset => 0,
-                    ArcType.Inhibitor => current,   // consumes nothing
-                    _ => current
-                };
-            }
-            else
-            {
-                Marking[arc.PlaceId] = current + arc.Weight;
-            }
+            if (!arc.PlaceIsSource || arc.Type != ArcType.Normal) continue;
+            Marking[arc.PlaceId] = Marking.GetValueOrDefault(arc.PlaceId, 0) - arc.Weight;
+        }
+
+        // Pass 2 — resets (always clear, independent of arc order)
+        foreach (var arc in arcs)
+        {
+            if (!arc.PlaceIsSource || arc.Type != ArcType.Reset) continue;
+            Marking[arc.PlaceId] = 0;
+        }
+
+        // Pass 3 — productions
+        foreach (var arc in arcs)
+        {
+            if (arc.PlaceIsSource) continue;
+            Marking[arc.PlaceId] = Marking.GetValueOrDefault(arc.PlaceId, 0) + arc.Weight;
         }
     }
 

@@ -1,6 +1,7 @@
 @using Core.Models
 @using Blazor.Diagrams.Core.Models.Base
 @using PetriEditor.Client.Mapping
+@implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
 @inject DiagramStateService StateService

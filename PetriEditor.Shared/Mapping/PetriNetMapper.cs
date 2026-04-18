@@ -38,18 +38,18 @@ public static class PetriNetMapper
     /// <summary>Convert <see cref="ArcType"/> (domain model) → <see cref="Analysis.PnArcType"/> (engine).</summary>
     public static Analysis.PnArcType ToAnalysisArcType(ArcType arcType) => arcType switch
     {
-        ArcType.Normal   => Analysis.PnArcType.Normal,
+        ArcType.Normal    => Analysis.PnArcType.Normal,
         ArcType.Inhibitor => Analysis.PnArcType.Inhibitor,
-        ArcType.Reset    => Analysis.PnArcType.Reset,
-        _                => Analysis.PnArcType.Normal,
+        ArcType.Reset     => Analysis.PnArcType.Reset,
+        _ => throw new ArgumentOutOfRangeException(nameof(arcType), arcType, "Unsupported domain ArcType — add a mapping here when introducing a new arc type."),
     };
 
     /// <summary>Convert <see cref="Analysis.PnArcType"/> (engine) → <see cref="ArcType"/> (domain model).</summary>
     public static ArcType ToDomainArcType(Analysis.PnArcType arcType) => arcType switch
     {
-        Analysis.PnArcType.Normal   => ArcType.Normal,
+        Analysis.PnArcType.Normal    => ArcType.Normal,
         Analysis.PnArcType.Inhibitor => ArcType.Inhibitor,
-        Analysis.PnArcType.Reset    => ArcType.Reset,
-        _                           => ArcType.Normal,
+        Analysis.PnArcType.Reset     => ArcType.Reset,
+        _ => throw new ArgumentOutOfRangeException(nameof(arcType), arcType, "Unsupported analysis PnArcType — add a mapping here when introducing a new arc type."),
     };
 }
