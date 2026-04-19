@@ -488,6 +488,46 @@ html, body {
     padding: 7px 10px !important;
 }
 
+.layout-menu-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.layout-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: #fff;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 200;
+    min-width: 150px;
+}
+
+    .layout-menu button {
+        background: none;
+        border: none;
+        border-radius: 7px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #444;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .layout-menu button:hover {
+        background: #f0fdfc;
+        color: #00a499;
+    }
+
     .undo-redo-btn.disabled,
     .undo-redo-btn:disabled {
         opacity: 0.38;

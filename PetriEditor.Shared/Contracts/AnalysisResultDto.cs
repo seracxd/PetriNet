@@ -143,6 +143,26 @@ public sealed record PlaceSubsetDto(
     IReadOnlyList<string> PlaceIds,
     bool                  HasToken);
 
+// ── Streaming graph chunk ─────────────────────────────────────────────────────
+
+/// <summary>
+/// One chunk of graph/tree data streamed incrementally to the client.
+/// GraphKey: "rg" = reachability graph, "rt" = reachability tree, "ct" = coverability tree.
+/// PlaceNames and Summary are populated only on the first chunk (ChunkIndex == 0).
+/// Node chunks carry ReachNodes or CoverNodes; the final chunk (ChunkIndex == TotalChunks-1)
+/// carries edges and has null node lists.
+/// </summary>
+public sealed record GraphChunkDto(
+    string                       GraphKey,
+    int                          ChunkIndex,
+    int                          TotalChunks,
+    IReadOnlyList<ReachNodeDto>? ReachNodes,
+    IReadOnlyList<ReachEdgeDto>? ReachEdges,
+    IReadOnlyList<CoverNodeDto>? CoverNodes,
+    IReadOnlyList<CoverEdgeDto>? CoverEdges,
+    IReadOnlyList<string>?       PlaceNames,
+    StateSpaceSummaryDto?        Summary);
+
 // ── Net structure ─────────────────────────────────────────────────────────────
 
 public sealed record NetStructureDto(

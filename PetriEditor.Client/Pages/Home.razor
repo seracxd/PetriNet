@@ -338,6 +338,31 @@
                     </svg>
                     Redo
                 </button>
+                <div class="layout-menu-wrapper">
+                    <button class="analysis-btn undo-redo-btn @(_showLayoutMenu ? "active" : "")"
+                            title="Auto-layout"
+                            @onclick="() => _showLayoutMenu = !_showLayoutMenu">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                        </svg>
+                        Layout
+                    </button>
+                    @if (_showLayoutMenu)
+                    {
+                        <div class="layout-menu">
+                            <button @onclick='() => ApplyLayout("hierarchical")'>Hierarchical</button>
+                            <button @onclick='() => ApplyLayout("force")'>Force-Directed</button>
+                            <button @onclick='() => ApplyLayout("bipartite")'>Bipartite</button>
+                            <button @onclick='() => ApplyLayout("radial")'>Radial</button>
+                            <hr style="margin:4px 0;border-color:#ddd"/>
+                            <button @onclick="FixArcOverlaps">Fix Arc Overlaps</button>
+                        </div>
+                    }
+                </div>
                 <div class="analysis-bar-divider"></div>
                 <button class="analysis-btn undo-redo-btn" title="Export net (PDF, SVG, TikZ, PNML)"
                         @onclick="() => _analysisPanel?.OpenExportModal()">
@@ -703,6 +728,159 @@
     private void Undo() { Manager.History.Undo(); StateHasChanged(); }
     private void Redo() { Manager.History.Redo(); StateHasChanged(); }
 
+    private bool _showLayoutMenu;
+
+    private void ApplyLayout(string algo)
+    {
+        _showLayoutMenu = false;
+        var nodes = Manager.GetAllNodes();
+        if (nodes.Count == 0) return;
+
+        static string? DomainId(NodeModel n) => n switch {
+            PlaceNode pn      => pn.Data.Id,
+            TransitionNode tn => tn.Data.Id,
+            _                 => null
+        };
+
+        var nodeIds  = nodes.Select(DomainId).Where(id => id != null).Select(id => id!).ToList();
+        var sizes    = nodes.Where(n => n.Size != null && DomainId(n) != null)
+                            .ToDictionary(n => DomainId(n)!, n => (n.Size!.Width, n.Size!.Height));
+        var nodeById = nodes.Where(n => DomainId(n) != null).ToDictionary(n => DomainId(n)!);
+        var edges    = Manager.GetEdgePairs();
+        var placeIds = Manager.Diagram.Nodes.OfType<PlaceNode>().Select(p => p.Data.Id).ToHashSet();
+
+        Dictionary<string, Point> layout = algo switch
+        {
+            "hierarchical" => AutoLayoutEngine.Hierarchical(nodeIds, edges, sizes),
+            "force"        => AutoLayoutEngine.ForceDirected(nodeIds, edges, sizes),
+            "bipartite"    => AutoLayoutEngine.Bipartite(nodeIds, edges, sizes, placeIds),
+            "radial"       => AutoLayoutEngine.Radial(nodeIds, edges, sizes),
+            _              => AutoLayoutEngine.Hierarchical(nodeIds, edges, sizes),
+        };
+
+        Point NodeCenter(string id)
+        {
+            var (w, h) = sizes.TryGetValue(id, out var s) ? s : (60.0, 60.0);
+            return layout.TryGetValue(id, out var p)
+                ? new Point(p.X + w / 2, p.Y + h / 2)
+                : new Point(0, 0);
+        }
+
+        var cmds = new List<IDiagramCommand>();
+
+        // 1. clear stale waypoints from all arcs
+        foreach (var link in Manager.Diagram.Links.OfType<PetriLinkModel>())
+            foreach (var v in link.Vertices.OfType<PetriVertexModel>().ToList())
+                cmds.Add(new RemoveVertexCommand(link, v));
+
+        // 2. move nodes to new positions
+        cmds.AddRange(nodeIds
+            .Where(id => layout.ContainsKey(id) && nodeById.ContainsKey(id))
+            .Select(id => (IDiagramCommand)new MoveNodeCommand(
+                nodeById[id],
+                nodeById[id].Position ?? new Point(0, 0),
+                layout[id])));
+
+        // 3. hierarchical back-edges: two waypoints routed above the diagram
+        if (algo == "hierarchical" && layout.Count > 0)
+        {
+            double minY = layout.Values.Min(p => p.Y);
+            var triples = Manager.GetLinkTriples();
+            var backEdges = triples
+                .Where(lt => layout.ContainsKey(lt.SrcId) && layout.ContainsKey(lt.TgtId)
+                          && NodeCenter(lt.SrcId).X > NodeCenter(lt.TgtId).X + 80)
+                .OrderByDescending(lt => Math.Abs(NodeCenter(lt.SrcId).X - NodeCenter(lt.TgtId).X))
+                .ToList();
+
+            for (int i = 0; i < backEdges.Count; i++)
+            {
+                double height = minY - 90 - (backEdges.Count - 1 - i) * 55;
+                var (link, srcId, tgtId) = backEdges[i];
+                var sc = NodeCenter(srcId); var tc = NodeCenter(tgtId);
+                cmds.Add(new AddVertexCommand(link, new PetriVertexModel(link, new Point(sc.X, height))));
+                cmds.Add(new AddVertexCommand(link, new PetriVertexModel(link, new Point(tc.X, height))));
+            }
+        }
+
+        if (cmds.Count == 0) return;
+        Manager.History.Execute(new CompositeCommand(cmds));
+        CenterViewOnLayout(layout, sizes);
+        StateHasChanged();
+    }
+
+    private void FixArcOverlaps()
+    {
+        _showLayoutMenu = false;
+        var nodes = Manager.GetAllNodes();
+        if (nodes.Count == 0) return;
+
+        static string? DomainId(NodeModel n) => n switch {
+            PlaceNode pn      => pn.Data.Id,
+            TransitionNode tn => tn.Data.Id,
+            _                 => null
+        };
+
+        var layout = nodes
+            .Where(n => DomainId(n) != null && n.Position != null)
+            .ToDictionary(n => DomainId(n)!, n => n.Position!);
+        var sizes = nodes
+            .Where(n => DomainId(n) != null && n.Size != null)
+            .ToDictionary(n => DomainId(n)!, n => (n.Size!.Width, n.Size!.Height));
+
+        var triples = Manager.GetLinkTriples();
+        var seed = triples
+            .ToDictionary(
+                lt => lt.Link,
+                lt => lt.Link.Vertices.OfType<PetriVertexModel>().Select(v => v.Position).ToList());
+
+        var linkInfos = triples
+            .Where(lt => layout.ContainsKey(lt.SrcId) && layout.ContainsKey(lt.TgtId))
+            .Select(lt => (lt.Link, lt.SrcId, lt.TgtId))
+            .ToList();
+
+        var result = AutoLayoutEngine.DetourAroundNodes<PetriLinkModel>(linkInfos, layout, sizes, seed);
+
+        var cmds = new List<IDiagramCommand>();
+        foreach (var (link, pts) in result)
+        {
+            var existing = seed[link];
+            foreach (var pt in pts.Skip(existing.Count))
+                cmds.Add(new AddVertexCommand(link, new PetriVertexModel(link, pt)));
+        }
+
+        if (cmds.Count == 0) return;
+        Manager.History.Execute(new CompositeCommand(cmds));
+        StateHasChanged();
+    }
+
+    private void CenterViewOnLayout(
+        Dictionary<string, Point> layout,
+        Dictionary<string, (double Width, double Height)> sizes)
+    {
+        if (layout.Count == 0) return;
+
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        foreach (var (id, p) in layout)
+        {
+            var (w, h) = sizes.TryGetValue(id, out var s) ? s : (60.0, 60.0);
+            if (p.X < minX) minX = p.X;
+            if (p.Y < minY) minY = p.Y;
+            if (p.X + w > maxX) maxX = p.X + w;
+            if (p.Y + h > maxY) maxY = p.Y + h;
+        }
+
+        var cx = (minX + maxX) / 2.0;
+        var cy = (minY + maxY) / 2.0;
+        var container = Manager.Diagram.Container;
+
+        Manager.Diagram.SetZoom(1);
+        if (container != null && container.Width > 0 && container.Height > 0)
+            Manager.Diagram.SetPan(container.Width / 2 - cx, container.Height / 2 - cy);
+        else
+            Manager.Diagram.SetPan(-minX + 40, -minY + 40);
+    }
+
     private async Task NewDiagram()
     {
         var confirmed = await JS.InvokeAsync<bool>("confirm", "Clear the diagram? Unsaved changes will be lost.");
@@ -978,6 +1156,7 @@
         }
         if (_navigatorOpen) _navigatorOpen = false;
         if (_settingsOpen) _settingsOpen = false;
+        if (_showLayoutMenu) _showLayoutMenu = false;
         _analysisPanel?.Close();
     }
 

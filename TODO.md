@@ -16,7 +16,7 @@
 ## Performance
 - [x] Tree view: switched from SVG DOM to Canvas rendering — eliminates all per-node DOM elements, text always drawn at minimum 9px on screen regardless of zoom, DPI-aware, ResizeObserver handles panel resize/docking
 - [x] **Cytoscape layout caching**: node positions are saved after each layout keyed by a fingerprint of the node-ID set. Re-displaying the same graph uses `preset` layout (instant) instead of recomputing. Cache is cleared when the user explicitly re-runs graph analysis. Up to 20 fingerprints retained.
-- [ ] SignalR: large DTOs (1000+ nodes) can be slow to serialize/deserialize — consider streaming or chunked transfer for big results
+- [x] **SignalR chunked transfer for large graph DTOs**: `AnalysisHub.RunAnalysis` now strips graph/tree data from `ReceiveResult` and streams it as `ReceiveGraphChunk` messages (200 nodes/chunk) followed by `ReceiveGraphDone`. `RunGraphAnalysis` replaced by `StreamGraph` returning `IAsyncEnumerable<GraphChunkDto>` — client uses `StreamAsync` and reassembles. Individual messages stay ≤~60KB regardless of net size.
 - [x] **Tree layout iterative**: `TreeLayoutEngine.ComputeRelative` uses iterative post-order traversal (Stack-based), not recursion — no stack overflow risk on deep trees.
 
 ## UX

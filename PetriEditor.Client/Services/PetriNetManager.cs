@@ -727,6 +727,32 @@ public class PetriNetManager : IDisposable
     public void ZoomOut() => Diagram.SetZoom(Math.Max(Diagram.Zoom / _settings.ZoomStep, _settings.ZoomMin));
     public void ResetView() { Diagram.SetPan(0, 0); Diagram.SetZoom(1); }
 
+    // ── Layout helpers ────────────────────────────────────────────────────────
+
+    public IReadOnlyList<NodeModel> GetAllNodes() =>
+        Diagram.Nodes.OfType<PlaceNode>().Cast<NodeModel>()
+               .Concat(Diagram.Nodes.OfType<TransitionNode>())
+               .ToList();
+
+    public IReadOnlyList<(string From, string To)> GetEdgePairs() =>
+        Diagram.Links
+               .OfType<PetriLinkModel>()
+               .Where(l => !l.IsDraggingEndpoint && l.Target != null)
+               .Select(l => (GetDomainId(GetParentNode(l.Source)) ?? "",
+                             GetDomainId(GetParentNode(l.Target)) ?? ""))
+               .Where(p => p.Item1 != "" && p.Item2 != "")
+               .ToList();
+
+    public IReadOnlyList<(PetriLinkModel Link, string SrcId, string TgtId)> GetLinkTriples() =>
+        Diagram.Links
+               .OfType<PetriLinkModel>()
+               .Where(l => !l.IsDraggingEndpoint && l.Target != null)
+               .Select(l => (l,
+                   GetDomainId(GetParentNode(l.Source)) ?? "",
+                   GetDomainId(GetParentNode(l.Target)) ?? ""))
+               .Where(t => t.Item2 != "" && t.Item3 != "")
+               .ToList();
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static string? GetDomainId(NodeModel? node) => node switch

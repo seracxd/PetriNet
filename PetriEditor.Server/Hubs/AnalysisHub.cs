@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Analysis.Engines;
 using Microsoft.AspNetCore.SignalR;
 using PetriEditor.Server.Analysis;
@@ -26,8 +27,6 @@ public sealed class AnalysisHub : Hub
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource>
         _analysisCts = new();
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource>
-        _graphCts = new();
 
     // Global cap on concurrent CPU-heavy operations to prevent resource exhaustion
     // when many clients request analysis at the same time.
@@ -110,7 +109,11 @@ public sealed class AnalysisHub : Hub
         try
         {
             var result = await _orchestrator.RunAsync(net, progress, cts.Token);
-            await caller.SendAsync("ReceiveResult", result);
+            // Send metadata first (no graph data) so the client can render the analysis panel immediately.
+            // Graph/tree data is streamed as separate chunks to keep individual messages small.
+            var stripped = result with { ReachabilityGraph = null, ReachabilityTree = null, CoverabilityTree = null };
+            await caller.SendAsync("ReceiveResult", stripped);
+            await SendGraphChunksAsync(caller, result, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -130,37 +133,46 @@ public sealed class AnalysisHub : Hub
         }
     }
 
-    /// <summary>Compute the coverability tree on demand (handles both bounded and unbounded nets).</summary>
-    public async Task<GraphResultDto> RunGraphAnalysis(PetriNetDto net, int maxStates = StateSpaceAnalysis.MaxStates)
+    /// <summary>
+    /// Stream the coverability tree in 200-node chunks so large results never form a single large message.
+    /// The client reassembles chunks into a <see cref="GraphResultDto"/>.
+    /// </summary>
+    public async IAsyncEnumerable<GraphChunkDto> StreamGraph(
+        PetriNetDto net, int maxStates,
+        [EnumeratorCancellation] CancellationToken ct = default)
     {
-        if (!TryThrottle(nameof(RunGraphAnalysis)))
+        if (!TryThrottle(nameof(StreamGraph)))
             throw new HubException("Too many requests. Please wait before retrying.");
-
         ValidateNetSize(net);
 
-        if (_graphCts.TryRemove(Context.ConnectionId, out var oldCts))
-        {
-            oldCts.Cancel();
-            oldCts.Dispose();
-        }
-        var cts = new CancellationTokenSource(_analysisDeadline);
-        _graphCts[Context.ConnectionId] = cts;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(_analysisDeadline);
+
         await _heavyOpGate.WaitAsync(cts.Token);
+        GraphResultDto result;
         try
         {
-            return await _orchestrator.RunGraphAsync(net, cts.Token, maxStates);
+            result = await _orchestrator.RunGraphAsync(net, cts.Token, maxStates);
+        }
+        catch (OperationCanceledException)
+        {
+            _heavyOpGate.Release();
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "RunGraphAnalysis failed for connection {ConnectionId}", Context.ConnectionId);
-            throw;
-        }
-        finally
-        {
             _heavyOpGate.Release();
-            _graphCts.TryRemove(Context.ConnectionId, out _);
-            cts.Dispose();
+            _logger.LogError(ex, "StreamGraph failed for connection {ConnectionId}", Context.ConnectionId);
+            throw new HubException(ex.Message);
         }
+        _heavyOpGate.Release();
+
+        if (result.ErrorMessage is not null)
+            throw new HubException(result.ErrorMessage);
+
+        foreach (var chunk in BuildChunks(
+            result.ReachabilityGraph, result.ReachabilityTree, result.CoverabilityTree, result.StateSpace))
+            yield return chunk;
     }
 
     /// <summary>Generate a PDF report for the given net and return the bytes.</summary>
@@ -196,17 +208,75 @@ public sealed class AnalysisHub : Hub
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
+    // ── Graph chunking helpers ────────────────────────────────────────────
+
+    private const int GraphChunkSize = 200;
+
+    private static async Task SendGraphChunksAsync(
+        IClientProxy caller, AnalysisResultDto result, CancellationToken ct)
+    {
+        foreach (var chunk in BuildChunks(
+            result.ReachabilityGraph, result.ReachabilityTree, result.CoverabilityTree, null))
+        {
+            ct.ThrowIfCancellationRequested();
+            await caller.SendAsync("ReceiveGraphChunk", chunk, ct);
+        }
+        await caller.SendAsync("ReceiveGraphDone", cancellationToken: ct);
+    }
+
+    private static IEnumerable<GraphChunkDto> BuildChunks(
+        ReachabilityGraphDto? reachGraph,
+        ReachabilityGraphDto? reachTree,
+        CoverabilityTreeDto?  coverTree,
+        StateSpaceSummaryDto? summary)
+    {
+        if (reachGraph is not null)
+            foreach (var c in ReachChunks("rg", reachGraph, null)) yield return c;
+        if (reachTree is not null)
+            foreach (var c in ReachChunks("rt", reachTree, null)) yield return c;
+        if (coverTree is not null)
+            foreach (var c in CoverChunks("ct", coverTree, summary)) yield return c;
+    }
+
+    private static IEnumerable<GraphChunkDto> ReachChunks(
+        string key, ReachabilityGraphDto g, StateSpaceSummaryDto? summary)
+    {
+        if (g.Nodes.Count == 0) yield break;
+        int nc    = (int)Math.Ceiling(g.Nodes.Count / (double)GraphChunkSize);
+        int total = nc + 1;
+        for (int i = 0; i < nc; i++)
+            yield return new GraphChunkDto(key, i, total,
+                g.Nodes.Skip(i * GraphChunkSize).Take(GraphChunkSize).ToList(),
+                null, null, null,
+                i == 0 ? g.PlaceNames : null,
+                i == 0 ? summary : null);
+        yield return new GraphChunkDto(key, nc, total, null, g.Edges, null, null, null, null);
+    }
+
+    private static IEnumerable<GraphChunkDto> CoverChunks(
+        string key, CoverabilityTreeDto g, StateSpaceSummaryDto? summary)
+    {
+        if (g.Nodes.Count == 0) yield break;
+        int nc    = (int)Math.Ceiling(g.Nodes.Count / (double)GraphChunkSize);
+        int total = nc + 1;
+        for (int i = 0; i < nc; i++)
+            yield return new GraphChunkDto(key, i, total,
+                null, null,
+                g.Nodes.Skip(i * GraphChunkSize).Take(GraphChunkSize).ToList(),
+                null,
+                i == 0 ? g.PlaceNames : null,
+                i == 0 ? summary : null);
+        yield return new GraphChunkDto(key, nc, total, null, null, null, g.Edges, null, null);
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+
     public override Task OnDisconnectedAsync(Exception? exception)
     {
         if (_analysisCts.TryRemove(Context.ConnectionId, out var aCts))
         {
             aCts.Cancel();
             aCts.Dispose();
-        }
-        if (_graphCts.TryRemove(Context.ConnectionId, out var gCts))
-        {
-            gCts.Cancel();
-            gCts.Dispose();
         }
 
         foreach (var key in _lastCallAt.Keys)

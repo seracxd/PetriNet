@@ -161,8 +161,8 @@ public class ClassicalNetsTests
             Assert.Equal(1, state[mutexIdx] + state[crit1Idx] + state[crit2Idx]);
 
         // P-invariant should cover mutex, crit1, crit2
-        Assert.True(inv.PInvariants.Any(pi =>
-            pi.Covers("mutex") && pi.Covers("crit1") && pi.Covers("crit2")));
+        Assert.Contains(inv.PInvariants, pi =>
+            pi.Covers("mutex") && pi.Covers("crit1") && pi.Covers("crit2"));
     }
 
     // ── Dining Philosophers (3, non-atomic two-step pickup — deadlock-prone) ──

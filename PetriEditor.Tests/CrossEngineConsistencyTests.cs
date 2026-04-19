@@ -108,7 +108,7 @@ public class CrossEngineConsistencyTests
 
         Assert.True(ss.IsBounded());
         // A bounded net's coverability tree contains no omega nodes
-        Assert.False(ct.Nodes.Any(n => n.Marking.Any(t => t == CoverabilityTreeBuilder.Omega)));
+        Assert.DoesNotContain(ct.Nodes, n => n.Marking.Any(t => t == CoverabilityTreeBuilder.Omega));
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class CrossEngineConsistencyTests
         var ct = new CoverabilityTreeBuilder(); ct.Build(net);
 
         Assert.True(ss.IsTruncated || !ss.IsBounded());
-        Assert.True(ct.Nodes.Any(n => n.Marking.Any(t => t == CoverabilityTreeBuilder.Omega)));
+        Assert.Contains(ct.Nodes, n => n.Marking.Any(t => t == CoverabilityTreeBuilder.Omega));
     }
 
     [Fact]

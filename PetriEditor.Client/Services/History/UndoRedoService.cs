@@ -699,6 +699,33 @@ public class RemoveVertexCommand : IDiagramCommand
     public void Unexecute() { _link.Vertices.Insert(Math.Min(_index, _link.Vertices.Count), _vertex); _link.Refresh(); }
 }
 
+public class AddVertexCommand : IDiagramCommand
+{
+    private readonly PetriLinkModel _link;
+    private readonly PetriVertexModel _vertex;
+    private readonly int _index;
+    private readonly bool _append;
+
+    public AddVertexCommand(PetriLinkModel link, PetriVertexModel vertex, int index = -1)
+    {
+        _link   = link;
+        _vertex = vertex;
+        _append = index < 0;
+        _index  = _append ? 0 : index;
+    }
+
+    public bool IsStructural => false;
+    public void Execute()
+    {
+        if (_append)
+            _link.Vertices.Add(_vertex);
+        else
+            _link.Vertices.Insert(Math.Min(_index, _link.Vertices.Count), _vertex);
+        _link.Refresh();
+    }
+    public void Unexecute() { _link.Vertices.Remove(_vertex); _link.Refresh(); }
+}
+
 public class MoveWeightLabelCommand : IDiagramCommand
 {
     private readonly PetriLinkModel _link;
