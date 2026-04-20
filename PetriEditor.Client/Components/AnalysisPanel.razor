@@ -683,9 +683,6 @@
                                 return total;
                             }
 
-                            int ComputeTInvariantWeight(InvariantDto inv)
-                                => inv.Structure.Values.Sum();
-
                             // Transitions that actually fired in the (possibly truncated) state space
                             var _firedTransIds = _result.ReachabilityGraph?.Edges
                                 .Select(e => e.TransitionId).ToHashSet()
@@ -1528,7 +1525,10 @@
                 _dotNetRef);
             await JS.InvokeVoidAsync("analysisPanel.setupTabScroll");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"AnalysisPanel JS setup failed: {ex.Message}");
+        }
     }
 
     [JSInvokable] public void UpdateDockedWidth(double w) { _dockedWidth = Math.Clamp(w, DockedMin, DockedMax); InvokeAsync(StateHasChanged); }

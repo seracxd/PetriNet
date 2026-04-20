@@ -20,7 +20,7 @@
 
 <div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
      style="width: @(_w)px; height: @(_h)px; position: relative; @(StateService.IsSimulating ? "cursor:default;" : "")"
-     @onclick="@(StateService.IsSimulating && isEnabled ? () => Sim.StepManual(TransitionModel!.Data.Id) : null)">
+     @onclick="@OnClick">
 
     <svg width="@_w" height="@_h"
          style="position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible;
@@ -70,6 +70,14 @@
 @code {
     [Parameter] public NodeModel Node { get; set; } = null!;
     private TransitionNode? TransitionModel => Node as TransitionNode;
+
+    private void OnClick()
+    {
+        if (!StateService.IsSimulating) return;
+        if (TransitionModel?.Data == null) return;
+        if (!Sim.EnabledTransitions.Contains(TransitionModel.Data.Id)) return;
+        Sim.StepManual(TransitionModel.Data.Id);
+    }
 
     protected override void OnInitialized()
     {

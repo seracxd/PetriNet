@@ -36,7 +36,9 @@ public sealed class DiagramSettingsOptions
 // ── Runtime service ───────────────────────────────────────────────────────────
 
 /// <summary>
-/// Singleton that holds the active diagram settings at runtime.
+/// Scoped service that holds the active diagram settings at runtime.
+/// Scoped (not singleton) so Blazor Auto server-mode doesn't share user
+/// settings across connected clients.
 ///
 /// Loaded from appsettings.json at startup. Any component or service can
 /// mutate a property and call <see cref="NotifyChanged"/> to push the change
@@ -48,9 +50,9 @@ public sealed class DiagramSettings
 
     // ── Visuals ───────────────────────────────────────────────────────────────
 
-    public string ArcColor { get; set; }
-    public string ArcSelectedColor { get; set; }
-    public string ArcPendingColor { get; set; }
+    public string ArcColor { get; set; } = "";
+    public string ArcSelectedColor { get; set; } = "";
+    public string ArcPendingColor { get; set; } = "";
     public double PlaceSize { get; set; }
     public double TransitionWidth { get; set; }
     public double TransitionHeight { get; set; }

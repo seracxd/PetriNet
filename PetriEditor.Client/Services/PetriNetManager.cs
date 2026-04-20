@@ -658,8 +658,14 @@ public class PetriNetManager : IDisposable
         var standaloneLinks = selected
             .OfType<PetriLinkModel>()
             .Where(l => !l.IsDraggingEndpoint && l.Target != null)
-            .Where(l => !nodesToDelete.Contains(GetParentNode(l.Source))
-                     && !nodesToDelete.Contains(GetParentNode(l.Target)))
+            .Where(l =>
+            {
+                var src = GetParentNode(l.Source);
+                var tgt = GetParentNode(l.Target);
+                return src != null && tgt != null
+                    && !nodesToDelete.Contains(src)
+                    && !nodesToDelete.Contains(tgt);
+            })
             .ToList();
 
         var removedArcIds = new HashSet<(string, string)>(

@@ -574,16 +574,6 @@ public static class AutoLayoutEngine
                 : new Point(0, 0);
         }
 
-        List<Point> Poly(string src, string tgt, List<Point> existing)
-        {
-            var sc = Center(src); var tc = Center(tgt);
-            double dx = tc.X - sc.X, dy = tc.Y - sc.Y;
-            var pts = new List<Point>(existing.Count + 2) { sc };
-            pts.AddRange(existing.OrderBy(wp => (wp.X - sc.X) * dx + (wp.Y - sc.Y) * dy));
-            pts.Add(tc);
-            return pts;
-        }
-
         static bool SegVsBox(Point a, Point b, double bxl, double byt, double bxr, double byb)
         {
             if (Math.Max(a.X, b.X) < bxl || Math.Min(a.X, b.X) > bxr) return false;
@@ -598,53 +588,58 @@ public static class AutoLayoutEngine
 
         var nodeIds = layout.Keys.ToList();
 
-        for (int round = 0; round < rounds; round++)
+        // For each link, find every non-endpoint node whose padded bbox lies
+        // on the direct src→tgt corridor, then commit the whole link to a
+        // single lane (above/below relative to the src→tgt axis). Routing
+        // every blocker on the same side prevents the arc from zig-zagging
+        // through the obstacles.
+        foreach (var (link, srcId, tgtId) in linkInfos)
         {
-            bool changed = false;
-            foreach (var (link, srcId, tgtId) in linkInfos)
+            if (!layout.ContainsKey(srcId) || !layout.ContainsKey(tgtId)) continue;
+            if (wps[link].Count > 0) continue; // respect seed routes (back-edges)
+
+            var sc = Center(srcId); var tc = Center(tgtId);
+            double dx = tc.X - sc.X, dy = tc.Y - sc.Y;
+            double len = Math.Max(Math.Sqrt(dx * dx + dy * dy), 1.0);
+            double ux = dx / len, uy = dy / len;       // src→tgt unit
+            double nx = -uy, ny = ux;                  // left perpendicular
+
+            // Collect nodes whose padded bbox clips the direct segment.
+            var blockers = new List<(string Id, double T, int Side)>();
+            foreach (var nid in nodeIds)
             {
-                if (!layout.ContainsKey(srcId) || !layout.ContainsKey(tgtId)) continue;
-                var poly = Poly(srcId, tgtId, wps[link]);
+                if (nid == srcId || nid == tgtId) continue;
+                var (w, h) = sizes.TryGetValue(nid, out var s) ? s : (60.0, 60.0);
+                var np = layout[nid];
+                double bxl = np.X - padding, byt = np.Y - padding;
+                double bxr = np.X + w + padding, byb = np.Y + h + padding;
+                if (!SegVsBox(sc, tc, bxl, byt, bxr, byb)) continue;
 
-                Point detour = default!;
-                bool found = false;
-                for (int si = 0; si < poly.Count - 1 && !found; si++)
-                {
-                    var a = poly[si]; var b = poly[si + 1];
-                    foreach (var nid in nodeIds)
-                    {
-                        if (nid == srcId || nid == tgtId) continue;
-                        var (w, h) = sizes.TryGetValue(nid, out var s) ? s : (60.0, 60.0);
-                        var np = layout[nid];
-                        double bxl = np.X - padding, byt = np.Y - padding;
-                        double bxr = np.X + w + padding, byb = np.Y + h + padding;
-                        if (!SegVsBox(a, b, bxl, byt, bxr, byb)) continue;
-
-                        double cx = np.X + w / 2, cy = np.Y + h / 2;
-                        double sdx = b.X - a.X, sdy = b.Y - a.Y;
-                        double slen = Math.Max(Math.Sqrt(sdx * sdx + sdy * sdy), 1.0);
-                        double nx = -sdy / slen, ny = sdx / slen;
-
-                        double radius = Math.Abs(nx) * (w / 2 + padding)
-                                      + Math.Abs(ny) * (h / 2 + padding) + 18;
-
-                        double mx = (a.X + b.X) / 2, my = (a.Y + b.Y) / 2;
-                        double proj = (cx - mx) * nx + (cy - my) * ny;
-                        double sign = proj >= 0 ? 1 : -1;
-
-                        detour = new Point(cx + nx * sign * radius, cy + ny * sign * radius);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (found)
-                {
-                    wps[link].Add(detour);
-                    changed = true;
-                }
+                double cx = np.X + w / 2, cy = np.Y + h / 2;
+                double t    = (cx - sc.X) * ux + (cy - sc.Y) * uy;  // along axis
+                double perp = (cx - sc.X) * nx + (cy - sc.Y) * ny;  // signed offset
+                blockers.Add((nid, t, perp >= 0 ? 1 : -1));
             }
-            if (!changed) break;
+
+            if (blockers.Count == 0) continue;
+
+            // Pick the lane that keeps us on the side with fewer blockers.
+            // If tied, go "above" (negative perpendicular) by convention.
+            int above = blockers.Count(b => b.Side == -1);
+            int below = blockers.Count - above;
+            int lane  = below <= above ? 1 : -1;
+
+            // Emit one waypoint per blocker in src→tgt order, offset onto
+            // the chosen lane past the node's padded bbox.
+            foreach (var (nid, _, _) in blockers.OrderBy(b => b.T))
+            {
+                var (w, h) = sizes.TryGetValue(nid, out var s) ? s : (60.0, 60.0);
+                var np = layout[nid];
+                double cx = np.X + w / 2, cy = np.Y + h / 2;
+                double radius = Math.Abs(nx) * (w / 2 + padding)
+                              + Math.Abs(ny) * (h / 2 + padding) + 40;
+                wps[link].Add(new Point(cx + nx * lane * radius, cy + ny * lane * radius));
+            }
         }
 
         return wps;
@@ -711,9 +706,10 @@ public static class AutoLayoutEngine
         List<Point> Poly(string src, string tgt, List<Point> existing)
         {
             var sc = Center(src); var tc = Center(tgt);
-            double dx = tc.X - sc.X, dy = tc.Y - sc.Y;
+            // Preserve traversal order: projection-sorting a back-edge route
+            // (which genuinely doubles back) would collapse its waypoints.
             var pts = new List<Point>(existing.Count + 2) { sc };
-            pts.AddRange(existing.OrderBy(wp => (wp.X - sc.X) * dx + (wp.Y - sc.Y) * dy));
+            pts.AddRange(existing);
             pts.Add(tc);
             return pts;
         }
@@ -721,8 +717,8 @@ public static class AutoLayoutEngine
         for (int round = 0; round < rounds; round++)
         {
             var crossCount = linkInfos.ToDictionary(li => li.Link, _ => 0);
-            // (link-to-route, crossing point, midpoint of the other arc's crossing segment)
-            var crosses = new List<(TLink Route, Point CrossPt, Point OtherMid)>();
+            // (link-to-route, crossing point, midpoint of the other arc's crossing segment, segment index)
+            var crosses = new List<(TLink Route, Point CrossPt, Point OtherMid, int SegIdx)>();
 
             for (int i = 0; i < linkInfos.Count; i++)
             for (int j = i + 1; j < linkInfos.Count; j++)
@@ -751,8 +747,8 @@ public static class AutoLayoutEngine
                     var mid2 = new Point((cx + ddx) / 2, (cy + ddy) / 2);
                     crossCount[l1]++; crossCount[l2]++;
                     // defer decision: store both candidates, pick later
-                    crosses.Add((l1, cp, mid2));
-                    crosses.Add((l2, cp, new Point((ax + bx) / 2, (ay + by) / 2)));
+                    crosses.Add((l1, cp, mid2, si));
+                    crosses.Add((l2, cp, new Point((ax + bx) / 2, (ay + by) / 2), sj));
                     found = true;
                 }
             }
@@ -767,7 +763,7 @@ public static class AutoLayoutEngine
                 .ToList();
 
             var routed = new HashSet<TLink>(EqualityComparer<TLink>.Default);
-            foreach (var (link, (_, crossPt, otherMid), _) in best)
+            foreach (var (link, (_, crossPt, otherMid, segIdx), _) in best)
             {
                 if (!routed.Add(link)) continue;
 
@@ -781,8 +777,10 @@ public static class AutoLayoutEngine
                 double dot = (otherMid.X - crossPt.X) * px + (otherMid.Y - crossPt.Y) * py;
                 double sign = dot > 0 ? -1.0 : 1.0;
                 const double Offset = 75.0;
-                wps[link].Add(new Point(crossPt.X + px * Offset * sign,
-                                        crossPt.Y + py * Offset * sign));
+                var list = wps[link];
+                int idx = Math.Clamp(segIdx, 0, list.Count);
+                list.Insert(idx, new Point(crossPt.X + px * Offset * sign,
+                                           crossPt.Y + py * Offset * sign));
             }
         }
 

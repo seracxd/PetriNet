@@ -18,8 +18,8 @@ builder.Services.AddScoped<PetriNetManager>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.Configure<DiagramSettingsOptions>(
     builder.Configuration.GetSection(DiagramSettingsOptions.Section));
-builder.Services.AddSingleton<DiagramSettings>();
-builder.Services.AddSingleton<IDiagramLogger, AspNetDiagramLogger>();
+builder.Services.AddScoped<DiagramSettings>();
+builder.Services.AddScoped<IDiagramLogger, AspNetDiagramLogger>();
 
 // ── Cytoscape visualization ───────────────────────────────────────────────
 builder.Services.AddScoped<CytoscapeInterop>();

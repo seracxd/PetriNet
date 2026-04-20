@@ -181,10 +181,15 @@ public sealed class AnalysisHub : Hub
         if (!TryThrottle(nameof(ExportPdf)))
             throw new HubException("Too many requests. Please wait before retrying.");
 
-        await _heavyOpGate.WaitAsync();
+        using var cts = new CancellationTokenSource(_analysisDeadline);
+        await _heavyOpGate.WaitAsync(cts.Token);
         try
         {
-            return await Task.Run(() => _pdfExport.Generate(request));
+            return await Task.Run(() => _pdfExport.Generate(request), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            throw new HubException("PDF export timed out.");
         }
         catch (Exception ex)
         {

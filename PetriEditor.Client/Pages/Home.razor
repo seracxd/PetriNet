@@ -1,6 +1,8 @@
 ﻿@page "/"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@using Blazor.Diagrams.Core.Anchors
 @using Blazor.Diagrams.Core.Geometry
+@using Blazor.Diagrams.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
 @using Core.Models
 @using PetriNetAnalyzer.DiagramModels
@@ -653,7 +655,7 @@
             catch (Exception ex)
             {
                 try { await JS.InvokeVoidAsync("console.warn", $"Settings load failed: {ex.Message}"); }
-                catch { }
+                catch (Exception jsEx) { Console.Error.WriteLine($"Settings load + console.warn both failed: {ex.Message} / {jsEx.Message}"); }
             }
         }
     }
@@ -781,6 +783,22 @@
                 nodeById[id].Position ?? new Point(0, 0),
                 layout[id])));
 
+        // 2b. swap fixed-direction port anchors for dynamic edge-intersection
+        // anchors so arrows face whichever side the post-layout geometry requires.
+        static NodeModel? NodeOf(Anchor? a) => a?.Model switch
+        {
+            NodeModel n => n,
+            PortModel pm when pm.Parent is NodeModel pn => pn,
+            _ => null,
+        };
+        foreach (var link in Manager.Diagram.Links.OfType<PetriLinkModel>())
+        {
+            if (link.Source is not EdgeIntersectionAnchor && NodeOf(link.Source) is NodeModel s)
+                link.SetSource(new EdgeIntersectionAnchor(s));
+            if (link.Target is not EdgeIntersectionAnchor && NodeOf(link.Target) is NodeModel t)
+                link.SetTarget(new EdgeIntersectionAnchor(t));
+        }
+
         // 3. hierarchical back-edges: two waypoints routed above the diagram
         if (algo == "hierarchical" && layout.Count > 0)
         {
@@ -828,24 +846,39 @@
             .ToDictionary(n => DomainId(n)!, n => (n.Size!.Width, n.Size!.Height));
 
         var triples = Manager.GetLinkTriples();
-        var seed = triples
-            .ToDictionary(
-                lt => lt.Link,
-                lt => lt.Link.Vertices.OfType<PetriVertexModel>().Select(v => v.Position).ToList());
 
         var linkInfos = triples
             .Where(lt => layout.ContainsKey(lt.SrcId) && layout.ContainsKey(lt.TgtId))
             .Select(lt => (lt.Link, lt.SrcId, lt.TgtId))
             .ToList();
 
-        var result = AutoLayoutEngine.DetourAroundNodes<PetriLinkModel>(linkInfos, layout, sizes, seed);
+        // No seed: recomputing overlaps from scratch avoids piling up new
+        // detours on top of stale ones from previous clicks.
+        var result = AutoLayoutEngine.DetourAroundNodes<PetriLinkModel>(linkInfos, layout, sizes, seed: null);
 
         var cmds = new List<IDiagramCommand>();
+        foreach (var (link, _, _) in linkInfos)
+            foreach (var v in link.Vertices.OfType<PetriVertexModel>().ToList())
+                cmds.Add(new RemoveVertexCommand(link, v));
+
         foreach (var (link, pts) in result)
-        {
-            var existing = seed[link];
-            foreach (var pt in pts.Skip(existing.Count))
+            foreach (var pt in pts)
                 cmds.Add(new AddVertexCommand(link, new PetriVertexModel(link, pt)));
+
+        // Refresh anchors so arrows face the current geometry, not the port the
+        // user happened to click when the arc was first drawn.
+        static NodeModel? NodeOf(Anchor? a) => a?.Model switch
+        {
+            NodeModel n => n,
+            PortModel pm when pm.Parent is NodeModel pn => pn,
+            _ => null,
+        };
+        foreach (var link in Manager.Diagram.Links.OfType<PetriLinkModel>())
+        {
+            if (link.Source is not EdgeIntersectionAnchor && NodeOf(link.Source) is NodeModel s)
+                link.SetSource(new EdgeIntersectionAnchor(s));
+            if (link.Target is not EdgeIntersectionAnchor && NodeOf(link.Target) is NodeModel t)
+                link.SetTarget(new EdgeIntersectionAnchor(t));
         }
 
         if (cmds.Count == 0) return;

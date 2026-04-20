@@ -41,7 +41,10 @@ namespace PetriNetAnalyzer.DiagramModels
         /// <summary>Arc type: Normal, Inhibitor, or Cancellation.</summary>
         public ArcType ArcType { get; set; } = ArcType.Normal;
 
+        // Z.Blazor.Diagrams' LinkModel ctor is typed as non-nullable Anchor but accepts
+        // null in practice — that's how pending/dragging links are represented before the
+        // user drops on a target. The null-forgiving operator suppresses the flow warning.
         public PetriLinkModel(Anchor sourceAnchor, Anchor? targetAnchor = null)
-            : base(sourceAnchor, targetAnchor) { }
+            : base(sourceAnchor, targetAnchor!) { }
     }
 }

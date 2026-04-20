@@ -95,3 +95,52 @@ Full-codebase sweep. Items ordered by severity.
 - [x] **`PetriNetMapper.ToAnalysisArcType` / `ToDomainArcType` default to `Normal` on unknown input**: both now throw `ArgumentOutOfRangeException` with a message pointing to the switch, so a missed enum addition surfaces immediately.
 - [x] **`PdfExportService` / `AnalysisOrchestrator` have no timeout**: `AnalysisHub` now constructs each `CancellationTokenSource` with a 60s deadline (`_analysisDeadline`), applied to both `RunAnalysis` and `RunGraphAnalysis`. The existing engine-level caps still apply; this is the overall wall-clock budget.
 - [x] **`ResizeObserver` in Cytoscape init**: outer "wait for visibility" observer is now tracked in `window.petriEditor._cyPendingRo[containerId]`. `destroyCytoscape` disconnects and removes it, so components disposed while hidden no longer leak observers. Re-init replaces any existing pending observer for the same container.
+
+---
+
+# Project sweep (2026-04-20)
+
+Build: OK, 0 errors, 14 warnings. Tests: 209/209 passing (~3s). Full sweep below, ordered by severity.
+
+## 🔴 Critical
+
+- [x] **`DiagramSettings` + `AspNetDiagramLogger` registered as Singleton in [PetriEditor.Client/Program.cs:21-22](PetriEditor.Client/Program.cs#L21-L22)**: both switched to `AddScoped` so Blazor Auto server-mode doesn't share per-user settings/log-buffer state across connected clients. Docstring on `DiagramSettings` updated. Note: CLAUDE.md still calls it a singleton — architecture note is now stale.
+
+## 🟠 High
+
+- [x] **`SimulationService.Dispose` may race with in-flight timer callback in Blazor Server mode ([PetriEditor.Client/Services/SimulationService.cs:350-352](PetriEditor.Client/Services/SimulationService.cs#L350))**: added `volatile bool _disposed` flag checked at every boundary (timer callback entry, dispatcher lambda, `AutoStepOnce`). `Dispose` now uses `Timer.Dispose(WaitHandle)` + `WaitOne()` to block until any in-flight callback completes. Queued dispatcher callbacks that fire after disposal see `_disposed=true` and return immediately.
+- [ ] **[PetriEditor.Client/DiagramModels/PetriLinkModel.cs:45](PetriEditor.Client/DiagramModels/PetriLinkModel.cs#L45) — CS8604**: `base(sourceAnchor, targetAnchor)` passes a nullable `targetAnchor` to a non-nullable parameter. `Z.Blazor.Diagrams.Core.Models.LinkModel` will deref it. The factory path that actually sets Target later works, but a caller passing `null` here now would NRE inside the base ctor. Either mark the base param as accepting null (document the Z.Blazor Diagrams contract) or throw at our ctor if `targetAnchor` is null when the base requires it.
+- [x] **[PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor:224](PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor#L224) — CS8602**: mirrored the `Target?.` guard on `Source`. `srcPos` now uses `link.Source?.GetPosition(...)` and the existing `if (srcPos != null)` gate downstream already handles the null case.
+
+## 🟡 Medium
+
+- [ ] **[PetriEditor.Client/Services/PetriNetManager.cs:536](PetriEditor.Client/Services/PetriNetManager.cs#L536) — `async void OnLinkTargetAttached`**: try/catch is present (good), but the handler subscribes to `TargetAttached` on each `PetriLinkModel` and unsubscribes in `OnLinkRemoved`. If a link's Target swaps without the link being removed, the handler stays subscribed and fires again — confirmed OK for now since Target is immutable in Z.Blazor after attach, but fragile. Consider `async Task` + `InvokeAsync` wrapper so exceptions flow through Blazor's rendering pipeline.
+- [x] **[PetriEditor.Client/Services/DiagramSettings.cs — CS8618](PetriEditor.Client/Services/DiagramSettings.cs)**: `ArcColor`, `ArcSelectedColor`, `ArcPendingColor` now initialized to `""` at the property declaration. `Apply(_defaults)` still overwrites them from appsettings.json before anything reads them.
+- [x] **[PetriEditor.Client/Components/AnalysisPanel.razor:686 — CS8321](PetriEditor.Client/Components/AnalysisPanel.razor#L686)**: deleted the unused `ComputeTInvariantWeight` local function.
+- [x] **[PetriEditor.Client/Components/AnalysisPanel.razor `SetupJsAsync` catch](PetriEditor.Client/Components/AnalysisPanel.razor)**: replaced bare `catch { }` with `catch (Exception ex) { Console.Error.WriteLine(...) }` so JS setup failures surface in the browser console.
+- [x] **[PetriEditor.Client/Pages/Home.razor nested `catch { }`](PetriEditor.Client/Pages/Home.razor)**: inner fallback catch now logs via `Console.Error.WriteLine` when both the primary load and the `console.warn` JS interop fail.
+- [x] **[PetriEditor.Client/Components/CoverabilityTreeViewSvg.razor:303](PetriEditor.Client/Components/CoverabilityTreeViewSvg.razor#L303)**: added a one-line comment documenting why the `treeView.destroy` catch is intentionally silent (teardown path; JS module may already be gone).
+- [x] **[PetriEditor.Client/Services/PetriNetManager.cs — CS8604](PetriEditor.Client/Services/PetriNetManager.cs)**: `standaloneLinks` filter now resolves `GetParentNode` once per link and explicitly rejects links where either parent is null, before the `HashSet.Contains` call.
+- [x] **[PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor:249 — CS8604](PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor#L249)**: `OnWeightLabelPointerDown` now early-returns when `_points is null`. Avoids passing a null list to `ResolvedWeightSegment`.
+- [x] **[PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor:166-167 — CS8618](PetriEditor.Client/Components/Widgets/PetriLinkWidget.razor#L166-L167)**: `_dragStartMouse`/`_dragStartVertex` initialized to `new(0, 0)` at declaration. (Turns out `Point` is a class in Z.Blazor.Diagrams 3.x, not a struct — the warning was legitimate.)
+
+## 🟢 Low / polish
+
+- [ ] **`NU1510` Microsoft.AspNetCore.DataProtection package warning in [PetriEditor.Server.csproj](PetriEditor.Server/PetriEditor.Server.csproj)**: NuGet reports the package as unnecessary because DataProtection is included in the ASP.NET Core shared framework on .NET 10. Remove the explicit `<PackageReference>` — the `.AddDataProtection()` extension resolves from the framework. (Needs explicit permission per CLAUDE.md off-limits.)
+- [x] **[PetriEditor.Client/Components/DiagramNodes/TransitionComponent.razor:23 — CS8604](PetriEditor.Client/Components/DiagramNodes/TransitionComponent.razor#L23)**: replaced the inline ternary `@onclick` with a named `OnClick()` method that checks `IsSimulating`, null model, and enabled-state inside the method body. Removes the conditional null callback entirely.
+- [x] **[PetriEditor.Client/DiagramModels/PetriLinkModel.cs:45 — CS8604](PetriEditor.Client/DiagramModels/PetriLinkModel.cs#L45)**: added the null-forgiving operator `targetAnchor!` at the base ctor call with a comment explaining that Z.Blazor's non-nullable signature lies — a null target is how dragging/pending links are represented.
+- [ ] **`FileLoggerProvider` holds an `AutoFlush=true StreamWriter` for the process lifetime ([PetriEditor.Server/Logging/FileLoggerProvider.cs:18](PetriEditor.Server/Logging/FileLoggerProvider.cs#L18))**: AutoFlush per-line is fine for low-volume logs, but there's no rotation — the file grows unbounded. Add size-based rotation or rely on the hosting platform's log cap. Note this is the file the user had open in IDE (`logs/petri.log`).
+- [ ] **`ConcurrentDictionary` use in [PetriEditor.Server/Hubs/AnalysisHub.cs:28,37](PetriEditor.Server/Hubs/AnalysisHub.cs#L28)**: legitimate — SignalR hub methods execute concurrently across connections on the server. Kept for audit trail only; not a bug. (The CLAUDE.md "no ConcurrentDictionary" note applies to the WASM client, not the server project.)
+- [x] **No cancellation path in [PetriEditor.Server/Hubs/AnalysisHub.cs:184 `ExportPdf`](PetriEditor.Server/Hubs/AnalysisHub.cs#L184)**: `ExportPdf` now constructs its own `CancellationTokenSource(_analysisDeadline)`, threads the token into both `_heavyOpGate.WaitAsync` and `Task.Run`, and converts timeout to `HubException` so the client sees a clean error.
+
+---
+
+## Summary
+- Build: clean (0 errors, 14 warnings → 2 warnings; only NU1510 package-prune remain).
+- Tests: 209 pass.
+- Real bugs fixed: 3 (Singleton DI in Blazor Auto, SimulationService timer race on dispose, PetriLinkWidget.Source null-deref path).
+- Nullable warnings fixed: 8.
+- Dead code removed: 1 (`ComputeTInvariantWeight`).
+- Silent exception swallows patched: 3.
+- Server-side: `ExportPdf` now has a 60s deadline matching the other hub methods.
+- Remaining: `OnLinkTargetAttached` async-void fragility (deferred — requires broader event-subscription refactor), NU1510 package prune (requires csproj edit permission).

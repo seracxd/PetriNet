@@ -20,6 +20,7 @@ public class SimulationService : IDisposable
     private Dictionary<string, int> _initialTokenSnapshot = new();
 
     private System.Threading.Timer? _autoTimer;
+    private volatile bool _disposed;
 
     /// <summary>
     /// Optional dispatcher used to marshal auto-firing timer callbacks back onto
@@ -216,13 +217,19 @@ public class SimulationService : IDisposable
 
     public void StartAuto()
     {
-        if (IsAutoFiring) return;
+        if (IsAutoFiring || _disposed) return;
         IsAutoFiring = true;
         _autoTimer = new System.Threading.Timer(_ =>
         {
+            if (_disposed) return;
             var dispatcher = Dispatcher;
             if (dispatcher != null)
-                _ = dispatcher(() => { AutoStepOnce(); return Task.CompletedTask; });
+                _ = dispatcher(() =>
+                {
+                    if (_disposed) return Task.CompletedTask;
+                    AutoStepOnce();
+                    return Task.CompletedTask;
+                });
             else
                 AutoStepOnce();
         }, null, FiringDelay, FiringDelay);
@@ -231,6 +238,7 @@ public class SimulationService : IDisposable
 
     private void AutoStepOnce()
     {
+        if (_disposed) return;
         if (!IsActive || IsDeadlock)
         {
             StopAuto();
@@ -349,6 +357,17 @@ public class SimulationService : IDisposable
 
     public void Dispose()
     {
-        _autoTimer?.Dispose();
+        _disposed = true;
+        // Timer.Dispose(WaitHandle) blocks until any in-flight callback completes,
+        // preventing the race where a queued dispatcher callback touches disposed state.
+        var waitHandle = new System.Threading.ManualResetEvent(false);
+        var timer = _autoTimer;
+        _autoTimer = null;
+        if (timer != null)
+        {
+            timer.Dispose(waitHandle);
+            waitHandle.WaitOne();
+        }
+        waitHandle.Dispose();
     }
 }

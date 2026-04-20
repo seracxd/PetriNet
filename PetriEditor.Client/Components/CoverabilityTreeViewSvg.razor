@@ -300,6 +300,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        // Swallowed: destroy may fail if the JS module already unloaded or the container is gone — teardown-only.
         try { await JS.InvokeVoidAsync("treeView.destroy", _containerId); } catch { }
         _dotNetRef?.Dispose();
     }

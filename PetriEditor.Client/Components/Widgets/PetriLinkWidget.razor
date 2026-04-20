@@ -163,8 +163,8 @@
     private bool _wasSelected;
     private List<Point>? _points;
     private PetriVertexModel? _draggingVertex;
-    private Point _dragStartMouse;
-    private Point _dragStartVertex;
+    private Point _dragStartMouse = new(0, 0);
+    private Point _dragStartVertex = new(0, 0);
     private bool _didDrag;
 
     private bool _draggingWeightLabel;
@@ -221,7 +221,7 @@
         var srcHint = verts.Count > 0 ? verts[0] : link.Target?.GetPlainPosition() ?? new Point(0, 0);
         var tgtHint = verts.Count > 0 ? verts[^1] : link.Source?.GetPlainPosition() ?? new Point(0, 0);
 
-        var srcPos = link.Source.GetPosition(link, new[] { srcHint, srcHint });
+        var srcPos = link.Source?.GetPosition(link, new[] { srcHint, srcHint });
         var tgtPos = link.Target?.GetPosition(link, new[] { tgtHint, tgtHint });
 
         var pts = new List<Point>();
@@ -249,6 +249,7 @@
     private void OnWeightLabelPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
         if (e.Button != 0 || StateService.IsSimulating) return;
+        if (_points is null) return;
         _draggingWeightLabel = true;
         _weightLabelSegmentBefore = ResolvedWeightSegment(_points, Link.WeightLabelSegment);
         _weightLabelFlippedBefore = Link.WeightLabelFlipped;
