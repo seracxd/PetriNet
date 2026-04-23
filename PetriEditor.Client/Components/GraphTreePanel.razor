@@ -229,14 +229,14 @@
         }
     </div>
 
-    @* inhibitor arc warning *@
-    @if (HasInhibitorArcs && _graphMode == "graph")
+    @* special arc warning *@
+    @if (HasSpecialArcs && _graphMode == "graph")
     {
         <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;flex-shrink:0;
                     background:#fff8e1;border-bottom:1px solid #ffe082;">
             <span style="font-size:13px;line-height:1.4;">⚠</span>
             <span style="font-size:11px;color:#5f3a00;line-height:1.5;">
-                This net has inhibitor arcs. The coverability tree algorithm (Karp-Miller) assumes monotone firing semantics and may produce incorrect results when inhibitor arcs are present.
+                This net has inhibitor or reset arcs. The coverability tree algorithm (Karp-Miller) assumes monotone firing semantics and may produce incorrect results; prefer the reachability view or treat the tree as an over-approximation.
             </span>
         </div>
     }
@@ -332,7 +332,7 @@
     [Parameter] public bool IsVisible        { get; set; }
     [Parameter] public bool ResultStale      { get; set; }
     [Parameter] public int  NetVersion       { get; set; }
-    [Parameter] public bool HasInhibitorArcs { get; set; }
+    [Parameter] public bool HasSpecialArcs { get; set; }
     [Parameter] public AnalysisResultDto? AnalysisResult { get; set; }
 
     private int _computedAtVersion = -1;
