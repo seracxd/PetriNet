@@ -1,12 +1,11 @@
 @using Core.Models
 @using Blazor.Diagrams.Core.Models.Base
-@using PetriEditor.Client.Mapping
+@using PetriEditor.Shared.Contracts
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
 @inject DiagramStateService StateService
 @inject ClientAnalysisService ServerAnalysis
-@inject LocalAnalysisService LocalAnalysis
 
 @* ── Graph / Tree tab (always mounted, shown/hidden via CSS) ── *@
 <div style="@(IsVisible ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
@@ -18,7 +17,7 @@
             @* mode label *@
             <span style="font-size:10px;font-weight:600;color:#8a94a6;white-space:nowrap;">
                 @(_graphMode == "statespace" ? "Props" : (_graphIsUnbounded ? "Cover" : "Reach"))
-                @(_graphMode != "statespace" ? " · " + (_viewMode == "graph" ? "Graph" : "Tree") : "")
+                @(_graphMode != "statespace" ? " · " + (_viewMode == "tree" ? "Tree" : "Graph") : "")
             </span>
 
             @* Fit + Export buttons *@
@@ -55,8 +54,8 @@
                                     : (isGraph ? "Reachability graph" : "Reachability tree");
                                 int infoNodes = 0, infoEdges = 0;
                                 bool infoDup = false, infoDead = false, infoTrunc = false, infoOmega = _graphIsUnbounded;
-                                if (isGraph && _refCoverGraph != null)
-                                { infoNodes = _refCoverGraph.NodeCount; infoEdges = _refCoverGraph.EdgeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.HasTruncated; }
+                                if (_viewMode == "graph" && _refCoverGraph != null)
+                                { infoNodes = _refCoverGraph.NodeCount; infoDup = _refCoverGraph.HasDuplicates; infoDead = _refCoverGraph.HasDeadlocks; infoTrunc = _refCoverGraph.IsTruncated; }
                                 else if (!isGraph && _refCoverTree != null)
                                 { infoNodes = _refCoverTree.NodeCount; infoDup = _refCoverTree.HasDuplicates; infoDead = _refCoverTree.HasDeadlocks; infoTrunc = _refCoverTree.IsTruncated; }
                             }
@@ -109,7 +108,7 @@
             @* status indicators *@
             @if (_graphTruncated && !_graphRunning)
             {
-                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Result truncated to @_maxStates markings">✂ @_maxStates</span>
+                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Server stopped exploration after @AnalysisLimits.MaxMarkings markings">✂ @FormatMaxStates(AnalysisLimits.MaxMarkings)</span>
             }
             @if (_graphCancelled && !_graphRunning)
             {
@@ -206,10 +205,10 @@
                         </div>
                     }
 
-                    @* Limit group *@
-                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Marking Limit</div>
+                    @* Display limit — pure filter, no recompute *@
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Display Limit</div>
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;gap:10px;">
-                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Max markings</span>
+                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Markings shown</span>
                         <span style="font-size:12px;color:#00a499;font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_maxStates)</span>
                     </div>
                     <div style="padding:2px 14px 4px;">
@@ -218,25 +217,38 @@
                                @oninput="OnMaxStatesSliderChanged"
                                style="width:100%;accent-color:#888;" />
                     </div>
-                    @if (_maxStates > 10_000)
-                    {
-                        <div style="padding:0 14px 4px;">
-                            <span style="font-size:10px;color:#e65100;">⚠ large value — may be slow</span>
-                        </div>
-                    }
+                    <div style="padding:0 14px 6px;">
+                        <span style="font-size:10px;color:#9aa0ad;line-height:1.5;">
+                            Filters the already-computed graph — changing this does not recompute.
+                            The server always explores up to @FormatMaxStates(AnalysisLimits.MaxMarkings) markings.
+                        </span>
+                    </div>
                 </div>
             </div>
         }
     </div>
 
-    @* inhibitor arc warning *@
-    @if (HasInhibitorArcs && _graphMode == "graph")
+    @* special arc warning *@
+    @if (HasSpecialArcs && _graphMode == "graph")
     {
         <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;flex-shrink:0;
                     background:#fff8e1;border-bottom:1px solid #ffe082;">
             <span style="font-size:13px;line-height:1.4;">⚠</span>
             <span style="font-size:11px;color:#5f3a00;line-height:1.5;">
-                This net has inhibitor arcs. The coverability tree algorithm (Karp-Miller) assumes monotone firing semantics and may produce incorrect results when inhibitor arcs are present.
+                This net has inhibitor or reset arcs. The coverability tree algorithm (Karp-Miller) assumes monotone firing semantics and may produce incorrect results; prefer the reachability view or treat the tree as an over-approximation.
+            </span>
+        </div>
+    }
+
+    @* truncation banner — build-time cap hit on the server *@
+    @if (_graphTruncated && !_graphRunning && _HasVisibleContent())
+    {
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;flex-shrink:0;
+                    background:#f3e5f5;border-bottom:1px solid #ce93d8;">
+            <span style="font-size:13px;line-height:1.4;">✂</span>
+            <span style="font-size:11px;color:#4a148c;line-height:1.5;flex:1;">
+                Server stopped exploration after @FormatMaxStates(AnalysisLimits.MaxMarkings) markings.
+                This net is either unbounded or very large — only the part explored so far is shown.
             </span>
         </div>
     }
@@ -295,11 +307,11 @@
         </div>
     }
 
-    @* ── Graph (Cytoscape) — keep alive with CSS ── *@
+    @* ── Graph (manual, canvas) — keep alive with CSS ── *@
     @if (_graphData != null)
     {
         <div style="@(_graphMode == "graph" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-            <CoverabilityTreeView @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" />
+            <CoverabilityGraphViewSvg @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
         </div>
 
         @* ── Tree (SVG) — keep alive with CSS ── *@
@@ -309,11 +321,23 @@
     }
 
     @* ── Loading overlay ── *@
-    @if (_graphRunning)
+    @if (_graphRunning || _graphRendering)
     {
-        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
-            <div style="width:28px;height:28px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
-            <span style="font-size:12px;color:#9aa0ad;">Computing...</span>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;">
+            <div style="width:34px;height:34px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+            <div style="font-size:12px;color:#525965;font-weight:600;">@_graphStatus</div>
+            @if (_graphStatusDetail != null)
+            {
+                <div style="font-size:11px;color:#9aa0ad;text-align:center;max-width:260px;line-height:1.5;">@_graphStatusDetail</div>
+            }
+            @if (_graphRunning)
+            {
+                <button @onclick="CancelGraph"
+                        style="margin-top:4px;padding:4px 14px;font-size:11px;font-weight:600;
+                               border:1px solid #e0e0e0;border-radius:6px;background:#fff;color:#666;cursor:pointer;">
+                    Cancel
+                </button>
+            }
         </div>
     }
 
@@ -332,7 +356,7 @@
     [Parameter] public bool IsVisible        { get; set; }
     [Parameter] public bool ResultStale      { get; set; }
     [Parameter] public int  NetVersion       { get; set; }
-    [Parameter] public bool HasInhibitorArcs { get; set; }
+    [Parameter] public bool HasSpecialArcs { get; set; }
     [Parameter] public AnalysisResultDto? AnalysisResult { get; set; }
 
     private int _computedAtVersion = -1;
@@ -349,19 +373,22 @@
     private string                   _graphMode        = "graph"; // "graph" | "statespace"
     private string                   _viewMode         = "tree";  // "graph" | "tree"
     private bool                     _graphRunning     = false;
+    private bool                     _graphRendering   = false;
+    private string                   _graphStatus      = "Computing…";
+    private string?                  _graphStatusDetail;
     private string?                  _graphError;
     private bool                     _graphCancelled   = false;
     private bool                     _graphTruncated   = false;
     private bool                     _graphIsUnbounded = false;
     private bool                     _graphSettingsOpen = false;
-    private int                      _maxStates        = 5_000;
+    private int                      _maxStates        = 500;
     private bool                     _graphInfoHover   = false;
     private CoverabilityTreeDto?     _graphData;
     private StateSpaceSummaryDto?    _graphStateSpace;
     private CancellationTokenSource? _graphCts;
 
-    private CoverabilityTreeView?    _refCoverGraph;
-    private CoverabilityTreeViewSvg? _refCoverTree;
+    private CoverabilityGraphViewSvg?   _refCoverGraph;
+    private CoverabilityTreeViewSvg?    _refCoverTree;
 
     private PetriNetDto?             _lastDto;
     private Dictionary<string, int>? _previewSaved;
@@ -372,17 +399,16 @@
     public string                ViewMode         => _viewMode;
     public int                   MaxStates        => _maxStates;
 
-    public async Task<string?> ExportPngAsync() =>
-        _viewMode == "tree"
-            ? await (_refCoverTree?.ExportPngAsync()  ?? Task.FromResult<string?>(null))
-            : await (_refCoverGraph?.ExportPngAsync() ?? Task.FromResult<string?>(null));
+    public async Task<string?> ExportPngAsync() => _viewMode switch
+    {
+        "tree" => await (_refCoverTree?.ExportPngAsync()  ?? Task.FromResult<string?>(null)),
+        _      => await (_refCoverGraph?.ExportPngAsync() ?? Task.FromResult<string?>(null)),
+    };
 
     public async Task EnsureGraphDataAsync(PetriNetDto dto)
     {
         if (_graphData != null) return;
-        GraphResultDto result;
-        try { result = await ServerAnalysis.ComputeGraphAsync(dto, CancellationToken.None, _maxStates); }
-        catch { result = await LocalAnalysis.ComputeGraphAsync(dto, CancellationToken.None, _maxStates); }
+        var result = await ServerAnalysis.ComputeGraphAsync(dto, CancellationToken.None);
         if (result.CoverabilityTree != null)
         {
             _graphData = result.CoverabilityTree;
@@ -434,10 +460,11 @@
         StateHasChanged();
     }
 
-    // Logarithmic steps for the marking-limit slider
-    private static readonly int[] _maxStatesSteps = [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000, 1_000_000];
+    // Logarithmic steps for the display-limit slider.  Capped at the server's
+    // build limit — nothing past that exists to display.
+    private static readonly int[] _maxStatesSteps = [50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, AnalysisLimits.MaxMarkings];
 
-    private int _maxStatesSliderPos = 3; // default index → 5 000
+    private int _maxStatesSliderPos = 3; // default index → 500
 
     private void OnMaxStatesSliderChanged(ChangeEventArgs e)
     {
@@ -458,21 +485,23 @@
     private async Task FitCurrentView()
     {
         if (_viewMode == "graph" && _refCoverGraph != null)
-            await _refCoverGraph.FitGraph();
+            await _refCoverGraph.ResetView();
         else if (_viewMode == "tree" && _refCoverTree != null)
             await _refCoverTree.ResetView();
     }
 
     private async Task ExportCurrentViewSvg()
     {
-        string? svg = _viewMode == "graph"
-            ? await (_refCoverGraph?.ExportSvgAsync() ?? Task.FromResult<string?>(null))
-            : await (_refCoverTree?.ExportSvgAsync()  ?? Task.FromResult<string?>(null));
+        string? svg = _viewMode switch
+        {
+            "graph" => await (_refCoverGraph?.ExportSvgAsync() ?? Task.FromResult<string?>(null)),
+            _       => await (_refCoverTree?.ExportSvgAsync()  ?? Task.FromResult<string?>(null)),
+        };
         if (string.IsNullOrEmpty(svg)) return;
         var bytes  = System.Text.Encoding.UTF8.GetBytes(svg);
         var b64    = Convert.ToBase64String(bytes);
         var name   = _graphIsUnbounded ? "coverability" : "reachability";
-        var suffix = _viewMode == "graph" ? "graph" : "tree";
+        var suffix = _viewMode == "tree" ? "tree" : "graph";
         await JS.InvokeVoidAsync("petriEditor.downloadFile", $"{name}-{suffix}.svg", b64, "image/svg+xml");
     }
 
@@ -493,16 +522,16 @@
         _graphCts?.Dispose();
         _graphCts        = new CancellationTokenSource();
         _graphRunning    = true;
+        _graphRendering  = false;
+        _graphStatus     = "Building state space on the server…";
+        _graphStatusDetail = $"Exploring up to {FormatMaxStates(AnalysisLimits.MaxMarkings)} markings. This can take a moment for large nets.";
         _graphError      = null;
         _graphCancelled  = false;
         _graphTruncated  = false;
         StateHasChanged();
         try
         {
-            GraphResultDto result;
-            try { result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates); }
-            catch (OperationCanceledException) { throw; }
-            catch { result = await LocalAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token, _maxStates); }
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token);
 
             if (result.StateSpace?.ExceededLimit == true)
                 _graphTruncated = true;
@@ -511,6 +540,13 @@
 
             if (result.CoverabilityTree != null)
             {
+                // Switch to "rendering" phase so the overlay stays up through the first canvas paint.
+                _graphRunning     = false;
+                _graphRendering   = true;
+                _graphStatus      = "Rendering…";
+                _graphStatusDetail = $"{result.CoverabilityTree.Nodes.Count} nodes";
+                StateHasChanged();
+
                 _graphData = result.CoverabilityTree;
                 _graphIsUnbounded = result.StateSpace?.IsBounded == false;
                 _computedAtVersion = NetVersion;
@@ -519,11 +555,22 @@
                 _graphStateSpace = result.StateSpace;
         }
         catch (OperationCanceledException) { _graphCancelled = true; }
-        catch (Exception ex) { _graphError = ex.Message; }
+        catch (Exception ex)
+        {
+            _graphError = $"Could not reach the analysis server. Please check your connection and try again. ({ex.Message})";
+        }
         finally
         {
             _graphRunning = false;
             await InvokeAsync(StateHasChanged);
+            if (_graphRendering)
+            {
+                // Give Blazor one render cycle so the view component mounts and
+                // paints the canvas, then drop the overlay.
+                await Task.Delay(40);
+                _graphRendering = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 

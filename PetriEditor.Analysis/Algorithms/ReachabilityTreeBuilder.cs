@@ -1,3 +1,5 @@
+using PetriEditor.Shared.Contracts;
+
 namespace Analysis.Algorithms;
 
 /// <summary>
@@ -14,7 +16,7 @@ namespace Analysis.Algorithms;
 /// </summary>
 public sealed class ReachabilityTreeBuilder
 {
-    public const int MaxNodes = 100_000;
+    public const int MaxNodes = AnalysisLimits.MaxMarkings;
 
     public bool   HasErrors    { get; private set; }
     public bool   IsTruncated  { get; private set; }
@@ -92,7 +94,7 @@ public sealed class ReachabilityTreeBuilder
                 if (_nodes.Count >= maxNodes)
                 {
                     IsTruncated  = true;
-                    ErrorMessage = $"Reachability tree exceeded {MaxNodes} nodes.";
+                    ErrorMessage = $"Reachability tree exceeded {maxNodes} nodes.";
                     // Mark parent as truncated and stop expanding, but don't abort
                     _truncatedIds.Add(parentId);
                     continue;

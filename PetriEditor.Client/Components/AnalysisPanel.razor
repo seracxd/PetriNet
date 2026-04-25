@@ -5,7 +5,6 @@
 @using Blazor.Diagrams.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
 @using PetriEditor.Client.Services
-@using PetriEditor.Client.Mapping
 @using PetriEditor.Shared.Contracts
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
@@ -13,8 +12,6 @@
 @inject DiagramStateService StateService
 @inject DiagramAnalyzer Analyzer
 @inject ClientAnalysisService ServerAnalysis
-@inject LocalAnalysisService LocalAnalysis
-@inject CytoscapeInterop Cy
 @inject IExportService ExportSvc
 @inject DiagramSettings Settings
 @inject BrowserFileService FileSvc
@@ -502,20 +499,7 @@
                         {
                             var ns = _result.NetStructure;
                             var subclasses = _result.ClassificationSubclasses;
-                            bool clsIsOrdinary = ns.InhibitorArcCount == 0 && ns.ResetArcCount == 0;
-                            @if (!clsIsOrdinary)
-                            {
-                                var _clsParts = new List<string>();
-                                if (ns.InhibitorArcCount > 0) _clsParts.Add($"{ns.InhibitorArcCount} inhibitor arc{(ns.InhibitorArcCount > 1 ? "s" : "")}");
-                                if (ns.ResetArcCount > 0)     _clsParts.Add($"{ns.ResetArcCount} reset arc{(ns.ResetArcCount > 1 ? "s" : "")}");
-                                <div style="display:flex;gap:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:8px;">
-                                    <span style="font-size:14px;flex-shrink:0;line-height:1.4;">⚠</span>
-                                    <div style="font-size:11px;color:#5f4400;line-height:1.6;">
-                                        Subclass checks (State Machine, Marked Graph, Free Choice) are defined for ordinary Petri nets only.
-                                        This net has @string.Join(" and ", _clsParts) — the checks below ignore those arcs and may not reflect the actual net behaviour.
-                                    </div>
-                                </div>
-                            }
+                            var clsSuppressed = TabSuppressedReason("classification");
                             var clsChecks = new[]
                             {
                                 ("Ordinary",           "Ordinary",             "All arcs are ordinary unit-weight arcs (weight 1, no inhibitor/reset arcs)."),
@@ -524,10 +508,13 @@
                                 ("FreeChoice",         "Free Choice",          "If two transitions share an input place, they share all input places."),
                                 ("ExtendedFreeChoice", "Extended Free Choice", "If two transitions share an input place, each has exactly one input place."),
                             };
-                            <div style="background:#f7f7f7;border:1.5px solid #ebebeb;border-radius:9px;padding:12px;margin-bottom:8px;">
-                                <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Net Type</div>
-                                <div style="font-size:15px;font-weight:700;color:#00a499;">@_result.ClassificationSummary</div>
-                            </div>
+                            @if (clsSuppressed == null)
+                            {
+                                <div style="background:#f7f7f7;border:1.5px solid #ebebeb;border-radius:9px;padding:12px;margin-bottom:8px;">
+                                    <div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Net Type</div>
+                                    <div style="font-size:15px;font-weight:700;color:#00a499;">@_result.ClassificationSummary</div>
+                                </div>
+                            }
 
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
                                 @foreach (var (label, value, color) in new[]{
@@ -546,6 +533,15 @@
                                 }
                             </div>
 
+                            @if (clsSuppressed != null)
+                            {
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;">
+                                    <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
+                                    <div style="font-size:12px;color:#5f4400;line-height:1.6;">@clsSuppressed</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div style="display:flex;flex-direction:column;gap:5px;">
                                 @foreach (var (sub, name, desc) in clsChecks)
                                 {
@@ -559,11 +555,22 @@
                                     </div>
                                 }
                             </div>
+                            }
                         }
 
                         @* ── Cycles tab ── *@
                         else if (_activeAnalysisTab == "cycles")
                         {
+                            var cycSuppressed = TabSuppressedReason("cycles");
+                            @if (cycSuppressed != null)
+                            {
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;">
+                                    <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
+                                    <div style="font-size:12px;color:#5f4400;line-height:1.6;">@cycSuppressed</div>
+                                </div>
+                            }
+                            else
+                            {
                             var cyc = _result.Cycles;
                             @if (cyc == null || cyc.HasErrors)
                             {
@@ -645,6 +652,7 @@
                                     </div>
                                 </div>
                             }
+                            }
                         }
 
                         @* ── Invariant tab ── *@
@@ -653,11 +661,13 @@
                             var invSuppressed = TabSuppressedReason("invariant");
                             @if (invSuppressed != null)
                             {
-                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:10px;">
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;">
                                     <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
                                     <div style="font-size:12px;color:#5f4400;line-height:1.6;">@invSuppressed</div>
                                 </div>
                             }
+                            else
+                            {
                             var nameById2 = BuildNameById();
                             string Resolve2(string id) => nameById2.GetValueOrDefault(id, id);
 
@@ -808,6 +818,7 @@
                                     </div>
                                 </div>
                             }
+                            }
                         }
 
                         @* ── Traps tab ── *@
@@ -816,11 +827,13 @@
                             var trapsSuppressed = TabSuppressedReason("traps");
                             @if (trapsSuppressed != null)
                             {
-                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:10px;">
+                                <div style="display:flex;gap:10px;padding:12px 14px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;">
                                     <span style="font-size:16px;flex-shrink:0;line-height:1.3;">⚠</span>
                                     <div style="font-size:12px;color:#5f4400;line-height:1.6;">@trapsSuppressed</div>
                                 </div>
                             }
+                            else
+                            {
                             var tc = _result.Traps;
                             @if (tc == null || tc.HasErrors)
                             {
@@ -893,6 +906,7 @@
                                     </div>
                                 }
                             }
+                            }
                         }
                     }
                     else if (!_analysisRunning)
@@ -908,7 +922,7 @@
                                 IsVisible="@(_activeAnalysisTab == "graph")"
                                 ResultStale="@_resultStale"
                                 NetVersion="@_netVersion"
-                                HasInhibitorArcs="@GraphHasInhibitorArcs"
+                                HasSpecialArcs="@GraphHasSpecialArcs"
                                 AnalysisResult="@_result" />
 
 
@@ -1121,10 +1135,16 @@
             "invariant" =>
                 $"P- and T-invariants are based on the state equation Y·C = 0, which assumes standard " +
                 $"firing semantics. This net has {arcDesc}, which break the token-conservation " +
-                $"assumption — invariants computed here are not guaranteed to be correct.",
+                $"assumption — results are hidden because they are not guaranteed to be correct.",
             "traps" =>
-                $"Trap and siphon theory is defined for ordinary Petri nets. This net has {arcDesc}. " +
-                $"The structural results shown here may not reflect the actual reachable behaviour.",
+                $"Trap and siphon theory is defined for ordinary Petri nets. This net has {arcDesc} — " +
+                $"the structural results may not reflect the actual reachable behaviour and are hidden.",
+            "cycles" =>
+                $"Elementary-cycle coverage is a purely structural measure assuming standard P/T " +
+                $"semantics. This net has {arcDesc}, which invalidate that assumption — results are hidden.",
+            "classification" =>
+                $"Subclass checks (State Machine, Marked Graph, Free Choice) are defined for ordinary " +
+                $"Petri nets only. This net has {arcDesc} — subclass results are hidden.",
             _ => null
         };
     }
@@ -1342,13 +1362,12 @@
                         _lastDto = dto;
                         try
                         {
-                            try { _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
-                            catch { _result = await LocalAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
+                            _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None);
                             _analyzedVersion = _netVersion;
                         }
                         catch (Exception ex)
                         {
-                            throw new Exception($"Analysis failed: {ex.Message}", ex);
+                            throw new Exception($"Analysis failed — the server could not be reached. {ex.Message}", ex);
                         }
                     }
 
@@ -1418,19 +1437,14 @@
                 _ = InvokeAsync(StateHasChanged);
             });
 
-            try
-            {
-                _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch
-            {
-                _result = await LocalAnalysis.RunAnalysisAsync(dto, progress, ct);
-            }
+            _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
             if (_activeAnalysisTab == "graph") _refGraphTree?.TryPopulateFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
-        catch (Exception ex) { _analysisError = ex.Message; }
+        catch (Exception ex)
+        {
+            _analysisError = $"Could not run analysis — the server is unreachable. Please check your connection and try again. ({ex.Message})";
+        }
         finally
         {
             // Mark as analyzed at the version captured before analysis started.
@@ -1474,8 +1488,9 @@
 
     private GraphTreePanel? _refGraphTree;
 
-    private bool GraphHasInhibitorArcs =>
-        Manager.Diagram.Links.OfType<PetriLinkModel>().Any(a => a.ArcType == ArcType.Inhibitor);
+    private bool GraphHasSpecialArcs =>
+        Manager.Diagram.Links.OfType<PetriLinkModel>()
+            .Any(a => a.ArcType == ArcType.Inhibitor || a.ArcType == ArcType.Reset);
 
 
     private void OnDiagramChanged() => InvokeAsync(StateHasChanged);

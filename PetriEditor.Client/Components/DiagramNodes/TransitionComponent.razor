@@ -9,7 +9,9 @@
 
 @{
     var isEnabled = StateService.IsSimulating && Sim.EnabledTransitions.Contains(TransitionModel?.Data?.Id ?? "");
-    var isLastFired = StateService.IsSimulating && Sim.LastFiredId == TransitionModel?.Data?.Id;
+    var isLastFired = Settings.ShowLastFiredHighlight
+        && StateService.IsSimulating
+        && Sim.LastFiredId == TransitionModel?.Data?.Id;
     var isHighlighted = !StateService.IsSimulating
         && StateService.HighlightedNodeIds.Count > 0
         && TransitionModel?.Data?.Id != null

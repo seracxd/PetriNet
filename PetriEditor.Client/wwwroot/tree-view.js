@@ -151,41 +151,40 @@ window.treeView = (() => {
             // so it appears at the correct world size without pixelation from upscaling.
             if (showLabels) {
                 const MIN_TEXT_PX = 12;
-                const naturalPx = n._labelF * nodeW * scale;  // what size we want on screen
-                const drawPx    = Math.max(MIN_TEXT_PX, naturalPx); // rasterize at least this big
-                const inv       = naturalPx / drawPx;           // scale-down factor to compensate
-
-                ctx.save();
-                // Clip to node box (in current scale space)
-                ctx.beginPath();
-                ctx.roundRect(ax, ay, aw, ah, rx);
-                ctx.clip();
-
-                // Translate to node center, apply inverse scale so text renders at drawPx
-                // but appears at naturalPx on screen
-                ctx.translate(ax + aw / 2, ay + ah / 2);
-                ctx.scale(inv, inv);
+                const naturalPx = n._labelF * nodeW * scale;
+                const drawPx    = Math.max(MIN_TEXT_PX, naturalPx);
 
                 ctx.fillStyle = hovered ? '#00796b' : c.textC;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                if (n._subText) {
-                    const sNatural = n._subF * nodeW * scale;
-                    const sDrawPx  = Math.max(MIN_TEXT_PX - 1, sNatural);
-                    const sInv     = sNatural / sDrawPx;
-                    // Label at 35% height relative to center = -ah*0.15 / inv
+                // Fast path: natural label is already large enough, skip save/clip/scale.
+                if (naturalPx >= MIN_TEXT_PX && !n._subText) {
                     ctx.font = `700 ${drawPx}px Inter,sans-serif`;
-                    ctx.fillText(n.label, 0, -ah * 0.15 / inv);
-                    ctx.scale(sInv / inv, sInv / inv);  // adjust for sub size
-                    ctx.font = `600 ${sDrawPx}px Inter,sans-serif`;
-                    ctx.fillText(n._subText, 0, ah * 0.22 / sInv);
+                    ctx.fillText(n.label, ax + aw / 2, ay + ah / 2);
                 } else {
-                    ctx.font = `700 ${drawPx}px Inter,sans-serif`;
-                    ctx.fillText(n.label, 0, 0);
+                    const inv = naturalPx / drawPx;
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.roundRect(ax, ay, aw, ah, rx);
+                    ctx.clip();
+                    ctx.translate(ax + aw / 2, ay + ah / 2);
+                    ctx.scale(inv, inv);
+                    if (n._subText) {
+                        const sNatural = n._subF * nodeW * scale;
+                        const sDrawPx  = Math.max(MIN_TEXT_PX - 1, sNatural);
+                        const sInv     = sNatural / sDrawPx;
+                        ctx.font = `700 ${drawPx}px Inter,sans-serif`;
+                        ctx.fillText(n.label, 0, -ah * 0.15 / inv);
+                        ctx.scale(sInv / inv, sInv / inv);
+                        ctx.font = `600 ${sDrawPx}px Inter,sans-serif`;
+                        ctx.fillText(n._subText, 0, ah * 0.22 / sInv);
+                    } else {
+                        ctx.font = `700 ${drawPx}px Inter,sans-serif`;
+                        ctx.fillText(n.label, 0, 0);
+                    }
+                    ctx.restore();
                 }
-
-                ctx.restore();
             }
         }
 

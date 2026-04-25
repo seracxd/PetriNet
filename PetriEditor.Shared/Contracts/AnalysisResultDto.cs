@@ -94,7 +94,42 @@ public sealed record ReachEdgeDto(
 public sealed record CoverabilityTreeDto(
     IReadOnlyList<CoverNodeDto> Nodes,
     IReadOnlyList<CoverEdgeDto> Edges,
-    IReadOnlyList<string>       PlaceNames);
+    IReadOnlyList<string>       PlaceNames,
+    GraphLayoutDto?             GraphLayout = null);
+
+/// <summary>
+/// Pre-computed layered layout for the reachability/coverability graph view.
+/// Duplicate-marking nodes are merged; each surviving node has an integer
+/// <c>Layer</c> (0 = root, increasing downward) and <c>Col</c> (left→right
+/// order within the layer).  Edges that close a cycle (target layer ≤ source
+/// layer) are flagged as back-edges so the renderer can route them distinctly.
+/// </summary>
+public sealed record GraphLayoutDto(
+    IReadOnlyList<GraphLayoutNodeDto> Nodes,
+    IReadOnlyList<GraphLayoutEdgeDto> Edges,
+    int                               MaxLayer,
+    int                               MaxCol);
+
+public sealed record GraphLayoutNodeDto(
+    int                 Id,
+    int                 Layer,
+    int                 Col,
+    string              Label,
+    string              MarkingKey,
+    IReadOnlyList<int?> Marking,
+    bool                IsInitial,
+    bool                IsDeadlock,
+    bool                IsOmega,
+    bool                IsTruncated);
+
+public sealed record GraphLayoutEdgeDto(
+    int    From,
+    int    To,
+    string TransitionName,
+    int    FromLayer,
+    int    ToLayer,
+    bool   IsBack,
+    bool   IsSelf);
 
 /// <summary>
 /// A single node in the coverability tree.
@@ -161,7 +196,8 @@ public sealed record GraphChunkDto(
     IReadOnlyList<CoverNodeDto>? CoverNodes,
     IReadOnlyList<CoverEdgeDto>? CoverEdges,
     IReadOnlyList<string>?       PlaceNames,
-    StateSpaceSummaryDto?        Summary);
+    StateSpaceSummaryDto?        Summary,
+    GraphLayoutDto?              GraphLayout = null);
 
 // ── Net structure ─────────────────────────────────────────────────────────────
 

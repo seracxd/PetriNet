@@ -1,4 +1,5 @@
 using Analysis.Algorithms;
+using PetriEditor.Shared.Contracts;
 
 namespace Analysis.Engines;
 
@@ -9,7 +10,7 @@ namespace Analysis.Engines;
 /// </summary>
 public sealed class StateSpaceAnalysis
 {
-    public const int MaxStates = 500_000;
+    public const int MaxStates = AnalysisLimits.MaxMarkings;
 
     public bool HasErrors   { get; private set; }
     public bool IsTruncated { get; private set; }

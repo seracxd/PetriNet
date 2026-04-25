@@ -138,7 +138,7 @@ public sealed class AnalysisHub : Hub
     /// The client reassembles chunks into a <see cref="GraphResultDto"/>.
     /// </summary>
     public async IAsyncEnumerable<GraphChunkDto> StreamGraph(
-        PetriNetDto net, int maxStates,
+        PetriNetDto net,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (!TryThrottle(nameof(StreamGraph)))
@@ -152,7 +152,7 @@ public sealed class AnalysisHub : Hub
         GraphResultDto result;
         try
         {
-            result = await _orchestrator.RunGraphAsync(net, cts.Token, maxStates);
+            result = await _orchestrator.RunGraphAsync(net, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -167,7 +167,11 @@ public sealed class AnalysisHub : Hub
         }
         _heavyOpGate.Release();
 
-        if (result.ErrorMessage is not null)
+        // Only fail if we have no usable tree. Truncation is not a failure — the
+        // tree is valid up to the cap and the UI has dedicated "truncated" messaging.
+        if (result.ErrorMessage is not null && result.CoverabilityTree is null
+                                            && result.ReachabilityGraph is null
+                                            && result.ReachabilityTree is null)
             throw new HubException(result.ErrorMessage);
 
         foreach (var chunk in BuildChunks(
@@ -271,7 +275,7 @@ public sealed class AnalysisHub : Hub
                 null,
                 i == 0 ? g.PlaceNames : null,
                 i == 0 ? summary : null);
-        yield return new GraphChunkDto(key, nc, total, null, null, null, g.Edges, null, null);
+        yield return new GraphChunkDto(key, nc, total, null, null, null, g.Edges, null, null, g.GraphLayout);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────

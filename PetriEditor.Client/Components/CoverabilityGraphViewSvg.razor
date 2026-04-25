@@ -1,0 +1,160 @@
+@using PetriEditor.Shared.Contracts
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@_containerId" style="flex:1;min-height:0;overflow:hidden;background:#fafbfc;cursor:grab;user-select:none;touch-action:none;position:relative;">
+    <canvas style="display:block;position:absolute;top:0;left:0;width:100%;height:100%;"></canvas>
+</div>
+
+@code {
+    [Parameter] public CoverabilityTreeDto? Tree { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<int?>> OnMarkingHovered { get; set; }
+    [Parameter] public EventCallback OnMarkingCleared { get; set; }
+    [Parameter] public int MaxDisplayNodes { get; set; } = int.MaxValue;
+
+    const double NodeW  = 72;
+    const double NodeH  = 22;
+    // LevelH leaves a generous gap below each row so back-edges can route
+    // horizontally through that lane instead of bowing around the outside.
+    const double LevelH = 90;
+    const double SlotW  = 86;
+    const double PadX   = 24;
+    const double PadY   = 24;
+
+    private readonly string _containerId = $"graph-cov-{Guid.NewGuid():N}";
+    private CoverabilityTreeDto? _lastTree;
+    private int _lastMaxDisplay = -1;
+    private DotNetObjectReference<CoverabilityGraphViewSvg>? _dotNetRef;
+
+    private int _nodeCount;
+    private bool _hasDuplicates, _hasDeadlocks, _hasOmega, _truncated;
+
+    public int NodeCount => _nodeCount;
+    public bool HasDuplicates => _hasDuplicates;
+    public bool HasDeadlocks => _hasDeadlocks;
+    public bool HasOmega => _hasOmega;
+    public bool IsTruncated => _truncated;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Tree is null) return;
+        // Re-render whenever the tree changed OR the display filter changed.
+        if (ReferenceEquals(Tree, _lastTree) && MaxDisplayNodes == _lastMaxDisplay) return;
+        _lastTree = Tree;
+        _lastMaxDisplay = MaxDisplayNodes;
+        if (Tree.GraphLayout is null || Tree.GraphLayout.Nodes.Count == 0) return;
+
+        var layout = Tree.GraphLayout;
+
+        // ── Client-side filter: take the first MaxDisplayNodes reachable from the root
+        //    in layer-then-column order. This is pure filtering — no layout work.
+        var kept = FilterByDisplayLimit(layout, MaxDisplayNodes);
+        bool filtered = kept.Count < layout.Nodes.Count;
+
+        double svgW = (layout.MaxCol + 1) * SlotW + PadX * 2;
+        double svgH = (layout.MaxLayer + 1) * LevelH + NodeH + PadY * 2;
+
+        var displayNodes = layout.Nodes.Where(n => kept.Contains(n.Id)).ToList();
+
+        var nodePayload = new object[displayNodes.Count];
+        for (int i = 0; i < displayNodes.Count; i++)
+        {
+            var n = displayNodes[i];
+            nodePayload[i] = new
+            {
+                id         = n.Id,
+                x          = PadX + n.Col   * SlotW,
+                y          = PadY + n.Layer * LevelH,
+                layer      = n.Layer,
+                label      = n.Label,
+                isInit     = n.IsInitial,
+                isDead     = n.IsDeadlock,
+                isOmega    = n.IsOmega,
+                isCutOff   = n.IsTruncated,
+                markingKey = n.MarkingKey,
+            };
+        }
+
+        var pos = new Dictionary<int, (double X, double Y)>(displayNodes.Count);
+        foreach (var n in displayNodes)
+            pos[n.Id] = (PadX + n.Col * SlotW, PadY + n.Layer * LevelH);
+
+        var displayEdges = layout.Edges.Where(e => kept.Contains(e.From) && kept.Contains(e.To)).ToList();
+        var edgePayload = new object[displayEdges.Count];
+        for (int i = 0; i < displayEdges.Count; i++)
+        {
+            var e = displayEdges[i];
+            var (fx, fy) = pos[e.From];
+            var (tx, ty) = pos[e.To];
+            edgePayload[i] = new
+            {
+                from      = e.From,
+                to        = e.To,
+                x1        = fx + NodeW / 2.0,
+                y1        = fy + NodeH,
+                x2        = tx + NodeW / 2.0,
+                y2        = ty,
+                cx1       = fx,
+                cy1       = fy,
+                cx2       = tx,
+                cy2       = ty,
+                fromLayer = e.FromLayer,
+                toLayer   = e.ToLayer,
+                isBack    = e.IsBack,
+                isSelf    = e.IsSelf,
+                label     = e.TransitionName,
+            };
+        }
+
+        _nodeCount     = displayNodes.Count;
+        _hasDuplicates = Tree.Nodes.Count > layout.Nodes.Count;
+        _hasDeadlocks  = displayNodes.Any(n => n.IsDeadlock);
+        _hasOmega      = displayNodes.Any(n => n.IsOmega);
+        _truncated     = filtered || displayNodes.Any(n => n.IsTruncated);
+
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("graphView.init",
+            _containerId, nodePayload, edgePayload,
+            svgW, svgH, NodeW, NodeH,
+            Tree.PlaceNames, _dotNetRef);
+    }
+
+    private static HashSet<int> FilterByDisplayLimit(GraphLayoutDto layout, int limit)
+    {
+        if (layout.Nodes.Count <= limit) return new HashSet<int>(layout.Nodes.Select(n => n.Id));
+
+        // Sort nodes by (layer, col) so we keep a connected top-down slice of the graph.
+        var ordered = layout.Nodes.OrderBy(n => n.Layer).ThenBy(n => n.Col).Take(limit);
+        return new HashSet<int>(ordered.Select(n => n.Id));
+    }
+
+    [JSInvokable]
+    public async Task OnNodeHovered(string markingKey, string markingCsv)
+    {
+        if (string.IsNullOrEmpty(markingCsv)) return;
+        var tokens = markingCsv.Split(',')
+            .Select(s => s == "w" ? (int?)null : int.TryParse(s, out int v) ? v : (int?)null)
+            .ToList();
+        await OnMarkingHovered.InvokeAsync(tokens);
+    }
+
+    [JSInvokable]
+    public async Task OnNodeLeft() => await OnMarkingCleared.InvokeAsync();
+
+    public async Task ResetView() =>
+        await JS.InvokeVoidAsync("graphView.resetView", _containerId);
+
+    public async Task FitGraph() => await ResetView();
+
+    public async Task<string?> ExportSvgAsync() =>
+        await JS.InvokeAsync<string?>("graphView.exportSvg", _containerId);
+
+    public async Task<string?> ExportPngAsync(int maxPx = 4096) =>
+        await JS.InvokeAsync<string?>("graphView.exportPng", _containerId, maxPx);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("graphView.destroy", _containerId); } catch { }
+        _dotNetRef?.Dispose();
+    }
+}

@@ -1,9 +1,19 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using PetriEditor.Client;
 using PetriEditor.Client.Services;
 using PetriEditor.Shared.Contracts;
 using PetriNetAnalyzer.Services;
+
+// Force invariant culture for all formatting. SVG attributes require "." as the
+// decimal separator, but Razor interpolation honors the current culture and
+// Czech/German/etc. locales emit ",". Without this, browser-rendered SVG (e.g.
+// width="19,99...") fails to parse and the Blazor renderer crashes.
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -21,16 +31,14 @@ builder.Services.Configure<DiagramSettingsOptions>(
 builder.Services.AddScoped<DiagramSettings>();
 builder.Services.AddScoped<IDiagramLogger, AspNetDiagramLogger>();
 
-// ── Cytoscape visualization ───────────────────────────────────────────────
-builder.Services.AddScoped<CytoscapeInterop>();
 builder.Services.AddScoped<BrowserFileService>();
 
 // ── Analysis ──────────────────────────────────────────────────────────────
-// DiagramAnalyzer: builds DTOs from diagram state and runs local analysis
+// DiagramAnalyzer: builds PetriNetDto from diagram state.
 builder.Services.AddScoped<DiagramAnalyzer>();
-// IAnalysisService: sends requests to server over SignalR (default), falls back to local WASM
+// ClientAnalysisService talks to the server over SignalR. There is no in-browser
+// fallback — if the server is unreachable the UI surfaces an error.
 builder.Services.AddScoped<ClientAnalysisService>();
-builder.Services.AddScoped<LocalAnalysisService>();
 builder.Services.AddScoped<IAnalysisService>(sp => sp.GetRequiredService<ClientAnalysisService>());
 
 // ── Export & serialization ────────────────────────────────────────────────
