@@ -167,7 +167,8 @@ public static class AnalysisResultMapper
             IsTruncated: cb.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
         var edges = cb.Edges.Select(e => new CoverEdgeDto(
             e.From, e.To, e.TransitionId, e.TransitionName)).ToList();
-        return new CoverabilityTreeDto(nodes, edges, placeNames);
+        var layout = GraphLayoutBuilder.Build(nodes, edges);
+        return new CoverabilityTreeDto(nodes, edges, placeNames, layout);
     }
 
     private static ReachabilityGraphDto? BuildReachabilityGraph(AnalysisReport report)
@@ -283,6 +284,7 @@ public static class AnalysisResultMapper
             TransitionName: e.TransitionName
         )).ToList();
 
-        return new CoverabilityTreeDto(nodes, edges, placeNames);
+        var layout = GraphLayoutBuilder.Build(nodes, edges);
+        return new CoverabilityTreeDto(nodes, edges, placeNames, layout);
     }
 }

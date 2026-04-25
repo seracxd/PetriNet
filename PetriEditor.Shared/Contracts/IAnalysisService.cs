@@ -2,9 +2,9 @@ namespace PetriEditor.Shared.Contracts;
 
 /// <summary>
 /// Abstraction over running a full Petri-net analysis.
-/// Implemented by:
-///   • ServerAnalysisService  (Client) — sends request over SignalR, receives streamed progress
-///   • LocalAnalysisService   (Client) — runs the analysis engines directly in WASM
+/// Implemented by <c>ClientAnalysisService</c>, which sends requests to the
+/// server over SignalR.  There is no in-browser fallback — if the server is
+/// unreachable the call throws and the UI surfaces an error.
 /// </summary>
 public interface IAnalysisService
 {
@@ -20,10 +20,11 @@ public interface IAnalysisService
 
     /// <summary>
     /// Compute only the graph/tree on demand using the coverability tree algorithm.
-    /// Always terminates; for bounded nets the result has no ω tokens.
+    /// Always terminates; for bounded nets the result has no ω tokens.  The build
+    /// cap is fixed at <see cref="AnalysisLimits.MaxMarkings"/> — clients choose
+    /// how much of the result to display separately.
     /// </summary>
     Task<GraphResultDto> ComputeGraphAsync(
         PetriNetDto       net,
-        CancellationToken ct        = default,
-        int               maxStates = 500_000);
+        CancellationToken ct = default);
 }

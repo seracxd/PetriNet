@@ -26,6 +26,7 @@ public sealed class DiagramSettingsOptions
     public double EndpointDragHitPadding { get; set; } = 12.0;
     public bool GridEnabled { get; set; } = true;
     public double GridSize { get; set; } = 20.0;
+    public bool ShowLastFiredHighlight { get; set; } = true;
 
     // Behaviour
     public double PanBound { get; set; } = 5_000.0;
@@ -63,6 +64,7 @@ public sealed class DiagramSettings
     public double EndpointDragHitPadding { get; set; }
     public bool GridEnabled { get; set; }
     public double GridSize { get; set; }
+    public bool ShowLastFiredHighlight { get; set; }
 
     // ── Behaviour ─────────────────────────────────────────────────────────────
 
@@ -110,19 +112,26 @@ public sealed class DiagramSettings
         EndpointDragHitPadding = o.EndpointDragHitPadding;
         GridEnabled = o.GridEnabled;
         GridSize = o.GridSize;
+        ShowLastFiredHighlight = o.ShowLastFiredHighlight;
         PanBound = o.PanBound;
         DragDeadzone = o.DragDeadzone;
         LogBufferCapacity = o.LogBufferCapacity;
     }
 
     /// <summary>Snapshot of user-facing settings for localStorage persistence.</summary>
-    public SettingsSnapshot ToSnapshot(int firingDelay) => new(GridEnabled, GridSize, firingDelay);
+    public SettingsSnapshot ToSnapshot(int firingDelay) =>
+        new(GridEnabled, GridSize, firingDelay, ShowLastFiredHighlight);
 
     public void ApplySnapshot(SettingsSnapshot s)
     {
         GridEnabled = s.GridEnabled;
         GridSize    = s.GridSize;
+        ShowLastFiredHighlight = s.ShowLastFiredHighlight;
     }
 }
 
-public record SettingsSnapshot(bool GridEnabled, double GridSize, int FiringDelay = 1000);
+public record SettingsSnapshot(
+    bool GridEnabled,
+    double GridSize,
+    int FiringDelay = 1000,
+    bool ShowLastFiredHighlight = true);

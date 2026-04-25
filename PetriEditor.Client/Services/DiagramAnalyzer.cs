@@ -1,32 +1,16 @@
-using Analysis;
-using Analysis.Algorithms;
-using Analysis.Engines;
 using Blazor.Diagrams.Core.Models;
 using Core.Models;
 using PetriNetAnalyzer.DiagramModels;
 using PetriEditor.Shared.Contracts;
-using PetriEditor.Shared.Mapping;
 
 namespace PetriEditor.Client.Services;
 
 /// <summary>
-/// Builds a <see cref="PetriNetDto"/> from the current diagram state and runs
-/// a full analysis locally, returning the engine-level <see cref="AnalysisReport"/>.
-///
-/// Used by <see cref="PetriEditor.Client.Components.AnalysisPanel"/> to populate
-/// the rich UI that still references engine types directly (Classification,
-/// Cycles, Traps, etc.). Migration to DTO-only rendering is deferred to Phase 6.
-///
-/// Also builds the <see cref="PetriNetDto"/> used when sending a net to the server.
+/// Builds a <see cref="PetriNetDto"/> from the current diagram state.  The
+/// DTO is what gets sent to the server for analysis.
 /// </summary>
 public sealed class DiagramAnalyzer
 {
-    // ── Build DTO from diagram state ─────────────────────────────────────
-
-    /// <summary>
-    /// Extract the current diagram state into a <see cref="PetriNetDto"/> that
-    /// can be sent over the wire or converted to a <see cref="PetriNetSnapshot"/>.
-    /// </summary>
     public static PetriNetDto BuildDto(
         IEnumerable<PlaceNode>      places,
         IEnumerable<TransitionNode> transitions,
@@ -70,81 +54,6 @@ public sealed class DiagramAnalyzer
         return new PetriNetDto(placeDtos, transitionDtos, arcDtos);
     }
 
-    // ── Run analysis locally, returning the engine report ─────────────────
-
-    public async Task<AnalysisReport> RunLocalAsync(
-        PetriNetDto           dto,
-        CancellationToken     ct = default)
-    {
-        var net    = PetriNetMapper.ToSnapshot(dto);
-        var report = new AnalysisReport { Net = net };
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var ss = new StateSpaceAnalysis();
-        ss.Build(net, ct);
-        report.StateSpace = ss;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var inv = new InvariantAnalysis();
-        inv.Compute(net);
-        report.Invariants = inv;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var cls = new ClassificationAnalysis();
-        cls.Compute(net);
-        report.Classification = cls;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var cyc = new CyclesAnalysis();
-        cyc.Compute(net);
-        report.Cycles = cyc;
-        var tc = new TrapCotrapAnalysis();
-        tc.Compute(net);
-        report.TrapCotrap = tc;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var rt = new ReachabilityTreeBuilder();
-        rt.Build(net, ct);
-        report.ReachabilityTree = rt;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var coverBuilder = new CoverabilityTreeBuilder();
-        coverBuilder.Build(net, ct);
-        report.CoverabilityTree = coverBuilder;
-
-        ct.ThrowIfCancellationRequested();
-        await Task.Yield();
-        var bundle = new AnalysisBundle
-        {
-            Net            = net,
-            StateSpace     = ss,
-            Invariants     = inv,
-            Classification = cls,
-            Cycles         = cyc,
-            TrapCotrap     = tc,
-        };
-
-        var results = bundle.PropertyResults;
-        results[NetProperty.Liveness]         = SafeRun(NetProperty.Liveness,         () => new LivenessTest().Run(bundle));
-        results[NetProperty.Boundedness]      = SafeRun(NetProperty.Boundedness,       () => new BoundednessTest().Run(bundle));
-        results[NetProperty.Safety]           = SafeRun(NetProperty.Safety,            () => new SafetyTest().Run(bundle));
-        results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness,  () => new ConservativenessTest().Run(bundle));
-        results[NetProperty.Repetitiveness]   = SafeRun(NetProperty.Repetitiveness,    () => new RepetitivenessTest().Run(bundle));
-        results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,      () => new DeadlockFreeTest().Run(bundle));
-        results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,     () => new ReversibilityTest().Run(bundle));
-        report.PropertyResults = results;
-
-        return report;
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────
-
     private static string? GetNodeId(object? model) => model switch
     {
         PlaceNode p      => p.Data.Id,
@@ -157,17 +66,4 @@ public sealed class DiagramAnalyzer
         },
         _ => null
     };
-
-    private static PropertyTestResult SafeRun(NetProperty property, Func<PropertyTestResult> action)
-    {
-        try { return action(); }
-        catch (Exception ex)
-        {
-            return new PropertyTestResult(
-                property,
-                TestResultStatus.Undecidable,
-                [$"{property} test could not complete due to an internal error."],
-                [$"{ex.GetType().Name}: {ex.Message}"]);
-        }
-    }
 }

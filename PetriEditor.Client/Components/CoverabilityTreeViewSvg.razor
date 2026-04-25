@@ -46,11 +46,14 @@
     }
 
     private DotNetObjectReference<CoverabilityTreeViewSvg>? _dotNetRef;
+    private int _lastMaxDisplay = -1;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (Tree is null || ReferenceEquals(Tree, _lastTree)) return;
+        if (Tree is null) return;
+        if (ReferenceEquals(Tree, _lastTree) && MaxDisplayNodes == _lastMaxDisplay) return;
         _lastTree = Tree;
+        _lastMaxDisplay = MaxDisplayNodes;
         BuildLayout();
 
         if (_layout == null || _layout.Count == 0) return;

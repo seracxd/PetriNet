@@ -88,6 +88,7 @@
                                style="width:100%;accent-color:#888;" />
                     </div>
 
+
                     @if (Sim.IsDeadlock)
                     {
                         <div style="padding:6px 8px;background:#ffebee;border-radius:7px;font-size:11px;color:#e53935;font-weight:600;margin-bottom:8px;">
@@ -555,6 +556,18 @@
                                 <span>@((int)Settings.GridSize)</span>
                                 <button @onclick="() => ApplySetting(s => s.GridSize = Math.Min(100, s.GridSize + 5))">+</button>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <div class="settings-group-title">Simulation</div>
+                        <div class="settings-row">
+                            <span class="settings-row-label">Highlight last fired</span>
+                            <label class="settings-toggle">
+                                <input type="checkbox" checked="@Settings.ShowLastFiredHighlight"
+                                       @onchange="e => ApplySetting(s => s.ShowLastFiredHighlight = e.Value is bool b && b)" />
+                                <span class="settings-toggle-slider"></span>
+                            </label>
                         </div>
                     </div>
 

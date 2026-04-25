@@ -5,7 +5,6 @@
 @using Blazor.Diagrams.Core.Models
 @using Blazor.Diagrams.Core.Models.Base
 @using PetriEditor.Client.Services
-@using PetriEditor.Client.Mapping
 @using PetriEditor.Shared.Contracts
 @inject IJSRuntime JS
 @inject PetriNetManager Manager
@@ -13,8 +12,6 @@
 @inject DiagramStateService StateService
 @inject DiagramAnalyzer Analyzer
 @inject ClientAnalysisService ServerAnalysis
-@inject LocalAnalysisService LocalAnalysis
-@inject CytoscapeInterop Cy
 @inject IExportService ExportSvc
 @inject DiagramSettings Settings
 @inject BrowserFileService FileSvc
@@ -1365,13 +1362,12 @@
                         _lastDto = dto;
                         try
                         {
-                            try { _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
-                            catch { _result = await LocalAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None); }
+                            _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None);
                             _analyzedVersion = _netVersion;
                         }
                         catch (Exception ex)
                         {
-                            throw new Exception($"Analysis failed: {ex.Message}", ex);
+                            throw new Exception($"Analysis failed — the server could not be reached. {ex.Message}", ex);
                         }
                     }
 
@@ -1441,19 +1437,14 @@
                 _ = InvokeAsync(StateHasChanged);
             });
 
-            try
-            {
-                _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch
-            {
-                _result = await LocalAnalysis.RunAnalysisAsync(dto, progress, ct);
-            }
+            _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
             if (_activeAnalysisTab == "graph") _refGraphTree?.TryPopulateFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
-        catch (Exception ex) { _analysisError = ex.Message; }
+        catch (Exception ex)
+        {
+            _analysisError = $"Could not run analysis — the server is unreachable. Please check your connection and try again. ({ex.Message})";
+        }
         finally
         {
             // Mark as analyzed at the version captured before analysis started.

@@ -49,6 +49,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         var coverNodes  = new List<CoverNodeDto>();
         var coverEdges  = new List<CoverEdgeDto>();
         IReadOnlyList<string>? coverPlaces = null;
+        GraphLayoutDto?        coverLayout = null;
 
         using var progressSub = _hub.On<AnalysisProgressMessage>("ReceiveProgress",
             msg => progress?.Report(msg));
@@ -71,9 +72,10 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
                     if (chunk.ReachEdges != null) treeEdges.AddRange(chunk.ReachEdges);
                     break;
                 case "ct":
-                    if (chunk.PlaceNames != null) coverPlaces = chunk.PlaceNames;
-                    if (chunk.CoverNodes != null) coverNodes.AddRange(chunk.CoverNodes);
-                    if (chunk.CoverEdges != null) coverEdges.AddRange(chunk.CoverEdges);
+                    if (chunk.PlaceNames  != null) coverPlaces = chunk.PlaceNames;
+                    if (chunk.CoverNodes  != null) coverNodes.AddRange(chunk.CoverNodes);
+                    if (chunk.CoverEdges  != null) coverEdges.AddRange(chunk.CoverEdges);
+                    if (chunk.GraphLayout != null) coverLayout = chunk.GraphLayout;
                     break;
             }
         });
@@ -88,7 +90,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
                 ? new ReachabilityGraphDto(treeNodes,  treeEdges,  treePlaces  ?? [])
                 : null;
             var coverTree  = coverNodes.Count > 0
-                ? new CoverabilityTreeDto(coverNodes,  coverEdges, coverPlaces ?? [])
+                ? new CoverabilityTreeDto(coverNodes,  coverEdges, coverPlaces ?? [], coverLayout)
                 : null;
             resultTcs.TrySetResult(baseResult with
             {
@@ -124,8 +126,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
 
     public async Task<GraphResultDto> ComputeGraphAsync(
         PetriNetDto       dto,
-        CancellationToken ct        = default,
-        int               maxStates = 500_000)
+        CancellationToken ct = default)
     {
         if (_hub.State == HubConnectionState.Disconnected)
             await _hub.StartAsync(ct);
@@ -133,17 +134,19 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         var coverNodes = new List<CoverNodeDto>();
         var coverEdges = new List<CoverEdgeDto>();
         IReadOnlyList<string>? placeNames = null;
-        StateSpaceSummaryDto?  summary   = null;
+        StateSpaceSummaryDto?  summary    = null;
+        GraphLayoutDto?        layout     = null;
 
         try
         {
             await foreach (var chunk in _hub.StreamAsync<GraphChunkDto>(
-                "StreamGraph", dto, maxStates, ct))
+                "StreamGraph", dto, ct))
             {
-                if (chunk.CoverNodes != null) coverNodes.AddRange(chunk.CoverNodes);
-                if (chunk.CoverEdges != null) coverEdges.AddRange(chunk.CoverEdges);
-                if (chunk.PlaceNames != null) placeNames = chunk.PlaceNames;
-                if (chunk.Summary    != null) summary    = chunk.Summary;
+                if (chunk.CoverNodes  != null) coverNodes.AddRange(chunk.CoverNodes);
+                if (chunk.CoverEdges  != null) coverEdges.AddRange(chunk.CoverEdges);
+                if (chunk.PlaceNames  != null) placeNames = chunk.PlaceNames;
+                if (chunk.Summary     != null) summary    = chunk.Summary;
+                if (chunk.GraphLayout != null) layout     = chunk.GraphLayout;
             }
         }
         catch (OperationCanceledException)
@@ -156,7 +159,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         }
 
         var coverTree = coverNodes.Count > 0
-            ? new CoverabilityTreeDto(coverNodes, coverEdges, placeNames ?? [])
+            ? new CoverabilityTreeDto(coverNodes, coverEdges, placeNames ?? [], layout)
             : null;
 
         return new GraphResultDto(null, null, coverTree, null, summary);

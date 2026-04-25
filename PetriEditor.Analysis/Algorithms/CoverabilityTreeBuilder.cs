@@ -1,4 +1,5 @@
 using Analysis.Engines;
+using PetriEditor.Shared.Contracts;
 
 namespace Analysis.Algorithms;
 
@@ -26,7 +27,7 @@ namespace Analysis.Algorithms;
 /// </summary>
 public sealed class CoverabilityTreeBuilder
 {
-    public const int MaxNodes = 100_000;
+    public const int MaxNodes = AnalysisLimits.MaxMarkings;
     public const int Omega    = int.MaxValue;   // ω sentinel
 
     public bool   HasErrors    { get; private set; }
@@ -111,7 +112,7 @@ public sealed class CoverabilityTreeBuilder
                 if (_nodes.Count >= maxNodes)
                 {
                     IsTruncated  = true;
-                    ErrorMessage = $"Coverability tree exceeded {MaxNodes} nodes.";
+                    ErrorMessage = $"Coverability tree exceeded {maxNodes} nodes.";
                     _truncatedIds.Add(parentId);
                     continue;
                 }

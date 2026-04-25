@@ -117,8 +117,7 @@ public sealed class AnalysisOrchestrator
 
     public async Task<GraphResultDto> RunGraphAsync(
         PetriNetDto       dto,
-        CancellationToken ct,
-        int               maxStates = StateSpaceAnalysis.MaxStates)
+        CancellationToken ct)
     {
         var net = PetriNetMapper.ToSnapshot(dto);
 
@@ -133,9 +132,10 @@ public sealed class AnalysisOrchestrator
                 // Always use the coverability tree — it handles both bounded and unbounded nets.
                 // For bounded nets the result is identical to a reachability tree (no ω appears).
                 var cb = new CoverabilityTreeBuilder();
-                cb.Build(net, ct, maxStates);
+                cb.Build(net, ct, AnalysisLimits.MaxMarkings);
+                // Genuine failure (no usable tree): surface as ErrorMessage.
                 if (cb.HasErrors && !cb.IsTruncated) { error = cb.ErrorMessage; return; }
-                if (cb.IsTruncated) error = cb.ErrorMessage;
+                // Truncation is reflected via StateSpaceSummaryDto.ExceededLimit, not ErrorMessage.
 
                 coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
 
