@@ -432,8 +432,8 @@ window.analysisPanel = (() => {
                 const atStart = scroll.scrollLeft <= 2;
                 const atEnd = scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 2;
                 const hasOverflow = scroll.scrollWidth > scroll.clientWidth + 2;
-                left.style.display = (hasOverflow && !atStart) ? 'flex' : 'none';
-                right.style.display = (hasOverflow && !atEnd) ? 'flex' : 'none';
+                left.classList.toggle('visible', hasOverflow && !atStart);
+                right.classList.toggle('visible', hasOverflow && !atEnd);
             }
 
             scroll.addEventListener('scroll', update, { passive: true });

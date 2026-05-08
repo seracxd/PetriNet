@@ -47,9 +47,15 @@ public sealed class CoverabilityTreeBuilder
 
     public void Build(
         PetriNetSnapshot  net,
-        CancellationToken ct       = default,
-        int               maxNodes = MaxNodes)
+        CancellationToken ct                       = default,
+        int               maxNodes                 = MaxNodes,
+        bool              disableOmegaAcceleration = false)
     {
+        // Karp-Miller's ω-acceleration assumes monotone firing semantics.
+        // Inhibitor and reset arcs break that, so for special-arc nets we
+        // skip the acceleration and produce a plain bounded-reachability
+        // tree with cycle detection instead. The caller passes
+        // disableOmegaAcceleration=true when the net has any non-Normal arc.
         _nodes.Clear();
         _edges.Clear();
         _truncatedIds.Clear();
@@ -107,7 +113,8 @@ public sealed class CoverabilityTreeBuilder
                 var next = FireUtils.Fire(net, pIdx, marking, t.Id);
 
                 // Step b: walk ancestors and promote to omega where needed
-                PropagateOmega(next, parentId);
+                if (!disableOmegaAcceleration)
+                    PropagateOmega(next, parentId);
 
                 if (_nodes.Count >= maxNodes)
                 {

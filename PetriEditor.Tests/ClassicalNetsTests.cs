@@ -17,7 +17,8 @@ public class ClassicalNetsTests
 
     private static (StateSpaceAnalysis ss, CoverabilityTreeBuilder ct,
                     InvariantAnalysis inv, TrapCotrapAnalysis trap,
-                    CyclesAnalysis cyc) Analyse(PetriNetSnapshot net, int maxStates = 50_000)
+                    CyclesAnalysis cyc) 
+    Analyse(PetriNetSnapshot net, int maxStates = 50_000)
     {
         var ss  = new StateSpaceAnalysis(); ss.Build(net, maxStates: maxStates);
         var ct  = new CoverabilityTreeBuilder(); ct.Build(net);

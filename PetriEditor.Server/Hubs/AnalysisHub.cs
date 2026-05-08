@@ -92,8 +92,14 @@ public sealed class AnalysisHub : Hub
             oldCts.Dispose();
         }
 
-        var cts = new CancellationTokenSource(_analysisDeadline);
-        _analysisCts[Context.ConnectionId] = cts;
+        // Two separate sources: clientCts is what CancelAnalysis() targets;
+        // deadlineCts fires only on server-side timeout. Linking them lets us
+        // tell which one tripped so we can surface a useful error to the user
+        // instead of silently swallowing a timeout.
+        var clientCts   = new CancellationTokenSource();
+        var deadlineCts = new CancellationTokenSource(_analysisDeadline);
+        var cts         = CancellationTokenSource.CreateLinkedTokenSource(clientCts.Token, deadlineCts.Token);
+        _analysisCts[Context.ConnectionId] = clientCts;
 
         // Capture caller so we can push from inside Task.Run
         var caller = Clients.Caller;
@@ -115,10 +121,16 @@ public sealed class AnalysisHub : Hub
             await caller.SendAsync("ReceiveResult", stripped);
             await SendGraphChunksAsync(caller, result, cts.Token);
         }
+        catch (OperationCanceledException) when (deadlineCts.IsCancellationRequested)
+        {
+            // Server deadline tripped — surface a friendly message instead of a silent swallow.
+            await caller.SendAsync("ReceiveError",
+                $"Analysis timed out after {_analysisDeadline.TotalSeconds:F0} seconds. " +
+                "Try a smaller net or simpler structure.");
+        }
         catch (OperationCanceledException)
         {
-            // Client triggered the cancellation and already handles it via its CancellationToken registration.
-            // Sending anything here would arrive on a completed TCS and crash the progress callback.
+            // Client-initiated cancel — they already know, no message needed.
         }
         catch (Exception ex)
         {
@@ -130,6 +142,8 @@ public sealed class AnalysisHub : Hub
             _heavyOpGate.Release();
             _analysisCts.TryRemove(Context.ConnectionId, out _);
             cts.Dispose();
+            deadlineCts.Dispose();
+            clientCts.Dispose();
         }
     }
 

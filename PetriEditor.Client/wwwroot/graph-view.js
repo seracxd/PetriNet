@@ -472,8 +472,13 @@ window.graphView = (() => {
             const mx = s.vx + fx * s.vw, my = s.vy + fy * s.vh;
             const raw = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY;
             const factor = raw > 0 ? 1.12 : (1 / 1.12);
-            const nw = Math.max(minVW, Math.min(maxVW, s.vw * factor));
-            const nh = nw * (r.height / r.width);
+            // Recompute the zoom-out cap each wheel tick so narrow-and-long graphs
+            // can still be zoomed out far enough to see vertically. The cap is the
+            // larger of svgW or "viewport width that fits svgH at current aspect".
+            const aspect    = r.height / r.width;
+            const dynMaxVW  = Math.max(svgW, aspect > 0 ? svgH / aspect : svgW) * 1.1;
+            const nw = Math.max(minVW, Math.min(dynMaxVW, s.vw * factor));
+            const nh = nw * aspect;
             s.vx = mx - fx * nw; s.vy = my - fy * nh;
             s.vw = nw; s.vh = nh;
             _clampViewport(s); _scheduleRedraw(s);
