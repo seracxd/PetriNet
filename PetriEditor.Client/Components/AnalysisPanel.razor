@@ -922,7 +922,6 @@
                                 IsVisible="@(_activeAnalysisTab == "graph")"
                                 ResultStale="@_resultStale"
                                 NetVersion="@_netVersion"
-                                HasSpecialArcs="@GraphHasSpecialArcs"
                                 AnalysisResult="@_result" />
 
 
@@ -1487,10 +1486,6 @@
     private void CancelAnalysis() => _analysisCts?.Cancel();
 
     private GraphTreePanel? _refGraphTree;
-
-    private bool GraphHasSpecialArcs =>
-        Manager.Diagram.Links.OfType<PetriLinkModel>()
-            .Any(a => a.ArcType == ArcType.Inhibitor || a.ArcType == ArcType.Reset);
 
 
     private void OnDiagramChanged() => InvokeAsync(StateHasChanged);

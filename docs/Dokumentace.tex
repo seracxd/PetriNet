@@ -1,0 +1,1125 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[czech]{babel}
+\usepackage[margin=2.5cm, headheight=14.5pt]{geometry}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{tikz}
+\usetikzlibrary{
+  shapes.geometric, shapes.multipart,
+  arrows.meta, positioning, fit,
+  calc, backgrounds,
+  decorations.pathreplacing,
+  matrix
+}
+\usepackage{hyperref}
+
+% ── Colours ───────────────────────────────────────────────────────────────────
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codegreen}{rgb}{0.0,0.5,0.0}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+\definecolor{teal}{RGB}{0,137,123}
+\definecolor{tealdark}{RGB}{0,105,94}
+\definecolor{tealpale}{RGB}{224,245,243}
+\definecolor{layerA}{RGB}{230,242,255}
+\definecolor{layerB}{RGB}{240,255,240}
+\definecolor{layerC}{RGB}{255,255,225}
+\definecolor{layerD}{RGB}{255,240,240}
+\definecolor{boxborder}{RGB}{180,180,180}
+
+% ── TikZ common styles ────────────────────────────────────────────────────────
+\tikzset{
+  layer/.style={
+    rectangle, draw=boxborder, line width=0.8pt,
+    rounded corners=4pt, align=center,
+    minimum width=11cm, minimum height=1.4cm,
+    text width=10.5cm, font=\small\bfseries
+  },
+  projectbox/.style={
+    rectangle, draw=codeblue, line width=0.9pt,
+    fill=layerA, font=\ttfamily\small,
+    rounded corners=3pt, minimum width=4.4cm,
+    minimum height=1.0cm, align=center, text width=4.2cm
+  },
+  external/.style={
+    rectangle, draw=gray!60, line width=0.8pt,
+    fill=gray!10, font=\small,
+    rounded corners=3pt, minimum width=3.6cm,
+    minimum height=0.9cm, align=center
+  },
+  arr/.style={-Stealth, thick, codeblue!75},
+  arrgray/.style={-Stealth, thick, gray},
+  reflink/.style={-Stealth, thin, codeblue!60, dashed}
+}
+
+% ── Code listings style ───────────────────────────────────────────────────────
+\lstdefinestyle{generic}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codegreen},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    tabsize=2,
+    frame=single,
+    rulecolor=\color{codegray},
+    extendedchars=true,
+    inputencoding=utf8,
+    literate=%
+      {á}{{\'a}}1 {č}{{\v{c}}}1 {ď}{{\v{d}}}1 {é}{{\'e}}1
+      {ě}{{\v{e}}}1 {í}{{\'\i}}1 {ň}{{\v{n}}}1 {ó}{{\'o}}1
+      {ř}{{\v{r}}}1 {š}{{\v{s}}}1 {ť}{{\v{t}}}1 {ú}{{\'u}}1
+      {ů}{{\r{u}}}1 {ý}{{\'y}}1 {ž}{{\v{z}}}1
+      {Á}{{\'A}}1 {Č}{{\v{C}}}1 {Ď}{{\v{D}}}1 {É}{{\'E}}1
+      {Ě}{{\v{E}}}1 {Í}{{\'I}}1 {Ň}{{\v{N}}}1 {Ó}{{\'O}}1
+      {Ř}{{\v{R}}}1 {Š}{{\v{S}}}1 {Ť}{{\v{T}}}1 {Ú}{{\'U}}1
+      {Ů}{{\r{U}}}1 {Ý}{{\'Y}}1 {Ž}{{\v{Z}}}1
+      {„}{{\quotedblbase}}1 {"}{{\textquotedblleft}}1
+      {—}{{---}}1 {–}{{--}}1
+}
+\lstset{style=generic}
+
+% ── Custom languages not bundled with listings ───────────────────────────────
+\lstdefinelanguage{json}{
+    keywords={true,false,null},
+    keywordstyle=\color{codeblue}\bfseries,
+    sensitive=true,
+    string=[s]{"}{"},
+    stringstyle=\color{codegreen},
+    comment=[l]{//},
+    commentstyle=\color{codegray},
+    morestring=[b]"
+}
+\lstdefinelanguage{yaml}{
+    keywords={name,on,push,pull_request,branches,jobs,runs-on,steps,uses,with,run},
+    keywordstyle=\color{codeblue}\bfseries,
+    sensitive=true,
+    comment=[l]{\#},
+    commentstyle=\color{codegray},
+    morestring=[b]",
+    morestring=[b]'
+}
+\lstdefinelanguage{Dockerfile}{
+    keywords={FROM,RUN,COPY,WORKDIR,ENV,EXPOSE,ENTRYPOINT,CMD,LABEL,ARG,USER,VOLUME,AS},
+    keywordstyle=\color{codeblue}\bfseries,
+    sensitive=true,
+    comment=[l]{\#},
+    commentstyle=\color{codegray},
+    morestring=[b]"
+}
+
+% ── Header / footer ───────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Petri Net Analyzer}
+\fancyhead[C]{\small Závěrečná dokumentace}
+\fancyhead[R]{\small Verze 1.0}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codeblue,
+    urlcolor=codeblue,
+    citecolor=codeblue,
+    pdftitle={Závěrečná dokumentace -- Petri Net Analyzer},
+    pdfsubject={Architektura, testování a konfigurační management},
+}
+
+% ── Tolerant line-breaking + URL-style breaking inside \texttt{} ─────────────
+\emergencystretch=3em
+\tolerance=2000
+\hyphenpenalty=2000
+\exhyphenpenalty=100
+% Allow line breaks at . / and other punctuation inside \texttt
+\makeatletter
+\def\BreakableChars{.-/_}
+\makeatother
+
+% =============================================================================
+\begin{document}
+
+% ── Title page ────────────────────────────────────────────────────────────────
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    {\Huge\bfseries Závěrečná dokumentace\par}
+    \vspace{0.5cm}
+    {\LARGE Petri Net Analyzer\par}
+    \vspace{0.3cm}
+    {\large Architektura, testování a konfigurační management\par}
+    \vspace{1.5cm}
+    {\large Verze 1.0\par}
+    \vspace{0.5cm}
+    {\large \today\par}
+    \vfill
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Položka} & \textbf{Hodnota} \\
+        \midrule
+        Projekt      & Petri Net Analyzer \\
+        Dokument     & Závěrečná dokumentace \\
+        Verze        & 1.0 \\
+        Autor        & David Šigut \\
+        Repozitář    & \url{https://github.com/seracxd/PetriNet} \\
+        \bottomrule
+    \end{tabular}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Úvod}
+
+Tento dokument popisuje výsledný stav projektu \textbf{Petri Net Analyzer} —
+interaktivního editoru, simulátoru a formálního analyzátoru Petriho sítí
+provozovaného jako webová aplikace. Cílem dokumentace je poskytnout úplný
+pohled na tři hlavní oblasti projektu:
+
+\begin{itemize}
+    \item \textbf{Architekturu aplikace} (kapitola~\ref{sec:arch}) — zvolený
+          architektonický styl, schéma komponent a použité technologie.
+    \item \textbf{Testování} (kapitola~\ref{sec:tests}) — typy testů,
+          použité nástroje, pokrytí kódu a strategii ověřování.
+    \item \textbf{Konfigurační management} (kapitola~\ref{sec:cm}) — práce
+          s verzovacím systémem, build systém, konfigurace aplikace
+          a CI/CD.
+\end{itemize}
+
+Detailní popis návrhu (4+1 view, sekvenční diagramy, modely tříd) je
+součástí samostatného dokumentu \emph{Software Architecture Document},
+který tvoří přílohu k tomuto materiálu.
+
+% =============================================================================
+\section{Architektura aplikace}
+\label{sec:arch}
+
+\subsection{Architektonický styl}
+
+Aplikace je realizována jako \textbf{vícevrstvý klient-server systém}
+s tenkým serverem. Konkrétně se jedná o kombinaci dvou stylů:
+
+\begin{itemize}
+    \item \textbf{Modulární monolit} z pohledu nasazení — celý systém
+          (server, sdílené knihovny, klient) je distribuován jako jediný
+          ASP.NET Core proces běžící na serveru. Z hlediska modularity
+          je rozdělen do pěti logicky oddělených .NET projektů, jejichž
+          závislosti tvoří orientovaný acyklický graf.
+    \item \textbf{Klient-server s tlustým klientem} z pohledu běhu —
+          klientská aplikace je doručena prohlížeči jako Blazor
+          WebAssembly modul a veškerá interaktivní práce (editace
+          diagramu, simulace, undo/redo) probíhá lokálně v prohlížeči.
+          Server slouží primárně k\,1)~prvotnímu doručení statických
+          webových assetů a\,2)~výpočetně náročné formální analýze
+          přenášené přes \texttt{SignalR}.
+\end{itemize}
+
+Volba tohoto stylu vychází z požadavku na minimalizaci síťové komunikace
+během běžné editace (offline-friendly), ale zároveň možnosti odlehčit
+slabšímu klientskému zařízení od těžkých výpočtů (analýza stavového
+prostoru sítí s desítkami tisíc stavů). Pro tento dvojí provoz je
+využita technologie \textbf{Blazor Auto} (interactive WebAssembly +
+interactive Server render mode).
+
+\subsection{Schéma architektury}
+
+Architektura je rozdělena do pěti samostatných .NET projektů
+(viz solution file \texttt{PetriNet.slnx}). Vrstvení a závislosti
+ukazuje obrázek~\ref{fig:components}.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  every node/.style={align=center},
+  projectbox/.style={
+    rectangle, draw=codeblue, line width=0.9pt,
+    fill=layerA, font=\ttfamily\small,
+    rounded corners=3pt, minimum width=4.4cm,
+    minimum height=1.3cm, align=center, text width=4.2cm,
+    inner sep=4pt
+  },
+  external/.style={
+    rectangle, draw=gray!60, line width=0.8pt,
+    fill=gray!10, font=\small,
+    rounded corners=3pt, minimum width=3.2cm,
+    minimum height=0.9cm, align=center, inner sep=4pt
+  },
+  arr/.style={-Stealth, thick, codeblue!75},
+  arrgray/.style={-Stealth, thick, gray},
+  reflink/.style={-Stealth, thin, codeblue!60, dashed}
+]
+
+  % ── Top: Browser
+  \node[external, fill=layerC] (browser) at (0, 7.0)
+        {Webový prohlížeč\\\scriptsize (Chrome, Firefox, Edge)};
+
+  % ── Layer 1: Client + Server
+  \node[projectbox, fill=layerA] (client) at (-4.0, 4.6)
+        {PetriEditor.Client\\[1pt]\scriptsize\rmfamily Blazor WASM\\\scriptsize\rmfamily (UI, editor, simulace)};
+
+  \node[projectbox, fill=layerB] (server) at (4.0, 4.6)
+        {PetriEditor.Server\\[1pt]\scriptsize\rmfamily ASP.NET Core\\\scriptsize\rmfamily (host, SignalR, PDF)};
+
+  % ── Layer 2: Analysis (centred)
+  \node[projectbox, fill=tealpale] (analysis) at (0, 2.0)
+        {PetriEditor.Analysis\\[1pt]\scriptsize\rmfamily algoritmy: stavový prostor,\\\scriptsize\rmfamily invarianty, cykly, klasifikace};
+
+  % ── Layer 3: Shared (bottom)
+  \node[projectbox, fill=layerC] (shared) at (0, -0.4)
+        {PetriEditor.Shared\\[1pt]\scriptsize\rmfamily DTOs, kontrakty,\\\scriptsize\rmfamily doménové modely};
+
+  % ── Tests (left side, separated)
+  \node[projectbox, fill=layerD] (tests) at (-7.5, 2.0)
+        {PetriEditor.Tests\\[1pt]\scriptsize\rmfamily xUnit\\\scriptsize\rmfamily (196 testů)};
+
+  % ── External libraries (well separated)
+  \node[external] (zblazor)  at (-8.0, 4.6) {Z.Blazor.\\Diagrams 3.0.4};
+  \node[external] (signalr)  at ( 8.5, 5.6) {SignalR\\(WebSocket)};
+  \node[external] (questpdf) at ( 8.5, 3.6) {QuestPDF};
+
+  % ── Edges (browser)
+  \draw[arr] (browser.south) -| node[pos=0.25,above,font=\scriptsize]{WASM}    (client.north);
+  \draw[arr] (browser.south) -| node[pos=0.25,above,font=\scriptsize]{HTTPS}   (server.north);
+
+  % ── Client <-> Server
+  \draw[arr,<->] (client.east) -- node[above,font=\scriptsize]{SignalR\,/\,JSON} (server.west);
+
+  % ── Layer 1 -> Layer 2
+  \draw[arr] (client.south) -- (analysis.north west);
+  \draw[arr] (server.south) -- (analysis.north east);
+
+  % ── Layer 2 -> Shared (direct)
+  \draw[arr] (analysis.south) -- (shared.north);
+
+  % ── Client/Server bypass to Shared
+  \draw[arr] (client.south) .. controls (-3.5, 1.0) and (-2.0, 0.0) .. (shared.north west);
+  \draw[arr] (server.south) .. controls ( 3.5, 1.0) and ( 2.0, 0.0) .. (shared.north east);
+
+  % ── Tests references (dashed)
+  \draw[reflink] (tests.east) -- (analysis.west);
+  \draw[reflink] (tests.south) .. controls (-7.5, -0.4) and (-4.0, -0.4) .. (shared.west);
+  \draw[reflink] (tests.north) .. controls (-7.5,  4.6) and (-6.5,  4.6) .. (client.west);
+
+  % ── External libs
+  \draw[arrgray] (zblazor.east)  -- (client.west);
+  \draw[arrgray] (signalr.west)  .. controls (6.5, 5.6) .. (server.north east);
+  \draw[arrgray] (questpdf.west) -- (server.east);
+
+\end{tikzpicture}}
+\caption{Diagram komponent — pět .NET projektů a jejich vztahy
+         k externím knihovnám a běhovému prostředí.
+         Plné šipky = závislost na sestavení (\texttt{ProjectReference});
+         čárkované šipky = reference pouze v testech.}
+\label{fig:components}
+\end{figure}
+
+\paragraph{Popis projektů}
+\begin{description}
+    \item[PetriEditor.Shared] Sdílené doménové modely Petriho sítě
+          (\texttt{Place}, \texttt{Transition}, \texttt{Arc},
+          \texttt{ArcType}), DTO objekty pro SignalR přenos a mapovací
+          rozhraní. Je referenční bod, na který se odkazují všechny
+          ostatní projekty — tvoří \emph{spodní vrstvu} grafu závislostí.
+
+    \item[PetriEditor.Analysis] Knihovna formální analýzy bez závislosti
+          na UI nebo webovém kontextu. Obsahuje pět nezávislých analytických
+          enginů (stavový prostor / Karp-Miller, P/T-invarianty, klasifikace
+          struktury, Johnsonův algoritmus pro cykly, traps \& siphons)
+          a sedm property testů (liveness, boundedness, safety,
+          conservativeness, repetitiveness, deadlock-freedom, reversibility).
+          Lze ji spustit jak v klientovi (in-process), tak na serveru.
+
+    \item[PetriEditor.Client] Vlastní webová aplikace v Blazor WebAssembly.
+          Vykresluje UI editoru (komponenty \texttt{Home.razor},
+          \texttt{AnalysisPanel.razor}, \texttt{GraphTreePanel.razor}),
+          spravuje stav diagramu (\texttt{PetriNetManager}), implementuje
+          undo/redo (\texttt{UndoRedoService}, command pattern),
+          interaktivní simulaci (\texttt{SimulationService}) a JS interop
+          s knihovnou Z.Blazor.Diagrams.
+
+    \item[PetriEditor.Server] ASP.NET Core 10 host, který doručuje
+          klientské WASM assety, vystavuje \texttt{SignalR} hub
+          \texttt{/hubs/analysis} pro server-side analýzu velkých sítí
+          a generuje PDF exporty výsledků pomocí knihovny QuestPDF.
+          Také obsahuje souborový logger a perzistenci klíčů
+          \texttt{DataProtection} pro stabilitu antiforgery tokenů
+          mezi restarty.
+
+    \item[PetriEditor.Tests] Unit, integrační a regresní xUnit testy
+          (196 testovacích metod, 4045 řádků) — viz kapitola~\ref{sec:tests}.
+\end{description}
+
+\subsection{Schéma rozmístění (deployment)}
+
+Aplikace má tři typické varianty nasazení (obrázek~\ref{fig:deploy}):
+
+\begin{enumerate}
+    \item \textbf{Lokální vývoj}: \texttt{dotnet run} z projektu
+          \texttt{PetriEditor.Server}; klient je servován z paměti
+          a hot-reload je aktivní.
+    \item \textbf{Docker kontejner}: jediný image postavený podle
+          \texttt{Dockerfile} (multi-stage build, viz sekce~\ref{sec:cm-docker}),
+          deployovatelný na libovolný PaaS (Railway, Azure App Service, \dots).
+    \item \textbf{Statické hostování (volitelné)}: vzhledem k tomu, že
+          analýza je k dispozici i ve WASM podobě, lze klientskou část
+          publikovat samostatně — pak jsou těžké výpočty omezeny výkonem
+          prohlížeče.
+\end{enumerate}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  every node/.style={align=center},
+  procbox/.style={
+    rectangle, draw=teal, fill=tealpale, line width=0.7pt,
+    rounded corners=3pt, minimum width=4.4cm, minimum height=0.7cm,
+    font=\footnotesize, align=center, inner sep=3pt
+  },
+  cli/.style={
+    rectangle, draw=gray!60, fill=gray!10, line width=0.8pt,
+    rounded corners=4pt, minimum width=3.6cm, minimum height=1.6cm,
+    align=center, font=\small, inner sep=3pt
+  },
+  caplbl/.style={font=\scriptsize\itshape, gray, align=center}
+]
+
+% ── Client node (left)
+\node[cli] (browser) at (-4.8, 0)
+      {\textbf{Klient}\\[2pt]\scriptsize Webový prohlížeč\\\scriptsize (WASM runtime)};
+
+% ── Server "deployment node" — UML-style box with header
+\node[procbox] (kestrel) at ( 3.0,  0.30) {Kestrel HTTP/HTTPS server};
+\node[procbox] (signal)  at ( 3.0, -0.55) {SignalR Hub \texttt{/hubs/analysis}};
+
+\begin{scope}[on background layer]
+  \node[draw=codeblue, line width=0.9pt, fill=layerA, rounded corners=4pt,
+        fit=(kestrel)(signal),
+        inner xsep=8pt, inner ysep=18pt] (host) {};
+\end{scope}
+
+\node[anchor=south, font=\bfseries\small, text=codeblue]
+      at (host.north) {Server (ASP.NET Core 10)};
+      
+% ── Connection
+\draw[arr] (browser.east) -- node[above,font=\scriptsize]{HTTPS}
+                              node[below,font=\scriptsize]{WebSocket}
+           (host.west);
+
+% ── Captions below
+\node[caplbl] at (-4.8, -1.6) {Blazor WASM\\doručeno přes HTTPS};
+\node[caplbl] at ( 3.0, -1.6) {Docker kontejner / PaaS\\port 8080};
+
+\end{tikzpicture}
+\caption{Diagram nasazení — tenký server + tlustý WASM klient,
+         obousměrné spojení přes SignalR (WebSocket).}
+\label{fig:deploy}
+\end{figure}
+
+\subsection{Použité technologie a nástroje}
+
+\begin{longtable}{@{}p{4.6cm}p{1.8cm}p{7.0cm}@{}}
+    \toprule
+    \textbf{Technologie} & \textbf{Verze} & \textbf{Účel} \\
+    \midrule
+    \endhead
+    .NET                     & 10.0    & Cílová platforma všech projektů. \\
+    C\#                      & 12      & Hlavní programovací jazyk. \\
+    ASP.NET Core             & 10.0    & Webový server, hosting, antiforgery. \\
+    Blazor WebAssembly       & 10.0    & Spuštění .NET kódu v prohlížeči. \\
+    Blazor Server            & 10.0    & Interaktivní render-mode pro server-side renderování. \\
+    SignalR                  & 9.0.4   & Obousměrná komunikace klient–server pro analýzu. \\
+    Z.Blazor.Diagrams        & 3.0.4   & Knihovna pro vykreslování diagramů a interaktivitu. \\
+    QuestPDF                 & 2024.10 & Generování PDF reportů z analýzy. \\
+    DataProtection           & 9.0.3   & Trvalé klíče pro antiforgery napříč restarty. \\
+    xUnit                    & 2.9.3   & Framework pro jednotkové a integrační testy. \\
+    coverlet.collector       & 6.0.4   & Sběr metrik pokrytí kódu. \\
+    Microsoft.NET.Test.Sdk   & 17.14.1 & Testovací běhový adapter pro \texttt{dotnet test}. \\
+    Cytoscape.js (CDN)       & 3.x     & Volitelné renderování coverability grafu (s SRI hashem). \\
+    Docker                   & ---     & Kontejnerizovaný build a runtime. \\
+    Git + GitHub             & ---     & Verzování, code review, pull requesty. \\
+    \bottomrule
+\end{longtable}
+
+\paragraph{Klíčové architektonické rozhodnutí}
+Sdílení knihovny \texttt{PetriEditor.Analysis} mezi klientem i serverem
+umožňuje \emph{stejný} algoritmický kód použít v obou prostředích.
+Pro malé sítě (ojedinělý kontext editace) se analýza spouští přímo
+v prohlížeči, pro velké sítě je delegována na server přes SignalR
+s chunked přenosem grafu (200 uzlů/zpráva, viz \texttt{AnalysisHub.StreamGraph}).
+
+% =============================================================================
+\section{Testování}
+\label{sec:tests}
+
+\subsection{Strategie testování}
+
+Projekt používá \textbf{vrstvenou strategii testování} s důrazem na
+formální korektnost analytických algoritmů, neboť chybný výsledek formální
+analýzy by byl pro uživatele zavádějící. Strategie se řídí třemi pravidly:
+
+\begin{enumerate}
+    \item \textbf{Algoritmické jádro je 100\% testovatelné} — knihovna
+          \texttt{PetriEditor.Analysis} nemá žádné UI ani webové
+          závislosti, takže všechny veřejné API jsou pokryty unit testy.
+    \item \textbf{Cross-engine konzistence} — jakékoli dva engine,
+          jejichž výsledky se logicky musí shodovat (např. P-invariant
+          $\Rightarrow$ váha musí být zachována ve všech reachable stavech),
+          jsou ověřeny v \texttt{CrossEngineConsistencyTests}.
+    \item \textbf{Klasické literární vzory} — známé sítě
+          (producer-consumer, vzájemné vyloučení, dining philosophers,
+          bounded buffer, token ring) tvoří regresní sadu, která zajistí,
+          že refaktoring algoritmu neovlivní již ověřené výsledky.
+\end{enumerate}
+
+\subsection{Typy testů}
+
+\begin{longtable}{p{4.5cm}p{8.5cm}}
+    \toprule
+    \textbf{Typ} & \textbf{Příklady v projektu} \\
+    \midrule
+    \endhead
+    \textbf{Jednotkové (unit)}      & Per-engine test soubory:
+        \texttt{StateSpaceTests.cs}, \texttt{InvariantAnalysisTests.cs},
+        \texttt{ClassificationAnalysisTests.cs}, \texttt{CycleDetectionTests.cs},
+        \texttt{CoverabilityTreeTests.cs}, \texttt{ReachabilityTreeTests.cs},
+        \texttt{SimulatorTests.cs}, \texttt{TreeLayoutEngineTests.cs},
+        \texttt{GraphLayoutEngineTests.cs}. \\[3pt]
+    \textbf{Property-based / Theory} &
+        \texttt{TheoryTests.cs} (parametrizované testy invariantních
+        vlastností: nezávislost reset arc na pořadí, hranice ořezu,
+        deduplikace stavů, vážené hrany, inhibitor threshold,
+        N-loop cykly). xUnit \texttt{[Theory]} + \texttt{[InlineData]}. \\[3pt]
+    \textbf{Integrační}             &
+        \texttt{ClassicalNetsTests.cs} — celá pipeline od konstrukce
+        snapshotu po výsledný \texttt{AnalysisReport} pro pět klasických
+        sítí. \\[3pt]
+    \textbf{Cross-engine / regresní} &
+        \texttt{CrossEngineConsistencyTests.cs} — ověřuje vzájemnou
+        konzistenci výsledků (P-invarianty platí v každém dosažitelném
+        stavu, coverability tree vs. state space, deduplikace cyklů,
+        sémantika trapů). \\[3pt]
+    \textbf{Coverage gap}            &
+        \texttt{CoverageGapTests.cs}, \texttt{DefiniteDeadlockTests.cs},
+        \texttt{PropertyTestsTests.cs} — explicitní testy hraničních
+        případů, ořezu výpočtu a chování pod cancellation tokenem. \\[3pt]
+    \textbf{End-to-end (manuální)}   &
+        UI-related testy nejsou automatizovány. Manuální E2E je
+        prováděno během vývoje (drag-and-drop, undo/redo, JS interop)
+        v prohlížečích Chrome a Firefox. \\
+    \bottomrule
+\end{longtable}
+
+\subsection{Použité nástroje}
+
+\begin{itemize}
+    \item \textbf{xUnit 2.9.3} — primární testovací framework
+          (\texttt{[Fact]}, \texttt{[Theory]}, \texttt{[InlineData]},
+          asserce \texttt{Assert.Equal}, \texttt{Assert.Contains},
+          \texttt{Assert.True}).
+    \item \textbf{Microsoft.NET.Test.Sdk 17.14.1} — adaptér umožňující
+          spuštění přes \texttt{dotnet test} i z Visual Studia / JetBrains
+          Rider.
+    \item \textbf{xunit.runner.visualstudio 3.1.4} — VS test runner.
+    \item \textbf{coverlet.collector 6.0.4} — sběr code coverage metrik;
+          výstup ve formátu \texttt{cobertura.xml} (kompatibilní s ReportGenerator,
+          Coveralls, Codecov).
+    \item \textbf{Helpers/} — interní knihovna pro tvorbu testovacích
+          sítí (\texttt{NetBuilder} fluent API), aby testy zůstaly čitelné.
+\end{itemize}
+
+\subsection{Pokrytí kódu}
+
+\subsubsection{Statistika testů}
+
+V projektu je definováno \textbf{196 testovacích metod}
+(\texttt{[Fact]} + \texttt{[Theory]}), které dohromady reprezentují
+\textbf{220 testovacích případů} po expanzi parametrizovaných
+\texttt{[Theory]} přes \texttt{[InlineData]}. Rozložení podle
+test-souborů ukazuje tabulka níže.
+
+\begin{longtable}{@{}p{6.0cm}rr@{}}
+    \toprule
+    \textbf{Test soubor} & \textbf{\#\,Testů} & \textbf{Řádků} \\
+    \midrule
+    \endhead
+    ClassicalNetsTests.cs                & 16   & 362 \\
+    ClassificationAnalysisTests.cs       & 17   & 280 \\
+    CoverabilityTreeTests.cs             & 12   & 221 \\
+    CoverageGapTests.cs                  & 11   & 213 \\
+    CrossEngineConsistencyTests.cs       & 13   & 335 \\
+    CycleDetectionTests.cs               & 12   & 249 \\
+    DefiniteDeadlockTests.cs             & \phantom{0}9    & 201 \\
+    GraphLayoutEngineTests.cs            & 11   & 160 \\
+    InvariantAnalysisTests.cs            & \phantom{0}9    & 187 \\
+    PropertyTestsTests.cs                & 18   & 388 \\
+    ReachabilityTreeTests.cs             & 13   & 243 \\
+    SimulatorTests.cs                    & 24   & 401 \\
+    StateSpaceTests.cs                   & 12   & 275 \\
+    TheoryTests.cs                       & \phantom{0}7    & 286 \\
+    TreeLayoutEngineTests.cs             & 12   & 244 \\
+    \midrule
+    \textbf{Celkem}                      & \textbf{196} & \textbf{4\,045} \\
+    \bottomrule
+\end{longtable}
+
+\subsubsection{Naměřené pokrytí kódu}
+
+Pokrytí bylo změřeno spuštěním všech testů s nástrojem \texttt{coverlet}
+(\texttt{dotnet test --collect:"XPlat Code Coverage"}) a~následným
+zpracováním \texttt{cobertura.xml} pomocí \texttt{ReportGenerator}.
+Souhrnné metriky:
+
+\begin{longtable}{@{}p{6.0cm}rr@{}}
+    \toprule
+    \textbf{Metrika} & \textbf{Hodnota} & \textbf{Pokryto / celkem} \\
+    \midrule
+    \endhead
+    Line coverage    & \textbf{18.1\,\%} & 1\,485\,/\,8\,199   \\
+    Branch coverage  & \textbf{15.5\,\%} & \phantom{0}711\,/\,4\,559 \\
+    Method coverage  & \textbf{18.3\,\%} & \phantom{0}205\,/\,1\,119 \\
+    Třídy v reportu  & 157               & --- \\
+    Soubory zdrojáků & \phantom{0}72     & --- \\
+    \bottomrule
+\end{longtable}
+
+Globální čísla zachycují celý solution včetně UI vrstvy a kontrakt
+DTO objektů, které nemají žádnou behavior-logiku k testování.
+Po rozčlenění podle assembly je pohled mnohem informativnější:
+
+\begin{longtable}{@{}p{5.5cm}rl@{}}
+    \toprule
+    \textbf{Assembly} & \textbf{Line cov.} & \textbf{Účel} \\
+    \midrule
+    \endhead
+    PetriEditor.Analysis  & \textbf{81.3\,\%} & algoritmické jádro (cíl testů) \\
+    PetriEditor.Shared    & 26.0\,\%          & doménové modely + DTO kontrakty \\
+    PetriEditor.Client    & \phantom{0}1.7\,\% & UI / Blazor komponenty \\
+    \bottomrule
+\end{longtable}
+
+\textbf{Interpretace:}
+
+\begin{itemize}
+    \item \textbf{PetriEditor.Analysis (81.3\,\%)} — \emph{cíl
+          testovacího úsilí}. Algoritmické jádro je systematicky pokryto
+          jednotkovými, theory a regresními testy. Většina jednotlivých
+          tříd dosahuje 90--100\,\% (viz tabulka per-class níže).
+          Nepokryté zbylé části jsou:
+          \begin{itemize}
+              \item \texttt{Analysis.AnalysisService} (0\,\%) a~%
+                    \texttt{Analysis.AnalysisReport} (0\,\%) --
+                    fasáda volaná z UI; její business-logika je v~%
+                    enginech, které jsou plně pokryty.
+              \item \texttt{GraphLayoutBuilder} (0\,\%) -- starý kód
+                    nahrazený \texttt{GraphLayoutEngine} (98.9\,\%),
+                    ponechán jako fallback.
+          \end{itemize}
+    \item \textbf{PetriEditor.Shared (26\,\%)} — pokryty jsou doménové
+          modely využívané analýzou (\texttt{PnPlace},
+          \texttt{PnTransition}, \texttt{PnArc}, \texttt{PetriNetSnapshot} --
+          83--100\,\%); nepokryty jsou DTO třídy
+          (\texttt{*Dto.cs}) -- záměrně, jelikož jde o~čistá data-holder
+          POCO bez logiky (pouze auto-generované gettery a~settery).
+    \item \textbf{PetriEditor.Client (1.7\,\%)} — Blazor UI vrstva.
+          Pokrytí je nízké, protože:
+          \begin{itemize}
+              \item Blazor komponenty (\texttt{*.razor}) vyžadují
+                    rendering host (\texttt{bUnit}), který v~projektu
+                    není zaveden.
+              \item Drag-and-drop, JS interop a undo/redo workflow se
+                    testují manuálně E2E (viz strategie testování).
+              \item Jediná netriviální pokrytá třída je
+                    \texttt{TreeLayoutEngine} (99\,\%), což je čistý
+                    algoritmus bez UI závislosti.
+          \end{itemize}
+\end{itemize}
+
+\subsubsection{Pokrytí jednotlivých tříd v PetriEditor.Analysis}
+
+Detailní rozpis pokrytí jednotlivých tříd analytického jádra:
+
+\begin{longtable}{@{}p{8.5cm}r@{}}
+    \toprule
+    \textbf{Třída} & \textbf{Line cov.} \\
+    \midrule
+    \endhead
+    \texttt{Analysis.Algorithms.BoundednessTest}        & 100\,\% \\
+    \texttt{Analysis.Algorithms.ConservativenessTest}   & 100\,\% \\
+    \texttt{Analysis.Algorithms.DeadlockFreeTest}       & 100\,\% \\
+    \texttt{Analysis.Algorithms.RepetitivenessTest}     & 100\,\% \\
+    \texttt{Analysis.Algorithms.ReversibilityTest}      & 100\,\% \\
+    \texttt{Analysis.Algorithms.SafetyTest}             & 100\,\% \\
+    \texttt{Analysis.Algorithms.LivenessTest}           &  96.6\,\% \\
+    \texttt{Analysis.Algorithms.FireUtils}              &  97.8\,\% \\
+    \texttt{Analysis.Algorithms.GraphLayoutEngine}      &  98.9\,\% \\
+    \texttt{Analysis.Algorithms.CoverabilityTreeBuilder}&  91.1\,\% \\
+    \texttt{Analysis.Algorithms.ReachabilityTreeBuilder}&  94.7\,\% \\
+    \texttt{Analysis.Engines.ClassificationAnalysis}    &  96.9\,\% \\
+    \texttt{Analysis.Engines.CyclesAnalysis}            &  95.5\,\% \\
+    \texttt{Analysis.Engines.InvariantAnalysis}         &  87.6\,\% \\
+    \texttt{Analysis.Engines.StateSpaceAnalysis}        &  96.0\,\% \\
+    \texttt{Analysis.Engines.TrapCotrapAnalysis}        & 100\,\% \\
+    \texttt{Analysis.Simulation.PetriNetSimulator}      & 100\,\% \\
+    \texttt{Analysis.AnalysisBundle}                    & 100\,\% \\
+    \bottomrule
+\end{longtable}
+
+Plný HTML report (s navigací do zdrojového kódu, zvýrazněnými
+nepokrytými řádky a~grafy historického trendu) je vygenerován do
+\texttt{docs/coverage/index.html}.
+
+\subsubsection{Reprodukce výsledků}
+
+Lokální spuštění všech testů s metrikou pokrytí:
+
+\begin{lstlisting}[language=bash]
+# Vsechny testy
+dotnet test
+
+# Vcetne sberu pokryti (coverlet)
+dotnet test --collect:"XPlat Code Coverage"
+
+# Volitelne: HTML report z cobertura.xml
+dotnet tool install -g dotnet-reportgenerator-globaltool
+reportgenerator -reports:"**/coverage.cobertura.xml" \
+                -targetdir:"coveragereport" \
+                -reporttypes:Html
+\end{lstlisting}
+
+\textbf{Výsledek běhové statistiky:} 220/220 testů prochází za $\sim$2~s
+(release build, Windows 11, .NET 10 SDK). Build je čistý — 0 chyb,
+1 varování (NU1510 package-prune, neblokující).
+
+\subsection{Ukázky testů}
+
+\subsubsection{Jednotkový test — invariantní vlastnost simulátoru}
+
+Test ověřuje, že \texttt{PetriNetSimulator} po vyresetování vrátí
+síť do iniciálního stavu nezávisle na předchozí historii vystřelení:
+
+\begin{lstlisting}[language={[Sharp]C}]
+[Fact]
+public void Reset_RestoresInitialMarking()
+{
+    var net = NetBuilder.Linear(p1: 3, p2: 0);
+    var sim = new PetriNetSimulator(net);
+
+    sim.FireAll();             // vyprazdni p1
+    Assert.Equal(0, sim.Tokens["p1"]);
+
+    sim.Reset();
+    Assert.Equal(3, sim.Tokens["p1"]);
+    Assert.Empty(sim.History);
+}
+\end{lstlisting}
+
+\subsubsection{Theory test — sémantika reset hran}
+
+Parametrizovaný test ověřuje, že pořadí výpisu hran (normal vs. reset)
+nemá vliv na výsledný marking:
+
+\begin{lstlisting}[language={[Sharp]C}]
+[Theory]
+[InlineData(ArcOrder.NormalThenReset)]
+[InlineData(ArcOrder.ResetThenNormal)]
+public void ResetArc_OrderIndependent(ArcOrder order)
+{
+    var net = NetBuilder.MixedArcs(order, initialTokens: 5);
+    var sim = new PetriNetSimulator(net);
+
+    sim.Fire("t1");
+
+    Assert.Equal(0, sim.Tokens["p1"]);   // reset vyhrava
+    Assert.Equal(1, sim.Tokens["p2"]);
+}
+\end{lstlisting}
+
+\subsubsection{Cross-engine konzistence}
+
+Test ověřuje, že každý spočítaný P-invariant skutečně platí ve všech
+dosažitelných stavech (definice P-invariantu: $y \cdot M = y \cdot M_0$):
+
+\begin{lstlisting}[language={[Sharp]C}]
+[Fact]
+public void PInvariants_HoldAtEveryReachableMarking()
+{
+    var net = NetBuilder.MutualExclusion();
+    var bundle = AnalysisService.Run(net.ToSnapshot());
+
+    foreach (var pi in bundle.Invariants.PInvariants)
+    foreach (var marking in bundle.StateSpace.Markings)
+    {
+        var weighted = DotProduct(pi, marking);
+        var initial  = DotProduct(pi, bundle.StateSpace.Initial);
+        Assert.Equal(initial, weighted);
+    }
+}
+\end{lstlisting}
+
+\subsection{Strategie testování — kdy a jak}
+
+\begin{itemize}
+    \item \textbf{Při vývoji:} test-driven přístup pro čisté algoritmy
+          (state space, invariants); nejprve napsán test podle
+          definice z literatury (Murata 1989), poté implementace.
+    \item \textbf{Před commit:} \texttt{dotnet test} musí projít s 0 selháními;
+          \texttt{dotnet build /p:TreatWarningsAsErrors=true} se používá
+          jako lint.
+    \item \textbf{Při bug fixu:} je-li to možné, nejprve přidán failing
+          test reprodukující bug, teprve pak oprava (regresní test).
+          Příklad: \texttt{TheoryTests.cs} obsahuje regresní test pro
+          dříve špatné chování reset hran v závislosti na pořadí výpisu.
+    \item \textbf{Při refaktoringu velkých částí:} cross-engine testy
+          jsou primární bezpečnostní síť; pokud byly před refaktorem
+          zelené a zůstávají zelené po refaktoru, lze refaktor považovat
+          za sémanticky neutrální.
+    \item \textbf{Manuální E2E testování:} prováděno v prohlížeči
+          podle scénářů popsaných v Software Architecture Document
+          (drag-and-drop arc, undo/redo deep stack, simulace s
+          time-travel, dock/float panelu, JS interop pro klávesové
+          zkratky).
+\end{itemize}
+
+% =============================================================================
+\section{Konfigurační management}
+\label{sec:cm}
+
+\subsection{Verzovací systém}
+
+Projekt používá \textbf{Git} jako verzovací systém s repozitářem
+hostovaným na GitHubu (\url{https://github.com/seracxd/PetriNet}).
+
+\subsubsection{Struktura repozitáře}
+
+\begin{lstlisting}[language=bash]
+PetriNet/
+|-- .github/
+|   `-- workflows/              # Pripraveno pro CI (zatim prazdne)
+|-- .gitattributes              # Normalizace EOL a binarnich souboru
+|-- .gitignore                  # Standardni VS / dotnet ignore
+|-- Dockerfile                  # Multi-stage build & deploy
+|-- PetriNet.slnx               # SLN replacement (novy .slnx format)
+|-- TODO.md                     # Roadmap, zmeny, code-review log
+|-- PetriEditor.Shared/         # Domenove modely a kontrakty
+|-- PetriEditor.Analysis/       # Algoritmy formalni analyzy
+|-- PetriEditor.Client/         # Blazor WASM klient
+|-- PetriEditor.Server/         # ASP.NET Core host
+`-- PetriEditor.Tests/          # xUnit testy (196)
+\end{lstlisting}
+
+\subsubsection{Větvení a workflow}
+
+Aplikuje se zjednodušený \textbf{trunk-based} model:
+
+\begin{itemize}
+    \item \texttt{master} — hlavní větev, vždy buildovatelná, vždy
+          s procházejícími testy (32 commitů celkem v čase psaní dokumentu).
+    \item \texttt{feature/*} — pracovní větve pro nové funkce
+          (např. \texttt{feature/manual-graph-layout} obsahuje refaktor
+          grafu z Cytoscape na vlastní canvas renderer).
+    \item \texttt{archive/*} — archivované předchozí varianty (např.
+          \texttt{archive/original-blazor-wasm} obsahuje původní
+          single-project verzi před modularizací).
+\end{itemize}
+
+Slévání do \texttt{master} probíhá výhradně přes \textbf{pull request}
+(\#1, \#2 v historii) s manuální revizí změn. Velké refaktory jsou
+prováděny v sérii malých commitů s popisnými zprávami:
+
+\begin{lstlisting}[language=bash]
+2fc6285  Refactor graph view: new layout, canvas, remove Cytoscape
+cea84d9  Hide uncertain analyses for nets with inhibitor/reset arcs
+c9e88d1  Fix DI scope, timer disposal, nullability, and error logging
+8777e1d  Auto-layout, chunked graph streaming, and test coverage
+4d726b7  Add integration and regression tests for analysis engines
+\end{lstlisting}
+
+\subsection{Build systém}
+
+Projekt používá nativní \textbf{.NET CLI} (\texttt{dotnet}) jako
+build systém. Žádné externí orchestrátory (Make, Cake, NUKE)
+se nepoužívají — výhodou je nulová nárazová křivka pro každého
+.NET vývojáře a přímá integrace s IDE.
+
+\subsubsection{Klíčové příkazy}
+
+\begin{longtable}{@{}p{7.6cm}p{5.9cm}@{}}
+    \toprule
+    \textbf{Příkaz} & \textbf{Účel} \\
+    \midrule
+    \endhead
+    \texttt{dotnet restore}                                            & Stažení NuGet balíčků pro celé řešení. \\
+    \texttt{dotnet build}                                              & Sestavení všech projektů (Debug). \\
+    \texttt{dotnet build -c Release}                                   & Optimalizovaný release build. \\
+    \texttt{dotnet build /p:TreatWarningsAsErrors=true}                & „Lint“ režim — varování blokují build. \\
+    \texttt{dotnet test}                                               & Spuštění 220 xUnit test. případů. \\
+    \texttt{dotnet test -{-}collect:'XPlat Code Coverage'}             & Testy + sběr code coverage. \\
+    \texttt{dotnet run -{-}project PetriEditor.Server}                 & Lokální spuštění (dev. server). \\
+    \texttt{dotnet publish -c Release -o publish/}                     & Publikace pro nasazení (self-contained výstup). \\
+    \bottomrule
+\end{longtable}
+
+\subsubsection{NuGet závislosti}
+
+Externí balíčky jsou definovány v \texttt{.csproj} souborech
+(jeden centralní \texttt{Directory.Packages.props} se nepoužívá kvůli
+malému počtu závislostí). Klíčové balíčky:
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{7.6cm}p{1.6cm}p{4.5cm}@{}}
+    \toprule
+    \textbf{Balíček} & \textbf{Verze} & \textbf{Použito v} \\
+    \midrule
+    \endhead
+    Microsoft.AspNetCore.Components.WebAssembly        & 10.0.2     & Client \\
+    Microsoft.AspNetCore.Components.WebAssembly.Server & 10.0.2     & Server \\
+    Microsoft.AspNetCore.SignalR.Client                & 9.0.4      & Client \\
+    Microsoft.AspNetCore.DataProtection                & 9.0.3      & Server \\
+    QuestPDF                                           & 2024.10.4  & Server (PDF export) \\
+    Z.Blazor.Diagrams (+ Core)                         & 3.0.4      & Client \\
+    xunit                                              & 2.9.3      & Tests \\
+    coverlet.collector                                 & 6.0.4      & Tests \\
+    Microsoft.NET.Test.Sdk                             & 17.14.1    & Tests \\
+    \bottomrule
+\end{longtable}
+
+\subsection{Konfigurace aplikace}
+
+Aplikace pracuje s konfigurací na třech úrovních:
+
+\subsubsection{appsettings.json (server)}
+
+Serverový projekt používá standardní ASP.NET Core konfigurační hierarchii:
+\texttt{appsettings.json} (defaultní) $\to$ \texttt{appsettings.Development.json}
+(override) $\to$ environment variables (nejvyšší priorita).
+
+\begin{lstlisting}[language=json]
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+\end{lstlisting}
+
+\subsubsection{Environment variables}
+
+Pro nasazení na PaaS s ephemerálním souborovým systémem (Railway, Heroku)
+program rozpoznává tyto proměnné prostředí:
+
+\begin{longtable}{p{4.5cm}p{8.5cm}}
+    \toprule
+    \textbf{Proměnná} & \textbf{Účel} \\
+    \midrule
+    \endhead
+    \texttt{ASPNETCORE\_ENVIRONMENT}    & \texttt{Development} / \texttt{Production} (řídí WASM debugger, exception handler). \\
+    \texttt{DP\_KEYS\_PATH}             & Cesta pro perzistenci DataProtection klíčů (default: \texttt{AppContext.BaseDirectory/dataprotection-keys}). \\
+    \texttt{LOW\_MEMORY\_GC}            & Zapne \texttt{GCLatencyMode.Batch} pro hostingy s omezenou pamětí. \\
+    \texttt{RAILWAY\_ENVIRONMENT}       & Auto-detekce Railway hostingu (alias pro \texttt{LOW\_MEMORY\_GC}). \\
+    \bottomrule
+\end{longtable}
+
+\subsubsection{Klientská konfigurace}
+
+Klient (Blazor WASM) má oddělený konfigurační kanál:
+
+\begin{itemize}
+    \item \texttt{DiagramSettings} — runtime singleton držící vizuální
+          a behaviorální parametry (velikost grid, barvy hran, velikosti
+          uzlů). Je inicializován z \texttt{appsettings.json} přes
+          \texttt{IConfiguration.Bind} a má event \texttt{Changed}
+          pro re-render.
+    \item \texttt{localStorage} (browser) — perzistentní uživatelské
+          preference (firing delay simulace, zapnutí/vypnutí grid
+          overlay). Není to server-side state — žádný cookies,
+          žádná databáze.
+\end{itemize}
+
+\subsection{Dockerizace}
+\label{sec:cm-docker}
+
+Projekt je distribuovatelný jako jediný Docker image. \texttt{Dockerfile}
+používá \textbf{multi-stage build}, aby výsledný image obsahoval pouze
+runtime artefakty bez SDK:
+
+\begin{lstlisting}[language=Dockerfile]
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet test PetriEditor.Tests/PetriEditor.Tests.csproj \
+        -c Release --no-restore
+RUN dotnet publish PetriEditor.Server/PetriEditor.Server.csproj \
+        -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "PetriEditor.Server.dll"]
+\end{lstlisting}
+
+\textbf{Klíčové body:}
+\begin{itemize}
+    \item \textbf{Testy jsou součástí buildu} (řádek~4): pokud
+          \texttt{dotnet test} selže, image se nepostaví — bránění
+          chybnému deploy.
+    \item \textbf{Two-stage build}: výsledný image (\texttt{aspnet:10.0})
+          je menší než SDK image (\texttt{sdk:10.0}). Reálná velikost
+          po publikaci $\sim$\,200~MB.
+    \item \textbf{Production environment} fixed (řádek~10) — žádný
+          accidentální development režim.
+\end{itemize}
+
+\subsection{CI/CD}
+
+V současné fázi projekt \textbf{nepoužívá automatizovanou CI/CD pipeline}.
+Adresář \texttt{.github/workflows/} je vytvořen, ale prázdný. Důvody:
+
+\begin{itemize}
+    \item Projekt je jednočlenný (akademický kontext), takže nedochází
+          k souběžnému psaní více vývojáři, kde CI brání rozbití
+          \texttt{master}u.
+    \item \textbf{Dockerfile sám o sobě supluje CI} — testy jsou
+          součástí buildu (řádek 4 \texttt{Dockerfile}), takže každé
+          provedené nasazení implicitně garantuje zelené testy.
+    \item Lokální workflow je jednoduchý:
+          \texttt{dotnet test} $\to$ \texttt{git commit} $\to$
+          \texttt{git push} $\to$ PR review $\to$ merge.
+\end{itemize}
+
+\paragraph{Plán pro CI/CD}
+Do připraveného adresáře \texttt{.github/workflows/} lze umístit
+GitHub Actions soubor \texttt{ci.yml} přibližně v této podobě:
+
+\begin{lstlisting}[language=yaml]
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release \
+               --collect:"XPlat Code Coverage"
+      - uses: codecov/codecov-action@v4
+\end{lstlisting}
+
+Tento workflow zajistí, že každý PR proti \texttt{master} bude před
+slevením automaticky ověřen.
+
+% =============================================================================
+\section{Bezpečnostní opatření a omezení}
+\label{sec:security}
+
+Přestože aplikace neukládá uživatelská data ani neimplementuje
+autentizaci (jde o bezstavovou nástrojovou aplikaci), na serverové
+straně jsou implementována standardní opatření proti zneužití
+veřejně exponovaného endpointu:
+
+\begin{description}
+    \item[Antiforgery + DataProtection] ASP.NET Core antiforgery
+          tokeny jsou aktivní (\texttt{app.UseAntiforgery()}).
+          Klíče \texttt{DataProtection} jsou perzistovány na disk
+          (\texttt{DP\_KEYS\_PATH}), takže tokeny vystavené před
+          restartem serveru zůstávají platné pro již aktivní
+          klientské sessions.
+
+    \item[Limit velikosti vstupní sítě] \texttt{AnalysisHub.ValidateNetSize}
+          odmítne sítě s více než $100\,000$ prvky (\texttt{MaxNetElements})
+          výjimkou \texttt{HubException} ještě před spuštěním analýzy.
+          Brání DoS přes obří JSON payload.
+
+    \item[Globální semafor + per-connection throttling]
+          \texttt{SemaphoreSlim} velikosti $\max(2, \text{ProcessorCount})$
+          omezuje souběžný počet těžkých analytických operací na celém
+          serveru. Na úrovni jednotlivého SignalR connection je nastaven
+          250\,ms throttle, takže jeden klient nemůže zaplavit hub
+          opakovanými voláními.
+
+    \item[Wall-clock deadline 60\,s] Každá hub-metoda
+          (\texttt{RunAnalysis}, \texttt{RunGraphAnalysis},
+          \texttt{ExportPdf}) má vlastní \texttt{CancellationTokenSource}
+          s deadline 60\,s. Po jeho vypršení je celý výpočet zrušen
+          a klientovi se vrátí \texttt{HubException}.
+
+    \item[SignalR receive size cap] \texttt{MaximumReceiveMessageSize}
+          je nastaveno na 10\,MB. Větší zprávy jsou zahozeny dříve,
+          než se začnou deserializovat.
+
+    \item[Subresource Integrity] Externí Cytoscape.js načítaný z CDN
+          má \texttt{integrity="sha384-..."}, \texttt{crossorigin}
+          a \texttt{referrerpolicy="no-referrer"}. Pokud by byl CDN
+          obsah nahrazen, prohlížeč skript odmítne.
+\end{description}
+
+\textbf{Známá omezení (mimo bezpečnost):}
+
+\begin{itemize}
+    \item Aplikace \emph{neimplementuje persistenci} — diagramy se po
+          přenačtení stránky ztratí. Plánovaná infrastrukturní vrstva
+          (sekce v SAD) by tento bod adresovala.
+    \item Není podpora \emph{časovaných Petriho sítí}; priority
+          přechodů jsou implementovány, ale nedeterministická volba
+          při shodné prioritě je řešena pevným pořadím dle ID.
+    \item \emph{Coverage UI vrstvy je nízká} — Blazor komponenty
+          nejsou pokryty automatizovanými testy (chybí \texttt{bUnit}
+          dependency). Manuální E2E testování v Chrome a~Firefox je
+          dokumentováno v sekci~\ref{sec:tests}.
+\end{itemize}
+
+% =============================================================================
+\section{Závěr}
+
+Petri Net Analyzer je implementován jako modulární Blazor Auto aplikace
+rozdělená do pěti .NET projektů. Jádro aplikace (\texttt{PetriEditor.Analysis})
+je čistá doménová knihovna bez vazby na UI ani web, což umožňuje její
+sdílení mezi klientem (WebAssembly) a serverem (ASP.NET Core)
+a zároveň úplné pokrytí jednotkovými testy.
+
+Testovací strategie se opírá o 196 xUnit testovacích metod ve formě
+220 testovacích případů (4045 řádků) rozdělených do pěti kategorií
+(jednotkové, theory, integrační, cross-engine, coverage-gap) —
+všechny procházejí v $\sim$2 sekundách. Pokrytí algoritmického jádra
+\texttt{PetriEditor.Analysis} dosahuje \textbf{81.3\,\%} (line coverage),
+přičemž většina jednotlivých enginů má 95--100\,\%. Build a deploy
+je zajištěn nativním .NET CLI a multi-stage Docker imagem, který testy
+exekvuje jako součást build pipeline. Verzování probíhá v Gitu na GitHubu
+v trunk-based modelu s pull-request review.
+
+Detailní popis jednotlivých návrhových rozhodnutí, sekvenčních diagramů
+a class modelu je obsažen v doprovodném \emph{Software Architecture Document}u.
+
+\end{document}

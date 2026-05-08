@@ -209,14 +209,24 @@
                     <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Display Limit</div>
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;gap:10px;">
                         <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Markings shown</span>
-                        <span style="font-size:12px;color:#00a499;font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_maxStates)</span>
+                        <span style="font-size:12px;color:@(_maxStatesPendingPos != _maxStatesSliderPos ? "#ff9800" : "#00a499");font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_maxStatesSteps[_maxStatesPendingPos])</span>
                     </div>
                     <div style="padding:2px 14px 4px;">
                         <input type="range" min="0" max="@(_maxStatesSteps.Length - 1)" step="1"
-                               value="@_maxStatesSliderPos"
+                               value="@_maxStatesPendingPos"
                                @oninput="OnMaxStatesSliderChanged"
                                style="width:100%;accent-color:#888;" />
                     </div>
+                    @if (_maxStatesPendingPos != _maxStatesSliderPos)
+                    {
+                        <div style="padding:0 14px 6px;display:flex;justify-content:flex-end;">
+                            <button @onclick="ApplyMaxStates"
+                                    style="padding:3px 10px;font-size:10px;font-weight:700;border:none;border-radius:6px;
+                                           background:#ff9800;color:#fff;cursor:pointer;white-space:nowrap;">
+                                Apply
+                            </button>
+                        </div>
+                    }
                     <div style="padding:0 14px 6px;">
                         <span style="font-size:10px;color:#9aa0ad;line-height:1.5;">
                             Filters the already-computed graph — changing this does not recompute.
@@ -227,18 +237,6 @@
             </div>
         }
     </div>
-
-    @* special arc warning *@
-    @if (HasSpecialArcs && _graphMode == "graph")
-    {
-        <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;flex-shrink:0;
-                    background:#fff8e1;border-bottom:1px solid #ffe082;">
-            <span style="font-size:13px;line-height:1.4;">⚠</span>
-            <span style="font-size:11px;color:#5f3a00;line-height:1.5;">
-                This net has inhibitor or reset arcs. The coverability tree algorithm (Karp-Miller) assumes monotone firing semantics and may produce incorrect results; prefer the reachability view or treat the tree as an over-approximation.
-            </span>
-        </div>
-    }
 
     @* truncation banner — build-time cap hit on the server *@
     @if (_graphTruncated && !_graphRunning && _HasVisibleContent())
@@ -356,7 +354,6 @@
     [Parameter] public bool IsVisible        { get; set; }
     [Parameter] public bool ResultStale      { get; set; }
     [Parameter] public int  NetVersion       { get; set; }
-    [Parameter] public bool HasSpecialArcs { get; set; }
     [Parameter] public AnalysisResultDto? AnalysisResult { get; set; }
 
     private int _computedAtVersion = -1;
@@ -464,15 +461,24 @@
     // build limit — nothing past that exists to display.
     private static readonly int[] _maxStatesSteps = [50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, AnalysisLimits.MaxMarkings];
 
-    private int _maxStatesSliderPos = 3; // default index → 500
+    // _maxStatesSliderPos is the *applied* slider position; its value drives _maxStates and
+    // therefore the view filter. _maxStatesPendingPos is the live slider position — the label
+    // tracks it on every drag tick, but it isn't applied until the user clicks "Apply".
+    // Without this split, every drag tick re-runs the (synchronous, BFS-heavy) tree filter
+    // and the page freezes.
+    private int _maxStatesSliderPos  = 3; // default index → 500
+    private int _maxStatesPendingPos = 3;
 
     private void OnMaxStatesSliderChanged(ChangeEventArgs e)
     {
         if (int.TryParse(e.Value?.ToString(), out int pos))
-        {
-            _maxStatesSliderPos = Math.Clamp(pos, 0, _maxStatesSteps.Length - 1);
-            _maxStates = _maxStatesSteps[_maxStatesSliderPos];
-        }
+            _maxStatesPendingPos = Math.Clamp(pos, 0, _maxStatesSteps.Length - 1);
+    }
+
+    private void ApplyMaxStates()
+    {
+        _maxStatesSliderPos = _maxStatesPendingPos;
+        _maxStates          = _maxStatesSteps[_maxStatesSliderPos];
     }
 
     private static string FormatMaxStates(int v) => v switch
@@ -516,8 +522,6 @@
             if (!places.Any() && !transitions.Any()) return;
             _lastDto = DiagramAnalyzer.BuildDto(places, transitions, arcs);
         }
-        // Clear layout cache so the re-computed graph gets a fresh layout
-        await JS.InvokeVoidAsync("petriEditor.clearCytoscapeLayoutCache");
         _graphCts?.Cancel();
         _graphCts?.Dispose();
         _graphCts        = new CancellationTokenSource();

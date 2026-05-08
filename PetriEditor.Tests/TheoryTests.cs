@@ -77,7 +77,6 @@ public class TheoryTests
     // ── State-space truncation boundary ─────────────────────────────────────
     // Build a net whose state count is exactly N. Verify that maxStates = N
     // does NOT truncate, but maxStates = N-1 does.
-
     public static IEnumerable<object[]> TruncationBoundaryCases()
     {
         // (tokenRingSize) — a token ring with n places has exactly n reachable states

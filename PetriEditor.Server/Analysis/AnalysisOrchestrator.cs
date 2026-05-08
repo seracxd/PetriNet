@@ -40,22 +40,35 @@ public sealed class AnalysisOrchestrator
             if (ct.IsCancellationRequested) { cancelled = true; return; }
             progress?.Report(new(AnalysisProgressMessage.StageStateSpace, 5, null));
 
+            // Special arcs (inhibitor/reset) violate monotone firing semantics that
+            // Karp-Miller assumes. For those nets we run plain bounded reachability
+            // with cycle detection instead — correct results, no ω verdicts.
+            // The cap is tighter (5K vs 100K) so we don't spend 60s on an unbounded
+            // special-arc net only to truncate. The user can refine the net.
+            bool hasSpecialArcs = net.Arcs.Any(a => a.ArcType != PnArcType.Normal);
+            int cbCap = hasSpecialArcs ? 5_000 : CoverabilityTreeBuilder.MaxNodes;
             var cb = new CoverabilityTreeBuilder();
-            cb.Build(net, ct);
+            cb.Build(net, ct, cbCap, disableOmegaAcceleration: hasSpecialArcs);
             if (!cb.HasErrors || cb.IsTruncated) report.CoverabilityTree = cb;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 
             bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
 
-            // ── Stage 2: State-space (skip if unbounded) ──────────────────────
+            // For special-arc nets we skipped ω-acceleration, so a truncated cb means
+            // the state space is too large to compute exhaustively. Treat that the
+            // same as "unbounded" downstream so we don't burn time on engines that
+            // need a complete state space (and would time out on large nets).
+            bool stateSpaceTooLarge = isUnbounded || (hasSpecialArcs && cb.IsTruncated);
+
+            // ── Stage 2: State-space (skip if unbounded or too large) ─────────
             var ss = new StateSpaceAnalysis();
-            ss.Build(net, ct, isUnbounded ? 500 : StateSpaceAnalysis.MaxStates);
+            ss.Build(net, ct, stateSpaceTooLarge ? 500 : StateSpaceAnalysis.MaxStates);
             report.StateSpace = ss;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 
             progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
             var inv = new InvariantAnalysis();
-            if (!isUnbounded)
+            if (!stateSpaceTooLarge)
                 inv.Compute(net);
             else
                 inv.SkipUnbounded();
@@ -101,7 +114,7 @@ public sealed class AnalysisOrchestrator
 
             progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 90, null));
 
-            if (!isUnbounded)
+            if (!stateSpaceTooLarge)
             {
                 var rt = new ReachabilityTreeBuilder();
                 rt.Build(net, ct, StateSpaceAnalysis.MaxStates);
@@ -131,8 +144,13 @@ public sealed class AnalysisOrchestrator
             {
                 // Always use the coverability tree — it handles both bounded and unbounded nets.
                 // For bounded nets the result is identical to a reachability tree (no ω appears).
+                // Inhibitor/reset arcs disable ω-acceleration so the result stays correct.
+                // Tighter cap for special-arc nets — bounded reachability can otherwise
+                // explode and exceed the request deadline before any progress reaches the client.
+                bool hasSpecialArcs = net.Arcs.Any(a => a.ArcType != PnArcType.Normal);
+                int cbCap = hasSpecialArcs ? 5_000 : AnalysisLimits.MaxMarkings;
                 var cb = new CoverabilityTreeBuilder();
-                cb.Build(net, ct, AnalysisLimits.MaxMarkings);
+                cb.Build(net, ct, cbCap, disableOmegaAcceleration: hasSpecialArcs);
                 // Genuine failure (no usable tree): surface as ErrorMessage.
                 if (cb.HasErrors && !cb.IsTruncated) { error = cb.ErrorMessage; return; }
                 // Truncation is reflected via StateSpaceSummaryDto.ExceededLimit, not ErrorMessage.

@@ -123,7 +123,11 @@
         IReadOnlyList<CoverEdgeDto> allEdges = Tree.Edges;
         var cutOffIds = new HashSet<int>(allNodes.Where(n => n.IsTruncated).Select(n => n.Id));
 
-        if (allNodes.Count > MaxDisplayNodes)
+        // Only unique markings count toward the limit. Reference (duplicate)
+        // nodes are kept whenever their parent is kept — they're cheap leaves
+        // that show "this branch loops back to an existing marking".
+        int uniqueCount = allNodes.Count(n => !n.IsDuplicate);
+        if (uniqueCount > MaxDisplayNodes)
         {
             _truncated = true;
             var rootN = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
@@ -131,18 +135,29 @@
             var q = new Queue<int>();
             q.Enqueue(rootN.Id);
             keep.Add(rootN.Id);
+            int uniqueKept = rootN.IsDuplicate ? 0 : 1;
             var childMap = allNodes.ToDictionary(n => n.Id, _ => new List<int>());
+            var nodeIndex = allNodes.ToDictionary(n => n.Id);
             foreach (var n in allNodes)
                 if (n.ParentId >= 0 && childMap.ContainsKey(n.ParentId))
                     childMap[n.ParentId].Add(n.Id);
-            while (q.Count > 0 && keep.Count < MaxDisplayNodes)
+            while (q.Count > 0)
             {
                 int cur = q.Dequeue();
                 foreach (int ch in childMap[cur])
-                    if (keep.Count < MaxDisplayNodes && keep.Add(ch))
+                {
+                    bool isDup = nodeIndex[ch].IsDuplicate;
+                    if (!isDup && uniqueKept >= MaxDisplayNodes)
+                    {
+                        if (!keep.Contains(ch)) cutOffIds.Add(cur);
+                        continue;
+                    }
+                    if (keep.Add(ch))
+                    {
+                        if (!isDup) uniqueKept++;
                         q.Enqueue(ch);
-                    else if (!keep.Contains(ch))
-                        cutOffIds.Add(cur);
+                    }
+                }
             }
             allNodes = allNodes.Where(n => keep.Contains(n.Id)).ToList();
             allEdges = allEdges.Where(e => keep.Contains(e.From) && keep.Contains(e.To)).ToList();

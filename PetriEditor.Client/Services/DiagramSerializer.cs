@@ -63,37 +63,43 @@ public sealed class DiagramSerializer(PetriNetManager manager, DiagramSettings s
 
     public void Restore(PetriNetDto dto)
     {
-        manager.Diagram.Nodes.Clear();
-        manager.Diagram.Links.Clear();
-        manager.History.Clear();
-
-        var nodeMap = new Dictionary<string, NodeModel>();
-
-        foreach (var p in dto.Places)
+        // Batch the bulk clear-and-add so Z.Blazor.Diagrams doesn't render
+        // a frame per mutation. Without this, PortRenderer races getBoundingClientRect
+        // against half-disposed DOM and the WASM runtime can crash.
+        manager.Diagram.Batch(() =>
         {
-            var place = new Place { Id = p.Id, Name = p.Name, Tokens = p.Tokens };
-            var node = new PlaceNode(place, settings);
-            node.SetPosition(p.X, p.Y);
-            manager.Diagram.Nodes.Add(node);
-            nodeMap[p.Id] = node;
-        }
+            manager.Diagram.Nodes.Clear();
+            manager.Diagram.Links.Clear();
+            manager.History.Clear();
 
-        foreach (var t in dto.Transitions)
-        {
-            var transition = new Transition { Id = t.Id, Name = t.Name, Priority = t.Priority };
-            var node = new TransitionNode(transition, settings);
-            node.SetPosition(t.X, t.Y);
-            manager.Diagram.Nodes.Add(node);
-            nodeMap[t.Id] = node;
-        }
+            var nodeMap = new Dictionary<string, NodeModel>();
 
-        foreach (var a in dto.Arcs)
-        {
-            if (!nodeMap.TryGetValue(a.SourceId, out var src)) continue;
-            if (!nodeMap.TryGetValue(a.TargetId, out var tgt)) continue;
-            var vertices = a.Vertices.Select(v => new Point(v.X, v.Y));
-            manager.RestoreLink(src, tgt, a.Weight, (ArcType)a.ArcType, vertices);
-        }
+            foreach (var p in dto.Places)
+            {
+                var place = new Place { Id = p.Id, Name = p.Name, Tokens = p.Tokens };
+                var node = new PlaceNode(place, settings);
+                node.SetPosition(p.X, p.Y);
+                manager.Diagram.Nodes.Add(node);
+                nodeMap[p.Id] = node;
+            }
+
+            foreach (var t in dto.Transitions)
+            {
+                var transition = new Transition { Id = t.Id, Name = t.Name, Priority = t.Priority };
+                var node = new TransitionNode(transition, settings);
+                node.SetPosition(t.X, t.Y);
+                manager.Diagram.Nodes.Add(node);
+                nodeMap[t.Id] = node;
+            }
+
+            foreach (var a in dto.Arcs)
+            {
+                if (!nodeMap.TryGetValue(a.SourceId, out var src)) continue;
+                if (!nodeMap.TryGetValue(a.TargetId, out var tgt)) continue;
+                var vertices = a.Vertices.Select(v => new Point(v.X, v.Y));
+                manager.RestoreLink(src, tgt, a.Weight, (ArcType)a.ArcType, vertices);
+            }
+        });
     }
 
     private static string? GetNodeId(Model? model) => model switch
