@@ -29,7 +29,7 @@ public sealed class InvariantAnalysis
         ErrorMsg   = "Net is unbounded — invariant computation skipped (P-invariants are only meaningful for bounded nets).";
     }
 
-    public void Compute(Analysis.PetriNetSnapshot net)
+    public void Compute(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
     {
         HasErrors = false; ErrorMsg = null; WasTruncated = false;
         PInvariants = []; TInvariants = [];
@@ -43,7 +43,7 @@ public sealed class InvariantAnalysis
             int p = net.Places.Count, t = net.Transitions.Count;
 
             // P-invariants: y · W = 0  →  solve W^T · y = 0
-            var pVecs = ComputeInvariants(Transpose(W, p, t), p);
+            var pVecs = ComputeInvariants(Transpose(W, p, t), p, ct);
             PInvariants = pVecs.Select(vec =>
                 new Invariant(
                     net.Places.Select((pl, i) => (pl.Id, vec[i]))
@@ -52,13 +52,18 @@ public sealed class InvariantAnalysis
                 )).ToList();
 
             // T-invariants: W · x = 0
-            var tVecs = ComputeInvariants(W, t);
+            var tVecs = ComputeInvariants(W, t, ct);
             TInvariants = tVecs.Select(vec =>
                 new Invariant(
                     net.Transitions.Select((tr, i) => (tr.Id, vec[i]))
                                    .Where(x => x.Item2 > 0)
                                    .ToDictionary(x => x.Id, x => x.Item2)
                 )).ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            HasErrors = true; ErrorMsg = "Invariant computation cancelled.";
+            throw;
         }
         catch (Exception ex)
         {
@@ -68,7 +73,7 @@ public sealed class InvariantAnalysis
 
     // ── Farkas algorithm (support-based, non-negative solutions to A·x = 0) ──
 
-    private List<int[]> ComputeInvariants(int[,] A, int cols)
+    private List<int[]> ComputeInvariants(int[,] A, int cols, CancellationToken ct)
     {
         var candidates = new List<int[]>();
         for (int i = 0; i < cols; i++)
@@ -77,6 +82,7 @@ public sealed class InvariantAnalysis
         int rows = A.GetLength(0);
         for (int r = 0; r < rows; r++)
         {
+            ct.ThrowIfCancellationRequested();
             var pos = new List<int[]>();
             var neg = new List<int[]>();
             var zer = new List<int[]>();
@@ -91,9 +97,12 @@ public sealed class InvariantAnalysis
             }
 
             var next = new List<int[]>(zer);
+            int pairCounter = 0;
             foreach (var vp in pos)
                 foreach (var vn in neg)
                 {
+                    if ((++pairCounter & 0x3FF) == 0) ct.ThrowIfCancellationRequested();
+
                     long dotp = 0, dotn = 0;
                     for (int j = 0; j < cols; j++)
                     { dotp += (long)A[r, j] * vp[j]; dotn += (long)A[r, j] * vn[j]; }

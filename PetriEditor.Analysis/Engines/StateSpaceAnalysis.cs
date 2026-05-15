@@ -64,6 +64,7 @@ public sealed class StateSpaceAnalysis
         _net  = net;
         _pIdx = pIdx;
 
+        int iterCounter = 0;
         while (queue.Count > 0)
         {
             if (ct.IsCancellationRequested)
@@ -71,6 +72,18 @@ public sealed class StateSpaceAnalysis
                 HasErrors = true;
                 ErrorMsg = "Analysis cancelled.";
                 return;
+            }
+
+            // Memory-pressure guard.
+            if ((++iterCounter % AnalysisLimits.HeapSampleInterval) == 0)
+            {
+                long heap = GC.GetTotalMemory(false);
+                if (heap > AnalysisLimits.MaxBuildHeapBytes)
+                {
+                    IsTruncated = true;
+                    ErrorMsg = $"State space stopped: heap usage exceeded {AnalysisLimits.MaxBuildHeapBytes / (1024 * 1024)} MB.";
+                    return;
+                }
             }
 
             int sIdx = queue.Dequeue();
@@ -110,7 +123,7 @@ public sealed class StateSpaceAnalysis
 
     public bool IsBounded()      => !HasErrors && !IsTruncated;
     public bool IsDeadlockFree() => !HasErrors && !IsTruncated && Enumerable.Range(0, _states.Count).All(i => _edges[i].Count > 0);
-    public bool IsReversible()   => !HasErrors && !IsTruncated && FindSCCs().Count == 1;
+    public bool IsReversible(CancellationToken ct = default) => !HasErrors && !IsTruncated && FindSCCs(ct).Count == 1;
     public bool IsSafe()         => !HasErrors && !IsTruncated && _states.All(s => s.All(t => t <= 1));
 
     /// <summary>
@@ -151,12 +164,12 @@ public sealed class StateSpaceAnalysis
         return false;
     }
 
-    public bool IsLive(int transCount)
+    public bool IsLive(int transCount, CancellationToken ct = default)
     {
         if (HasErrors || IsTruncated || transCount == 0)
             return false;
 
-        foreach (var scc in FindSCCs())
+        foreach (var scc in FindSCCs(ct))
         {
             if (!IsFinalSCC(scc))
                 continue;
@@ -180,7 +193,7 @@ public sealed class StateSpaceAnalysis
 
     // ── Tarjan SCC ────────────────────────────────────────────────────────
 
-    public List<HashSet<int>> FindSCCs()
+    public List<HashSet<int>> FindSCCs(CancellationToken ct = default)
     {
         int n = _states.Count;
         var index   = new int[n];
@@ -191,6 +204,7 @@ public sealed class StateSpaceAnalysis
         var tarjanStack = new Stack<int>();
         var sccs        = new List<HashSet<int>>();
         int counter     = 0;
+        int iterCounter = 0;
 
         // Iterative Tarjan — each work-item is (node, edgeIteratorIndex)
         // When edgeIndex == -1 the node is being visited for the first time.
@@ -204,6 +218,7 @@ public sealed class StateSpaceAnalysis
 
             while (workStack.Count > 0)
             {
+                if ((++iterCounter & 0x3FF) == 0) ct.ThrowIfCancellationRequested();
                 var (v, ei) = workStack.Pop();
 
                 if (ei == -1)

@@ -11,6 +11,10 @@
     [Parameter] public EventCallback<IReadOnlyList<int?>> OnMarkingHovered { get; set; }
     [Parameter] public EventCallback OnMarkingCleared { get; set; }
     [Parameter] public int MaxDisplayNodes { get; set; } = int.MaxValue;
+    /// <summary>When true, hovering a node highlights its direct parents and children.</summary>
+    [Parameter] public bool HighlightNeighbours { get; set; } = true;
+
+    private bool _lastHighlightNeighbours = true;
 
     const double NodeW  = 72;
     const double NodeH  = 22;
@@ -38,10 +42,22 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (Tree is null) return;
+
+        // Cheap path: only the highlight setting changed → no re-init, just push the flag.
+        if (ReferenceEquals(Tree, _lastTree)
+            && MaxDisplayNodes == _lastMaxDisplay
+            && HighlightNeighbours != _lastHighlightNeighbours)
+        {
+            _lastHighlightNeighbours = HighlightNeighbours;
+            await JS.InvokeVoidAsync("graphView.setHoverHighlight", _containerId, HighlightNeighbours);
+            return;
+        }
+
         // Re-render whenever the tree changed OR the display filter changed.
         if (ReferenceEquals(Tree, _lastTree) && MaxDisplayNodes == _lastMaxDisplay) return;
         _lastTree = Tree;
         _lastMaxDisplay = MaxDisplayNodes;
+        _lastHighlightNeighbours = HighlightNeighbours;
         if (Tree.GraphLayout is null || Tree.GraphLayout.Nodes.Count == 0) return;
 
         var layout = Tree.GraphLayout;
@@ -110,13 +126,19 @@
         _hasDuplicates = Tree.Nodes.Count > layout.Nodes.Count;
         _hasDeadlocks  = displayNodes.Any(n => n.IsDeadlock);
         _hasOmega      = displayNodes.Any(n => n.IsOmega);
-        _truncated     = filtered || displayNodes.Any(n => n.IsTruncated);
+        // Server-side truncation only — client-side display trim is not "truncation",
+        // it's a user preference. The slider is the single source of truth.
+        _truncated     = displayNodes.Any(n => n.IsTruncated);
 
         _dotNetRef ??= DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("graphView.init",
             _containerId, nodePayload, edgePayload,
             svgW, svgH, NodeW, NodeH,
             Tree.PlaceNames, _dotNetRef);
+        // The init defaults to true; push the current value so a fresh init
+        // honours a user who turned it off in a previous session of this view.
+        if (!HighlightNeighbours)
+            await JS.InvokeVoidAsync("graphView.setHoverHighlight", _containerId, false);
     }
 
     private static HashSet<int> FilterByDisplayLimit(GraphLayoutDto layout, int limit)

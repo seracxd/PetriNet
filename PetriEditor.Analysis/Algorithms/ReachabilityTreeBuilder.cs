@@ -59,6 +59,9 @@ public sealed class ReachabilityTreeBuilder
         var root = new ReachTreeNode(0, initial, IsInitial: true, IsDeadlock: false, IsDuplicate: false, ParentId: -1);
         _nodes.Add(root);
 
+        // The cap counts UNIQUE markings. Reference (duplicate) leaves pass freely.
+        int uniqueCount = 1;
+
         // BFS queue carries (nodeId, marking)
         var queue = new Queue<(int NodeId, int[] Marking)>();
         queue.Enqueue((0, initial));
@@ -67,6 +70,7 @@ public sealed class ReachabilityTreeBuilder
             .Select((p, i) => (p.Id, i))
             .ToDictionary(x => x.Id, x => x.i);
 
+        int iterCounter = 0;
         while (queue.Count > 0)
         {
             if (ct.IsCancellationRequested)
@@ -74,6 +78,18 @@ public sealed class ReachabilityTreeBuilder
                 HasErrors    = true;
                 ErrorMessage = "Analysis cancelled.";
                 return;
+            }
+
+            // Memory-pressure guard.
+            if ((++iterCounter % AnalysisLimits.HeapSampleInterval) == 0)
+            {
+                long heap = GC.GetTotalMemory(false);
+                if (heap > AnalysisLimits.MaxBuildHeapBytes)
+                {
+                    IsTruncated  = true;
+                    ErrorMessage = $"Reachability tree stopped: heap usage exceeded {AnalysisLimits.MaxBuildHeapBytes / (1024 * 1024)} MB.";
+                    return;
+                }
             }
 
             var (parentId, marking) = queue.Dequeue();
@@ -91,18 +107,25 @@ public sealed class ReachabilityTreeBuilder
                 anyFired = true;
                 var next = FireUtils.Fire(net, pIdx, marking, t.Id);
 
-                if (_nodes.Count >= maxNodes)
+                // Peek duplicate without committing to knownMarkings yet, so we can
+                // bail before allocating a new tree node if this would exceed the cap.
+                var key    = MarkingKey(next);
+                bool isDup = knownMarkings.Contains(key);
+
+                if (!isDup && uniqueCount >= maxNodes)
                 {
                     IsTruncated  = true;
-                    ErrorMessage = $"Reachability tree exceeded {maxNodes} nodes.";
-                    // Mark parent as truncated and stop expanding, but don't abort
+                    ErrorMessage = $"Reachability tree exceeded {maxNodes} unique markings.";
                     _truncatedIds.Add(parentId);
                     continue;
                 }
 
-                var key       = MarkingKey(next);
-                bool isDup    = !knownMarkings.Add(key);
-                int  newId    = _nodes.Count;
+                if (!isDup)
+                {
+                    knownMarkings.Add(key);
+                    uniqueCount++;
+                }
+                int newId = _nodes.Count;
 
                 _nodes.Add(new ReachTreeNode(newId, next,
                     IsInitial:   false,

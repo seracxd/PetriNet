@@ -84,6 +84,11 @@ public sealed class CoverabilityTreeBuilder
         var queue = new Queue<int>();
         queue.Enqueue(0);
 
+        // The cap counts UNIQUE markings (canonical nodes). Reference (duplicate)
+        // nodes are cheap leaves and don't count — that matches the slider's user-
+        // facing semantics. The root is the first unique marking.
+        int uniqueCount = 1;
+        int iterCounter = 0;
         while (queue.Count > 0)
         {
             if (ct.IsCancellationRequested)
@@ -91,6 +96,18 @@ public sealed class CoverabilityTreeBuilder
                 HasErrors    = true;
                 ErrorMessage = "Analysis cancelled.";
                 return;
+            }
+
+            // Memory-pressure guard: stop building before we OOM.
+            if ((++iterCounter % PetriEditor.Shared.Contracts.AnalysisLimits.HeapSampleInterval) == 0)
+            {
+                long heap = GC.GetTotalMemory(false);
+                if (heap > PetriEditor.Shared.Contracts.AnalysisLimits.MaxBuildHeapBytes)
+                {
+                    IsTruncated  = true;
+                    ErrorMessage = $"Coverability tree stopped: heap usage exceeded {PetriEditor.Shared.Contracts.AnalysisLimits.MaxBuildHeapBytes / (1024 * 1024)} MB.";
+                    return;
+                }
             }
 
             int parentId    = queue.Dequeue();
@@ -116,17 +133,20 @@ public sealed class CoverabilityTreeBuilder
                 if (!disableOmegaAcceleration)
                     PropagateOmega(next, parentId);
 
-                if (_nodes.Count >= maxNodes)
+                // Step c/d: O(1) duplicate check via marking index
+                bool isDup = _markingIndex.ContainsKey(next);
+
+                // Cap check: only unique markings count. Duplicate-reference leaves
+                // pass through freely so we don't lose loop-back indicators.
+                if (!isDup && uniqueCount >= maxNodes)
                 {
                     IsTruncated  = true;
-                    ErrorMessage = $"Coverability tree exceeded {maxNodes} nodes.";
+                    ErrorMessage = $"Coverability tree exceeded {maxNodes} unique markings.";
                     _truncatedIds.Add(parentId);
                     continue;
                 }
 
-                // Step c/d: O(1) duplicate check via marking index
-                bool isDup = _markingIndex.ContainsKey(next);
-                int  newId = _nodes.Count;
+                int newId = _nodes.Count;
 
                 _nodes.Add(new CoverTreeNode(newId, next,
                     IsInitial:   false,
@@ -135,7 +155,10 @@ public sealed class CoverabilityTreeBuilder
                     ParentId:    parentId));
 
                 if (!isDup)
+                {
                     _markingIndex[next] = newId;
+                    uniqueCount++;
+                }
 
                 _edges.Add(new CoverTreeEdge(parentId, newId, t.Id, t.Name));
 

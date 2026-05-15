@@ -29,6 +29,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
 
     public async Task<AnalysisResultDto> RunAnalysisAsync(
         PetriNetDto                          net,
+        int                                  maxMarkings,
         IProgress<AnalysisProgressMessage>?  progress = null,
         CancellationToken                    ct       = default)
     {
@@ -113,7 +114,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         {
             try
             {
-                await _hub.InvokeAsync("RunAnalysis", net, CancellationToken.None);
+                await _hub.InvokeAsync("RunAnalysis", net, maxMarkings, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -126,6 +127,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
 
     public async Task<GraphResultDto> ComputeGraphAsync(
         PetriNetDto       dto,
+        int               maxMarkings,
         CancellationToken ct = default)
     {
         if (_hub.State == HubConnectionState.Disconnected)
@@ -140,7 +142,7 @@ public sealed class ClientAnalysisService : IAnalysisService, IAsyncDisposable
         try
         {
             await foreach (var chunk in _hub.StreamAsync<GraphChunkDto>(
-                "StreamGraph", dto, ct))
+                "StreamGraph", dto, maxMarkings, ct))
             {
                 if (chunk.CoverNodes  != null) coverNodes.AddRange(chunk.CoverNodes);
                 if (chunk.CoverEdges  != null) coverEdges.AddRange(chunk.CoverEdges);
