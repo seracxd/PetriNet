@@ -68,14 +68,19 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      - name: Compute lowercase image name
+        id: image
+        run: |
+          REPO_LC="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "name=ghcr.io/${REPO_LC}:latest" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Pull latest image
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}:latest"
-          echo "==> Pulling $IMAGE"
-          docker pull "$IMAGE"
+          echo "==> Pulling ${{ steps.image.outputs.name }}"
+          docker pull "${{ steps.image.outputs.name }}"
 
       - name: Stop and remove old container
         run: |
@@ -84,7 +89,6 @@ jobs:
 
       - name: Start new container
         run: |
-          IMAGE="ghcr.io/${{ github.repository }}:latest"
           mkdir -p /home/sig0061/petrinet-logs
           docker run -d \
             --name petrinet \
@@ -97,7 +101,7 @@ jobs:
             --log-driver=json-file \
             --log-opt max-size=50m \
             --log-opt max-file=5 \
-            "$IMAGE"
+            "${{ steps.image.outputs.name }}"
 
       - name: Clean up old images
         run: docker image prune -af --filter "until=168h" || true
