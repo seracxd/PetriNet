@@ -89,14 +89,14 @@ jobs:
 
       - name: Start new container
         run: |
-          mkdir -p /home/sig0061/petrinet-logs
+          mkdir -p $HOME/petrinet-logs
           docker run -d \
             --name petrinet \
             --restart unless-stopped \
             --memory=4g \
             -p 8080:8080 \
             -v petrinet-keys:/app/dataprotection-keys \
-            -v /home/sig0061/petrinet-logs:/app/logs \
+            -v $HOME/petrinet-logs:/app/logs \
             -e DP_KEYS_PATH=/app/dataprotection-keys \
             --log-driver=json-file \
             --log-opt max-size=50m \
