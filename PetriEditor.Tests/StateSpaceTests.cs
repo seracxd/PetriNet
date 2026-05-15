@@ -112,9 +112,10 @@ public class StateSpaceTests
     }
 
     [Fact]
-    public void ResetArc_RequiresWeight_ToBeEnabled()
+    public void ResetArc_DoesNotGuardEnablement()
     {
-        // Reset arc with weight 2: P1 must have >= 2 tokens to fire
+        // Per Aalst Def. 2: reset arcs never guard enablement, regardless of weight.
+        // T1 fires from P1=1 even though the reset arc's weight is 2.
         var net = new NetBuilder()
             .Place("P1", tokens: 1)
             .Place("P2", tokens: 0)
@@ -124,7 +125,9 @@ public class StateSpaceTests
 
         var ss = Build(net);
 
-        Assert.Single(ss.States); // T1 not enabled
+        // Net is unbounded (reset never blocks, P2 keeps accumulating), but the
+        // post-fire marking P1=0, P2=1 must be reachable from the initial state.
+        Assert.Contains(ss.States, s => s[0] == 0 && s[1] == 1);
     }
 
     // ── Priority ──────────────────────────────────────────────────────────

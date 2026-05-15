@@ -108,7 +108,7 @@
             @* status indicators *@
             @if (_graphTruncated && !_graphRunning)
             {
-                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Server stopped exploration after @AnalysisLimits.MaxMarkings markings">✂ @FormatMaxStates(AnalysisLimits.MaxMarkings)</span>
+                <span style="font-size:10px;color:#8e24aa;white-space:nowrap;" title="Server stopped exploration after @_maxStates markings">✂ @FormatMaxStates(_maxStates)</span>
             }
             @if (_graphCancelled && !_graphRunning)
             {
@@ -205,10 +205,10 @@
                         </div>
                     }
 
-                    @* Display limit — pure filter, no recompute *@
-                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Display Limit</div>
+                    @* Analysis cap — controls server-side exploration *@
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Analysis Cap</div>
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;gap:10px;">
-                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Markings shown</span>
+                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Markings explored</span>
                         <span style="font-size:12px;color:@(_maxStatesPendingPos != _maxStatesSliderPos ? "#ff9800" : "#00a499");font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_maxStatesSteps[_maxStatesPendingPos])</span>
                     </div>
                     <div style="padding:2px 14px 4px;">
@@ -229,10 +229,56 @@
                     }
                     <div style="padding:0 14px 6px;">
                         <span style="font-size:10px;color:#9aa0ad;line-height:1.5;">
-                            Filters the already-computed graph — changing this does not recompute.
-                            The server always explores up to @FormatMaxStates(AnalysisLimits.MaxMarkings) markings.
+                            How many unique markings the server explores. Higher = more accurate property tests.
+                            Maximum: @FormatMaxStates(AnalysisLimits.MaxMarkings).
                         </span>
                     </div>
+
+                    @* Tree render cap — bounds in-browser tree layout cost *@
+                    <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Tree Render Cap</div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;gap:10px;">
+                        <span style="font-size:12px;color:#444;font-weight:500;flex:1;">Tree size limit</span>
+                        <span style="font-size:12px;color:@(_treeRenderCapPendingPos != _treeRenderCapSliderPos ? "#ff9800" : "#00a499");font-weight:700;min-width:44px;text-align:right;">@FormatMaxStates(_treeRenderCapSteps[_treeRenderCapPendingPos])</span>
+                    </div>
+                    <div style="padding:2px 14px 4px;">
+                        <input type="range" min="0" max="@(_treeRenderCapSteps.Length - 1)" step="1"
+                               value="@_treeRenderCapPendingPos"
+                               @oninput="OnTreeRenderCapSliderChanged"
+                               style="width:100%;accent-color:#888;" />
+                    </div>
+                    @if (_treeRenderCapPendingPos != _treeRenderCapSliderPos)
+                    {
+                        <div style="padding:0 14px 6px;display:flex;justify-content:flex-end;">
+                            <button @onclick="ApplyTreeRenderCap"
+                                    style="padding:3px 10px;font-size:10px;font-weight:700;border:none;border-radius:6px;
+                                           background:#ff9800;color:#fff;cursor:pointer;white-space:nowrap;">
+                                Apply
+                            </button>
+                        </div>
+                    }
+                    <div style="padding:0 14px 6px;">
+                        <span style="font-size:10px;color:#9aa0ad;line-height:1.5;">
+                            Maximum tree size the in-browser tree view will lay out. Larger trees are trimmed by BFS
+                            from the root. Raise for more detail; the layout gets slower past a few thousand nodes.
+                        </span>
+                    </div>
+
+                    @* Hover behaviour — graph view only *@
+                    @if (_viewMode == "graph")
+                    {
+                        <div style="font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:#bbb;padding:10px 14px 4px;">Hover</div>
+                        <label style="display:flex;align-items:center;gap:8px;padding:4px 14px;cursor:pointer;font-size:12px;color:#444;">
+                            <input type="checkbox" checked="@_highlightNeighbours"
+                                   @onchange="@((ChangeEventArgs e) => _highlightNeighbours = (bool)(e.Value ?? false))"
+                                   style="accent-color:#00a499;width:14px;height:14px;" />
+                            Highlight parents &amp; children
+                        </label>
+                        <div style="padding:0 14px 6px;">
+                            <span style="font-size:10px;color:#9aa0ad;line-height:1.5;">
+                                Hovering a marking dims unrelated nodes and outlines its incoming/outgoing neighbours.
+                            </span>
+                        </div>
+                    }
                 </div>
             </div>
         }
@@ -245,8 +291,9 @@
                     background:#f3e5f5;border-bottom:1px solid #ce93d8;">
             <span style="font-size:13px;line-height:1.4;">✂</span>
             <span style="font-size:11px;color:#4a148c;line-height:1.5;flex:1;">
-                Server stopped exploration after @FormatMaxStates(AnalysisLimits.MaxMarkings) markings.
+                Server stopped exploration after @FormatMaxStates(_maxStates) markings.
                 This net is either unbounded or very large — only the part explored so far is shown.
+                Raise the cap in settings and re-compute to explore further.
             </span>
         </div>
     }
@@ -309,35 +356,17 @@
     @if (_graphData != null)
     {
         <div style="@(_graphMode == "graph" && _viewMode == "graph" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-            <CoverabilityGraphViewSvg @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
+            <CoverabilityGraphViewSvg @ref="_refCoverGraph" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" HighlightNeighbours="_highlightNeighbours" />
         </div>
 
         @* ── Tree (SVG) — keep alive with CSS ── *@
         <div style="@(_graphMode == "graph" && _viewMode == "tree" ? "flex:1;min-height:0;display:flex;flex-direction:column;" : "display:none;")">
-            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" />
+            <CoverabilityTreeViewSvg @ref="_refCoverTree" Tree="@_graphData" OnMarkingHovered="PreviewMarking" OnMarkingCleared="ClearPreview" MaxDisplayNodes="_maxStates" RenderCap="_treeRenderCap" />
         </div>
     }
 
-    @* ── Loading overlay ── *@
-    @if (_graphRunning || _graphRendering)
-    {
-        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;">
-            <div style="width:34px;height:34px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
-            <div style="font-size:12px;color:#525965;font-weight:600;">@_graphStatus</div>
-            @if (_graphStatusDetail != null)
-            {
-                <div style="font-size:11px;color:#9aa0ad;text-align:center;max-width:260px;line-height:1.5;">@_graphStatusDetail</div>
-            }
-            @if (_graphRunning)
-            {
-                <button @onclick="CancelGraph"
-                        style="margin-top:4px;padding:4px 14px;font-size:11px;font-weight:600;
-                               border:1px solid #e0e0e0;border-radius:6px;background:#fff;color:#666;cursor:pointer;">
-                    Cancel
-                </button>
-            }
-        </div>
-    }
+    @* Loading state is handled by the parent AnalysisPanel's full-panel overlay
+       (it reads IsBusy / Status / StatusDetail from this component). *@
 
     @* ── Empty state ── *@
     @if (!_graphRunning && _graphMode != "statespace" && !_HasVisibleContent())
@@ -378,7 +407,11 @@
     private bool                     _graphTruncated   = false;
     private bool                     _graphIsUnbounded = false;
     private bool                     _graphSettingsOpen = false;
-    private int                      _maxStates        = 500;
+    // Analysis cap: how many unique markings the server explores. High default
+    // so property tests (liveness, boundedness, etc.) get accurate verdicts.
+    // Tree-render cap (below) bounds what the in-browser tree view will draw.
+    private int                      _maxStates        = 50_000;
+    private int                      _treeRenderCap    = 2_000;
     private bool                     _graphInfoHover   = false;
     private CoverabilityTreeDto?     _graphData;
     private StateSpaceSummaryDto?    _graphStateSpace;
@@ -390,11 +423,57 @@
     private PetriNetDto?             _lastDto;
     private Dictionary<string, int>? _previewSaved;
 
+    /// <summary>When true, hovering a node in the graph highlights its parents+children.</summary>
+    private bool _highlightNeighbours = true;
+
     public CoverabilityTreeDto?  GraphData      => _graphData;
     public StateSpaceSummaryDto? GraphStateSpace => _graphStateSpace;
     public bool                  GraphIsUnbounded => _graphIsUnbounded;
     public string                ViewMode         => _viewMode;
     public int                   MaxStates        => _maxStates;
+    public IReadOnlyList<int>    MaxStatesSteps   => _maxStatesSteps;
+    public int                   MaxStatesAtCompute => _maxStatesAtCompute;
+    public bool                  IsBusy           => _graphRunning || _graphRendering;
+    public string                Status           => _graphStatus;
+    public string?               StatusDetail     => _graphStatusDetail;
+
+    /// <summary>Raised when the busy state changes, so the parent can re-render its overlay.</summary>
+    [Parameter] public EventCallback OnBusyChanged { get; set; }
+
+    /// <summary>Raised when MaxStates changes (e.g. parent's slider moved). Lets the parent re-render.</summary>
+    [Parameter] public EventCallback OnMaxStatesChanged { get; set; }
+
+    public void CancelBusy() => CancelGraph();
+
+    /// <summary>
+    /// Update the marking cap from outside (e.g. the analysis panel's mirror slider).
+    /// Does NOT auto-recompute — callers decide whether to trigger a fresh run, since
+    /// that's a 20s+ operation users may not have asked for.
+    /// </summary>
+    public void SetMaxStates(int value)
+    {
+        // Snap to the nearest step so the slider in this panel stays in sync.
+        int idx = 0;
+        for (int i = 0; i < _maxStatesSteps.Length; i++)
+            if (_maxStatesSteps[i] <= value) idx = i;
+        if (_maxStatesSliderPos == idx) return;
+        _maxStatesSliderPos  = idx;
+        _maxStatesPendingPos = idx;
+        _maxStates           = _maxStatesSteps[idx];
+        StateHasChanged();
+        if (OnMaxStatesChanged.HasDelegate) _ = OnMaxStatesChanged.InvokeAsync();
+    }
+
+    private bool _lastBusy = false;
+    private async Task NotifyBusyIfChanged()
+    {
+        bool now = IsBusy;
+        if (now != _lastBusy)
+        {
+            _lastBusy = now;
+            if (OnBusyChanged.HasDelegate) await OnBusyChanged.InvokeAsync();
+        }
+    }
 
     public async Task<string?> ExportPngAsync() => _viewMode switch
     {
@@ -405,7 +484,7 @@
     public async Task EnsureGraphDataAsync(PetriNetDto dto)
     {
         if (_graphData != null) return;
-        var result = await ServerAnalysis.ComputeGraphAsync(dto, CancellationToken.None);
+        var result = await ServerAnalysis.ComputeGraphAsync(dto, _maxStates, CancellationToken.None);
         if (result.CoverabilityTree != null)
         {
             _graphData = result.CoverabilityTree;
@@ -439,6 +518,7 @@
         {
             _graphData = AnalysisResult.CoverabilityTree;
             _graphIsUnbounded = AnalysisResult.CoverabilityTree.Nodes.Any(n => n.Marking.Any(m => m is null));
+            _maxStatesAtCompute = _maxStates;
         }
         _graphStateSpace = new StateSpaceSummaryDto(
             StateCount:     AnalysisResult.StateCount,
@@ -466,8 +546,14 @@
     // tracks it on every drag tick, but it isn't applied until the user clicks "Apply".
     // Without this split, every drag tick re-runs the (synchronous, BFS-heavy) tree filter
     // and the page freezes.
-    private int _maxStatesSliderPos  = 3; // default index → 500
-    private int _maxStatesPendingPos = 3;
+    // Default index 7 → 50_000. Steps: 50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, MaxMarkings.
+    private int _maxStatesSliderPos  = 7;
+    private int _maxStatesPendingPos = 7;
+
+    // Tree-render cap slider (separate steps for finer control at the low end).
+    private static readonly int[] _treeRenderCapSteps = [500, 1_000, 2_000, 3_000, 5_000, 10_000];
+    private int _treeRenderCapSliderPos  = 2; // default index → 2_000
+    private int _treeRenderCapPendingPos = 2;
 
     private void OnMaxStatesSliderChanged(ChangeEventArgs e)
     {
@@ -475,10 +561,39 @@
             _maxStatesPendingPos = Math.Clamp(pos, 0, _maxStatesSteps.Length - 1);
     }
 
-    private void ApplyMaxStates()
+    /// <summary>The cap actually used to build the currently-displayed graph.</summary>
+    private int _maxStatesAtCompute = -1;
+
+    /// <summary>True when the slider cap differs from the cap of the cached graph data.</summary>
+    private bool _maxStatesOutOfDate =>
+        _graphData != null && _maxStatesAtCompute != _maxStates;
+
+    private async Task ApplyMaxStates()
     {
         _maxStatesSliderPos = _maxStatesPendingPos;
         _maxStates          = _maxStatesSteps[_maxStatesSliderPos];
+        if (OnMaxStatesChanged.HasDelegate) await OnMaxStatesChanged.InvokeAsync();
+
+        // Apply always recomputes when there's a graph to recompute. The server's
+        // cap counts UNIQUE markings, so a fresh build at the new value is the only
+        // way to get a result that exactly matches the slider — client-side trim
+        // alone can't add nodes the server didn't build.
+        if (_graphData != null && !_graphRunning)
+            await ComputeGraph();
+    }
+
+    private void OnTreeRenderCapSliderChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int pos))
+            _treeRenderCapPendingPos = Math.Clamp(pos, 0, _treeRenderCapSteps.Length - 1);
+    }
+
+    private void ApplyTreeRenderCap()
+    {
+        _treeRenderCapSliderPos = _treeRenderCapPendingPos;
+        _treeRenderCap          = _treeRenderCapSteps[_treeRenderCapSliderPos];
+        // No recompute needed — render cap is purely client-side. The tree view
+        // re-renders automatically when its RenderCap parameter changes.
     }
 
     private static string FormatMaxStates(int v) => v switch
@@ -528,14 +643,15 @@
         _graphRunning    = true;
         _graphRendering  = false;
         _graphStatus     = "Building state space on the server…";
-        _graphStatusDetail = $"Exploring up to {FormatMaxStates(AnalysisLimits.MaxMarkings)} markings. This can take a moment for large nets.";
+        _graphStatusDetail = $"Exploring up to {FormatMaxStates(_maxStates)} markings. This can take a moment for large nets.";
         _graphError      = null;
         _graphCancelled  = false;
         _graphTruncated  = false;
         StateHasChanged();
+        await NotifyBusyIfChanged();
         try
         {
-            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _graphCts.Token);
+            var result = await ServerAnalysis.ComputeGraphAsync(_lastDto, _maxStates, _graphCts.Token);
 
             if (result.StateSpace?.ExceededLimit == true)
                 _graphTruncated = true;
@@ -554,6 +670,7 @@
                 _graphData = result.CoverabilityTree;
                 _graphIsUnbounded = result.StateSpace?.IsBounded == false;
                 _computedAtVersion = NetVersion;
+                _maxStatesAtCompute = _maxStates;
             }
             if (result.StateSpace != null)
                 _graphStateSpace = result.StateSpace;
@@ -567,6 +684,7 @@
         {
             _graphRunning = false;
             await InvokeAsync(StateHasChanged);
+            await NotifyBusyIfChanged();
             if (_graphRendering)
             {
                 // Give Blazor one render cycle so the view component mounts and
@@ -574,6 +692,7 @@
                 await Task.Delay(40);
                 _graphRendering = false;
                 await InvokeAsync(StateHasChanged);
+                await NotifyBusyIfChanged();
             }
         }
     }

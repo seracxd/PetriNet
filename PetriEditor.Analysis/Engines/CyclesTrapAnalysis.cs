@@ -11,7 +11,7 @@ public sealed class CyclesAnalysis
 
     public IReadOnlyList<PnCycle> Cycles { get; private set; } = [];
 
-    public void Compute(Analysis.PetriNetSnapshot net)
+    public void Compute(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
     {
         HasErrors = false; ErrorMsg = null; Cycles = [];
 
@@ -42,8 +42,10 @@ public sealed class CyclesAnalysis
             pathStack.Push(start);
             blocked[start] = true;
 
+            int iterCounter = 0;
             while (frames.Count > 0)
             {
+                if ((++iterCounter & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
                 var top = frames.Peek();
                 var neighbours = adj[top.V];
 
@@ -94,6 +96,7 @@ public sealed class CyclesAnalysis
 
         for (int s = 0; s < n; s++)
         {
+            ct.ThrowIfCancellationRequested();
             Array.Clear(blocked, 0, n);
             foreach (var b in blockMap) b.Clear();
             RunCircuit(s);

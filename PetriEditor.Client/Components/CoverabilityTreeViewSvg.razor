@@ -12,11 +12,24 @@
     [Parameter] public EventCallback OnMarkingCleared { get; set; }
     [Parameter] public int MaxDisplayNodes { get; set; } = 500;
 
+    /// <summary>
+    /// Hard ceiling on how many tree nodes the in-browser layout will process.
+    /// The tree is BFS-trimmed to this size before Reingold-Tilford runs, so
+    /// it bounds the layout cost regardless of how large the source tree is.
+    /// </summary>
+    [Parameter] public int RenderCap { get; set; } = 2_000;
+
     const double NodeW   = 72;
     const double NodeH   = 22;
     const double LevelH  = 56;
     const double MinGapX = 14;
     const double MaxSvgW = 1e12;
+
+    // BuildLayout yields cooperatively every YieldEvery processed nodes so the
+    // UI can paint a frame and stay responsive while large trees are laid out.
+    // The user controls the actual node count via the display-cap slider — no
+    // hard render ceiling beyond what they ask for.
+    const int YieldEvery = 500;
 
     private double _nodeW = NodeW;
     private double _nodeH = NodeH;
@@ -47,14 +60,20 @@
 
     private DotNetObjectReference<CoverabilityTreeViewSvg>? _dotNetRef;
     private int _lastMaxDisplay = -1;
+    private int _lastRenderCap  = -1;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (Tree is null) return;
-        if (ReferenceEquals(Tree, _lastTree) && MaxDisplayNodes == _lastMaxDisplay) return;
+        if (ReferenceEquals(Tree, _lastTree)
+            && MaxDisplayNodes == _lastMaxDisplay
+            && RenderCap       == _lastRenderCap)
+            return;
         _lastTree = Tree;
         _lastMaxDisplay = MaxDisplayNodes;
-        BuildLayout();
+        _lastRenderCap  = RenderCap;
+
+        await BuildLayoutAsync();
 
         if (_layout == null || _layout.Count == 0) return;
 
@@ -111,7 +130,7 @@
         StateHasChanged();
     }
 
-    private void BuildLayout()
+    private async Task BuildLayoutAsync()
     {
         _layout    = new();
         _edges     = new();
@@ -121,37 +140,41 @@
 
         IReadOnlyList<CoverNodeDto> allNodes = Tree.Nodes;
         IReadOnlyList<CoverEdgeDto> allEdges = Tree.Edges;
+
+        // Server-side truncation markers (frontier of a build that hit the server cap).
         var cutOffIds = new HashSet<int>(allNodes.Where(n => n.IsTruncated).Select(n => n.Id));
 
-        // Only unique markings count toward the limit. Reference (duplicate)
-        // nodes are kept whenever their parent is kept — they're cheap leaves
-        // that show "this branch loops back to an existing marking".
-        int uniqueCount = allNodes.Count(n => !n.IsDuplicate);
-        if (uniqueCount > MaxDisplayNodes)
+        // Client-side cap: the tree view never lays out more than `effectiveCap`
+        // unique markings. That is the minimum of:
+        //   - MaxDisplayNodes (user's display slider — what they asked to see)
+        //   - RenderCap (hard ceiling on in-browser Reingold-Tilford cost)
+        // Reference (duplicate) leaves don't count toward the cap and are kept
+        // whenever their parent is. Trimmed-parents are NOT marked as cutoff —
+        // the cap is a display preference, not a "this was unreachable" signal.
+        int effectiveCap = Math.Max(1, Math.Min(MaxDisplayNodes, RenderCap));
+        int uniqueCount  = allNodes.Count(n => !n.IsDuplicate);
+        if (uniqueCount > effectiveCap)
         {
-            _truncated = true;
             var rootN = allNodes.FirstOrDefault(n => n.IsInitial) ?? allNodes[0];
-            var keep = new HashSet<int>();
-            var q = new Queue<int>();
-            q.Enqueue(rootN.Id);
-            keep.Add(rootN.Id);
-            int uniqueKept = rootN.IsDuplicate ? 0 : 1;
             var childMap = allNodes.ToDictionary(n => n.Id, _ => new List<int>());
             var nodeIndex = allNodes.ToDictionary(n => n.Id);
             foreach (var n in allNodes)
                 if (n.ParentId >= 0 && childMap.ContainsKey(n.ParentId))
                     childMap[n.ParentId].Add(n.Id);
+
+            var keep = new HashSet<int> { rootN.Id };
+            int uniqueKept = rootN.IsDuplicate ? 0 : 1;
+            var q = new Queue<int>();
+            q.Enqueue(rootN.Id);
+            int trimCounter = 0;
             while (q.Count > 0)
             {
+                if ((++trimCounter & (YieldEvery - 1)) == 0) await Task.Yield();
                 int cur = q.Dequeue();
                 foreach (int ch in childMap[cur])
                 {
                     bool isDup = nodeIndex[ch].IsDuplicate;
-                    if (!isDup && uniqueKept >= MaxDisplayNodes)
-                    {
-                        if (!keep.Contains(ch)) cutOffIds.Add(cur);
-                        continue;
-                    }
+                    if (!isDup && uniqueKept >= effectiveCap) continue;
                     if (keep.Add(ch))
                     {
                         if (!isDup) uniqueKept++;
@@ -159,10 +182,14 @@
                     }
                 }
             }
+
             allNodes = allNodes.Where(n => keep.Contains(n.Id)).ToList();
             allEdges = allEdges.Where(e => keep.Contains(e.From) && keep.Contains(e.To)).ToList();
+            // Only keep cutoff markers that survived the trim — orphan ones make no sense.
+            cutOffIds.IntersectWith(keep);
         }
 
+        _truncated = cutOffIds.Count > 0;
         _hasDuplicates = allNodes.Any(n => n.IsDuplicate);
         _hasDeadlocks  = allNodes.Any(n => n.IsDeadlock);
         _hasOmega      = allNodes.Any(n => n.Marking.Any(m => m is null));
@@ -174,8 +201,10 @@
 
         var markingKey = new Dictionary<string, int>();
         var canonical  = new Dictionary<int, int>();
+        int canonCounter = 0;
         foreach (var n in allNodes)
         {
+            if ((++canonCounter & (YieldEvery - 1)) == 0) await Task.Yield();
             var key = string.Join(",", n.Marking.Select(m => m.HasValue ? m.Value.ToString() : "w"));
             if (markingKey.TryGetValue(key, out int cId))
                 canonical[n.Id] = cId;
@@ -222,8 +251,10 @@
 
         var nodeById = allNodes.ToDictionary(n => n.Id);
 
+        int layoutCounter = 0;
         foreach (var n in allNodes)
         {
+            if ((++layoutCounter & (YieldEvery - 1)) == 0) await Task.Yield();
             var ln = new LayoutNode(n);
             bool isRef = canonical[n.Id] != n.Id;
             ln.IsReference = isRef;

@@ -109,6 +109,8 @@ window.graphView = (() => {
         // ── Edges ─────────────────────────────────────────────────────────
         const edges = s.edges;
         const hoverIdx = s.hoveredEdgeIdx;
+        const nbEdges = s.neighbourEdges;
+        const anyHover = !!s.hoveredMarking;   // dim non-neighbour edges while hovering
         for (let i = 0; i < edges.length; i++) {
             const e = edges[i];
             // Cull: skip edges whose bounding box lies fully outside viewport.
@@ -118,9 +120,17 @@ window.graphView = (() => {
             const eMaxY = Math.max(e.y1, e.y2);
             if (eMaxX < wx0 || eMinX > wx1 || eMaxY < wy0 || eMinY > wy1) continue;
 
-            const isHovered = i === hoverIdx;
-            const forwardColor = isHovered ? '#00897b' : '#9dafc0';
-            const backColor    = isHovered ? '#00897b' : '#9dafc0';
+            const isHovered  = i === hoverIdx;
+            const isNeighbor = nbEdges.has(i);
+            // Three-tier styling:
+            //   hovered/neighbour → teal accent
+            //   any-other when something is hovered → faded grey
+            //   default → normal slate
+            const accent = isHovered || isNeighbor;
+            const dim    = anyHover && !accent;
+            const baseColor = accent ? '#00897b' : dim ? '#dfe5ec' : '#9dafc0';
+            const forwardColor = baseColor;
+            const backColor    = baseColor;
             const hoverWidth   = isHovered ? Math.max(2.5, 3 * scale) : 0;
 
             if (e.isSelf) {
@@ -133,7 +143,7 @@ window.graphView = (() => {
                 ctx.moveTo(asx, asy);
                 ctx.bezierCurveTo(ac1x, ac1y, ac2x, ac2y, aex, aey);
                 ctx.strokeStyle = backColor;
-                ctx.lineWidth   = isHovered ? hoverWidth : Math.max(1, 1.5 * scale);
+                ctx.lineWidth   = isHovered ? hoverWidth : isNeighbor ? Math.max(2, 2 * scale) : Math.max(1, 1.5 * scale);
                 ctx.stroke();
                 // Arrowhead tangent from (c2 → e)
                 _drawArrow(ctx, aex, aey, aex - ac2x, aey - ac2y, scale, backColor);
@@ -156,7 +166,7 @@ window.graphView = (() => {
                 ctx.moveTo(asx, asy);
                 ctx.bezierCurveTo(ac1x, ac1y, ac2x, ac2y, aex, aey);
                 ctx.strokeStyle = backColor;
-                ctx.lineWidth   = isHovered ? hoverWidth : Math.max(1, 1.5 * scale);
+                ctx.lineWidth   = isHovered ? hoverWidth : isNeighbor ? Math.max(2, 2 * scale) : Math.max(1, 1.5 * scale);
                 ctx.stroke();
                 _drawArrow(ctx, aex, aey, aex - ac2x, aey - ac2y, scale, backColor);
                 if (e.label && showEdgeLbls) {
@@ -192,6 +202,7 @@ window.graphView = (() => {
 
         // ── Nodes ─────────────────────────────────────────────────────────
         const nodes = s.nodes;
+        const nbKeys = s.neighbourKeys;
         for (let i = 0; i < nodes.length; i++) {
             const n = nodes[i];
             if (n.x + nodeW < wx0 || n.x > wx1 || n.y + nodeH < wy0 || n.y > wy1) continue;
@@ -201,21 +212,27 @@ window.graphView = (() => {
             const ah = nodeH * scale;
             const rx = Math.max(2, aw * 0.12);
             const c  = n._colors;
-            const hovered = s.hoveredMarking === n.markingKey;
+            const hovered  = s.hoveredMarking === n.markingKey;
+            const neighbor = !hovered && nbKeys.has(n.markingKey);
+            const dim      = anyHover && !hovered && !neighbor;
 
             ctx.beginPath();
             ctx.roundRect(ax, ay, aw, ah, rx);
-            ctx.fillStyle = hovered ? '#c8f0ec' : c.fill;
+            // Three-tier fill/stroke:
+            //   hovered  → strong teal
+            //   neighbor → soft teal accent
+            //   dim      → fade non-neighbour content while something is hovered
+            ctx.fillStyle = hovered ? '#c8f0ec' : neighbor ? '#e4f5f3' : dim ? '#f7f9fc' : c.fill;
             ctx.fill();
-            ctx.strokeStyle = hovered ? '#00796b' : c.stroke;
-            ctx.lineWidth = Math.max(1, c.sw * scale);
+            ctx.strokeStyle = hovered ? '#00796b' : neighbor ? '#26a69a' : dim ? '#dfe5ec' : c.stroke;
+            ctx.lineWidth = Math.max(1, (neighbor ? c.sw + 0.5 : c.sw) * scale);
             ctx.stroke();
 
             if (showLabels) {
                 const MIN_TEXT_PX = 12;
                 const naturalPx = n._labelF * nodeW * scale;
                 const drawPx    = Math.max(MIN_TEXT_PX, naturalPx);
-                ctx.fillStyle = hovered ? '#00796b' : c.textC;
+                ctx.fillStyle = hovered ? '#00796b' : neighbor ? '#00897b' : dim ? '#aab1bb' : c.textC;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 // Fast path when natural size is already at least the minimum:
@@ -329,6 +346,28 @@ window.graphView = (() => {
             for (let i = 0; i < list.length; i++) list[i].bowOffset = i;
         }
 
+        // ── Adjacency map keyed by marking ────────────────────────────────
+        // For neighbour-highlight on hover: given a marking key, look up the
+        // set of parent + child marking keys and the edge indices connecting
+        // them. Keyed by markingKey (not node id) so two visually-merged
+        // duplicate nodes resolve the same.
+        const adj = {};
+        function ensure(key) {
+            return (adj[key] = adj[key] || { parents: new Set(), children: new Set(), edges: new Set() });
+        }
+        // Map node id → markingKey for fast edge resolution.
+        const idToKey = {};
+        for (const n of nodes) idToKey[n.id] = n.markingKey;
+        for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            const fk = idToKey[e.from], tk = idToKey[e.to];
+            if (!fk || !tk) continue;
+            ensure(fk).children.add(tk);
+            ensure(fk).edges.add(i);
+            ensure(tk).parents.add(fk);
+            ensure(tk).edges.add(i);
+        }
+
         const minVW = 100;
         const maxVW = svgW * 1.1;
         const s = {
@@ -340,6 +379,12 @@ window.graphView = (() => {
             drag: null, rafId: null,
             hoveredMarking: null,
             hoveredEdgeIdx: -1,
+            adj,
+            // Neighbour-highlight feature. Toggle via setHoverHighlight(...).
+            highlightNeighbours: true,
+            // Recomputed on every hover change.
+            neighbourKeys: new Set(),
+            neighbourEdges: new Set(),
             dotNetRef,
             _wrapWidth: 1, _wrapHeight: 1,
         };
@@ -500,6 +545,17 @@ window.graphView = (() => {
             _clampViewport(s); _scheduleRedraw(s);
         };
         s.onPointerUp = () => { s.drag = null; wrap.style.cursor = 'grab'; };
+        function _updateNeighbourSets(key) {
+            s.neighbourKeys = new Set();
+            s.neighbourEdges = new Set();
+            if (!key || !s.highlightNeighbours) return;
+            const entry = s.adj[key];
+            if (!entry) return;
+            for (const k of entry.parents)  s.neighbourKeys.add(k);
+            for (const k of entry.children) s.neighbourKeys.add(k);
+            for (const i of entry.edges)    s.neighbourEdges.add(i);
+        }
+
         s.onMouseMove = (e) => {
             if (s.drag) { tooltip.style.display = 'none'; return; }
             const { wx, wy } = clientToWorld(e.clientX, e.clientY);
@@ -509,6 +565,7 @@ window.graphView = (() => {
             let needsRedraw = false;
             if (key !== s.hoveredMarking) {
                 s.hoveredMarking = key;
+                _updateNeighbourSets(key);
                 needsRedraw = true;
                 if (key) {
                     if (s.dotNetRef) s.dotNetRef.invokeMethodAsync('OnNodeHovered', key, key);
@@ -529,6 +586,7 @@ window.graphView = (() => {
             let needsRedraw = false;
             if (s.hoveredMarking) {
                 s.hoveredMarking = null;
+                _updateNeighbourSets(null);
                 needsRedraw = true;
                 if (s.dotNetRef) s.dotNetRef.invokeMethodAsync('OnNodeLeft');
             }
@@ -716,5 +774,17 @@ window.graphView = (() => {
         return off.toDataURL('image/png').split(',')[1];
     }
 
-    return { init, destroy, resetView, exportSvg, exportPng };
+    /// Toggle the "highlight parents + children on hover" feature.
+    /// When disabled, hovering only highlights the hovered node itself.
+    function setHoverHighlight(containerId, enabled) {
+        const s = _state[containerId];
+        if (!s) return;
+        s.highlightNeighbours = !!enabled;
+        // Reset transient state so the next hover starts clean.
+        s.neighbourKeys  = new Set();
+        s.neighbourEdges = new Set();
+        _scheduleRedraw(s);
+    }
+
+    return { init, destroy, resetView, exportSvg, exportPng, setHoverHighlight };
 })();

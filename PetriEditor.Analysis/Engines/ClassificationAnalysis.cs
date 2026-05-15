@@ -23,13 +23,15 @@ public sealed class ClassificationAnalysis
     public bool IsOfType(NetSubclass c) => _classes.Contains(c);
     public IReadOnlySet<NetSubclass> Classes => _classes;
 
-    public void Compute(Analysis.PetriNetSnapshot net)
+    public void Compute(Analysis.PetriNetSnapshot net, CancellationToken ct = default)
     {
         HasErrors = false; ErrorMsg = null;
         _classes.Clear();
 
         if (!net.Places.Any() || !net.Transitions.Any())
         { HasErrors = true; ErrorMsg = "Net has no places or transitions."; return; }
+
+        ct.ThrowIfCancellationRequested();
 
         // ── Ordinary: all arcs are ordinary unit-weight arcs ──────────────
         if (net.Arcs.All(a => a.ArcType == Analysis.PnArcType.Normal && a.Weight == 1))
@@ -51,6 +53,7 @@ public sealed class ClassificationAnalysis
         bool isFreeChoice = true;
         foreach (var t1 in net.Transitions)
         {
+            ct.ThrowIfCancellationRequested();
             var pre1 = new HashSet<string>(
                 net.InputArcs(t1.Id).Where(a => a.ArcType == Analysis.PnArcType.Normal).Select(a => a.SourceId));
             foreach (var t2 in net.Transitions)

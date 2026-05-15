@@ -12,19 +12,25 @@ public interface IAnalysisService
     /// Run a full analysis for the given net.
     /// Progress is reported through <paramref name="progress"/> (may be null).
     /// The task completes with the full result or throws on error / cancellation.
+    /// <paramref name="maxMarkings"/> caps how many markings the server explores
+    /// during state-space / coverability construction. Clamped to
+    /// <see cref="AnalysisLimits.MaxMarkings"/>.
     /// </summary>
     Task<AnalysisResultDto> RunAnalysisAsync(
         PetriNetDto                          net,
+        int                                  maxMarkings,
         IProgress<AnalysisProgressMessage>?  progress = null,
         CancellationToken                    ct       = default);
 
     /// <summary>
     /// Compute only the graph/tree on demand using the coverability tree algorithm.
-    /// Always terminates; for bounded nets the result has no ω tokens.  The build
-    /// cap is fixed at <see cref="AnalysisLimits.MaxMarkings"/> — clients choose
-    /// how much of the result to display separately.
+    /// Always terminates; for bounded nets the result has no ω tokens.
+    /// <paramref name="maxMarkings"/> caps how many markings the server explores;
+    /// the same value is used for the client-side display filter so the user sees
+    /// exactly what they asked for.
     /// </summary>
     Task<GraphResultDto> ComputeGraphAsync(
         PetriNetDto       net,
+        int               maxMarkings,
         CancellationToken ct = default);
 }

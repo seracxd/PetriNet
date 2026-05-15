@@ -78,7 +78,7 @@ public sealed class AnalysisHub : Hub
     /// Progress messages are pushed back to the caller via "ReceiveProgress".
     /// The final result is pushed via "ReceiveResult" (or "ReceiveError" on failure).
     /// </summary>
-    public async Task RunAnalysis(PetriNetDto net)
+    public async Task RunAnalysis(PetriNetDto net, int maxMarkings = 0)
     {
         if (!TryThrottle(nameof(RunAnalysis)))
             throw new HubException("Too many requests. Please wait before retrying.");
@@ -114,7 +114,7 @@ public sealed class AnalysisHub : Hub
         await _heavyOpGate.WaitAsync(cts.Token);
         try
         {
-            var result = await _orchestrator.RunAsync(net, progress, cts.Token);
+            var result = await _orchestrator.RunAsync(net, maxMarkings, progress, cts.Token);
             // Send metadata first (no graph data) so the client can render the analysis panel immediately.
             // Graph/tree data is streamed as separate chunks to keep individual messages small.
             var stripped = result with { ReachabilityGraph = null, ReachabilityTree = null, CoverabilityTree = null };
@@ -153,6 +153,7 @@ public sealed class AnalysisHub : Hub
     /// </summary>
     public async IAsyncEnumerable<GraphChunkDto> StreamGraph(
         PetriNetDto net,
+        int maxMarkings,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (!TryThrottle(nameof(StreamGraph)))
@@ -166,7 +167,7 @@ public sealed class AnalysisHub : Hub
         GraphResultDto result;
         try
         {
-            result = await _orchestrator.RunGraphAsync(net, cts.Token);
+            result = await _orchestrator.RunGraphAsync(net, maxMarkings, cts.Token);
         }
         catch (OperationCanceledException)
         {

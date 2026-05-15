@@ -7,6 +7,15 @@ namespace Analysis.Algorithms;
 /// </summary>
 internal static class FireUtils
 {
+    /// <summary>
+    /// Saturation ceiling for finite token counts. Below int.MaxValue (which is ω) by
+    /// a wide margin so that an addition near the cap cannot overflow into ω or wrap
+    /// to negative. Counts that reach this value are clamped here and stay here —
+    /// the marking is effectively "very large" and any downstream coverability check
+    /// will treat the place as unbounded.
+    /// </summary>
+    internal const int MaxFiniteTokens = int.MaxValue / 2;
+
     /// <summary>True if transition <paramref name="tId"/> is enabled in <paramref name="marking"/> (ignores priority).</summary>
     internal static bool IsEnabled(
         PetriNetSnapshot        net,
@@ -21,16 +30,18 @@ internal static class FireUtils
 
             if (arc.ArcType == PnArcType.Inhibitor)
             {
-                // Omega (int.MaxValue) counts as > 0, so inhibitor blocks
-                if (marking[pi] != 0)
+                // Weighted inhibitor: blocks when tokens >= weight.
+                // Omega (int.MaxValue) is >= any finite weight, so it always blocks.
+                if (marking[pi] == int.MaxValue || marking[pi] >= arc.Weight)
                     return false;
             }
-            else
+            else if (arc.ArcType == PnArcType.Normal)
             {
                 // Omega is always >= any weight, so treat it as enabled
                 if (marking[pi] != int.MaxValue && marking[pi] < arc.Weight)
                     return false;
             }
+            // Reset arcs do not guard enablement (Aalst, Def. 2)
         }
         return true;
     }
@@ -74,7 +85,9 @@ internal static class FireUtils
         {
             if (arc.ArcType != PnArcType.Normal) continue;
             if (!pIdx.TryGetValue(arc.SourceId, out int pi)) continue;
-            if (next[pi] != int.MaxValue) next[pi] -= arc.Weight;
+            if (next[pi] == int.MaxValue) continue;        // ω − k = ω
+            next[pi] -= arc.Weight;
+            if (next[pi] < 0) next[pi] = 0;                 // defensive: IsEnabled should prevent this
         }
 
         // Pass 2 — resets (always clear to 0, regardless of prior subtractions)
@@ -85,12 +98,14 @@ internal static class FireUtils
             next[pi] = 0;
         }
 
-        // Pass 3 — productions
+        // Pass 3 — productions (saturating add: never overflow into ω or wrap)
         foreach (var arc in net.OutputArcs(tId))
         {
             if (pIdx.TryGetValue(arc.TargetId, out int pi))
             {
-                if (next[pi] != int.MaxValue) next[pi] += arc.Weight;
+                if (next[pi] == int.MaxValue) continue;     // ω + k = ω
+                long sum = (long)next[pi] + arc.Weight;
+                next[pi] = sum >= MaxFiniteTokens ? MaxFiniteTokens : (int)sum;
             }
         }
 

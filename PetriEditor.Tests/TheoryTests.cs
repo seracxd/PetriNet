@@ -240,7 +240,7 @@ public class TheoryTests
         yield return new object[] { 1, 0, true  };   // 0 < 1 — not blocked
         yield return new object[] { 1, 1, false };   // 1 >= 1 — blocked
         yield return new object[] { 1, 2, false };   // 2 >= 1 — blocked
-        yield return new object[] { 2, 1, false };   // 1 != 0 — engine uses zero-test semantics, blocked
+        yield return new object[] { 2, 1, true  };   // 1 < 2 — not blocked
         yield return new object[] { 2, 2, false };   // 2 >= 2 — blocked
     }
 

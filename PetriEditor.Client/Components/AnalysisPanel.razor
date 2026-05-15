@@ -314,6 +314,42 @@
                         }
                     </div>
 
+                    @* Analysis cap — exploration depth. Mirrors the slider in graph-tree settings;
+                       both write to the same field via GraphTreePanel.SetMaxStates(). *@
+                    @{
+                        // Local copy of the step array so the slider renders before the graph
+                        // panel has mounted. Must stay in sync with GraphTreePanel._maxStatesSteps.
+                        int _capCurrent = _refGraphTree?.MaxStates ?? _capDefault;
+                        int _capIdx = 0;
+                        for (int i = 0; i < _capStepsLocal.Length; i++)
+                            if (_capStepsLocal[i] <= _capCurrent) _capIdx = i;
+                    }
+                    <div style="display:flex;align-items:center;gap:8px;padding:2px 0;">
+                        <span style="font-size:11px;color:#666;font-weight:500;white-space:nowrap;">Analysis cap</span>
+                        <input type="range" min="0" max="@(_capStepsLocal.Length - 1)" step="1" value="@_capIdx"
+                               @oninput="OnAnalysisCapSliderChanged"
+                               disabled="@_analysisRunning"
+                               style="flex:1;accent-color:#888;" />
+                        <span style="font-size:11px;color:#00a499;font-weight:700;min-width:40px;text-align:right;">@FormatCap(_capCurrent)</span>
+                    </div>
+                    <div style="font-size:10px;color:#9aa0ad;line-height:1.5;padding-top:2px;">
+                        Markings the server explores. Higher = more accurate verdicts. Also available in graph/tree settings.
+                    </div>
+
+                    @* Cap-changed banner: shown when slider moved after analysis ran *@
+                    @if (_capChangedSinceAnalysis && _result != null && !_analysisRunning)
+                    {
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff3e0;border-radius:7px;border:1px solid #ffb74d;">
+                            <span style="font-size:13px;line-height:1;">⚠</span>
+                            <span style="font-size:11px;color:#5f3a00;line-height:1.4;flex:1;">Cap changed — results may be incomplete.</span>
+                            <button @onclick="RunAnalysis"
+                                    style="padding:2px 8px;font-size:10px;font-weight:700;background:#ff9800;color:#fff;
+                                           border:none;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+                                Re-run
+                            </button>
+                        </div>
+                    }
+
                     @if (_analysisRunning && _progressMessage != null)
                     {
                         <div style="display:flex;flex-direction:column;gap:4px;">
@@ -922,7 +958,9 @@
                                 IsVisible="@(_activeAnalysisTab == "graph")"
                                 ResultStale="@_resultStale"
                                 NetVersion="@_netVersion"
-                                AnalysisResult="@_result" />
+                                AnalysisResult="@_result"
+                                OnBusyChanged="OnGraphBusyChanged"
+                                OnMaxStatesChanged="OnGraphMaxStatesChanged" />
 
 
                 @* CSS for spinner *@
@@ -952,6 +990,49 @@
             <div id="ap-resize-ne" style="position:absolute;top:0;right:0;width:10px;height:10px;cursor:ne-resize;z-index:10;"></div>
             <div id="ap-resize-sw" style="position:absolute;bottom:0;left:0;width:10px;height:10px;cursor:sw-resize;z-index:10;"></div>
             <div id="ap-resize-se" style="position:absolute;bottom:0;right:0;width:10px;height:10px;cursor:se-resize;z-index:10;"></div>
+        }
+
+        @* ── Busy overlay: covers the whole panel, blocks all interaction except Cancel.
+             Triggered by full analysis OR graph-compute (whichever is running). ── *@
+        @{
+            bool _graphBusy = _refGraphTree?.IsBusy ?? false;
+            bool _panelBusy = (_analysisRunning && _mode == "analysis") || _graphBusy;
+        }
+        @if (_panelBusy)
+        {
+            string _statusText = _analysisRunning
+                ? (_progressMessage?.Stage ?? "Running analysis…")
+                : (_refGraphTree?.Status ?? "Computing graph…");
+            string? _statusDetail = _analysisRunning ? null : _refGraphTree?.StatusDetail;
+            <div style="position:absolute;inset:0;z-index:50;background:rgba(255,255,255,0.85);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px;cursor:wait;">
+                <div style="width:38px;height:38px;border:3px solid #e4e6ea;border-top-color:#00a499;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+                <div style="font-size:13px;color:#525965;font-weight:600;text-align:center;">@_statusText</div>
+                @if (_analysisRunning && _progressMessage != null)
+                {
+                    <div style="width:240px;display:flex;flex-direction:column;gap:4px;">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:#888;">
+                            <span>@_progressMessage.Stage</span>
+                            <span>@_progressMessage.Percent%</span>
+                        </div>
+                        <div style="height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;">
+                            <div style="height:100%;width:@(_progressMessage.Percent)%;background:#00a499;border-radius:2px;transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+                }
+                @if (_statusDetail != null)
+                {
+                    <div style="font-size:11px;color:#9aa0ad;text-align:center;max-width:280px;line-height:1.5;">@_statusDetail</div>
+                }
+                <div style="font-size:11px;color:#9aa0ad;text-align:center;max-width:280px;line-height:1.5;">
+                    Interaction is paused until this finishes or you cancel.
+                </div>
+                <button @onclick="@(() => { if (_analysisRunning) CancelAnalysis(); else _refGraphTree?.CancelBusy(); })"
+                        style="margin-top:4px;padding:6px 18px;font-size:12px;font-weight:700;
+                               border:1.5px solid #ffcdd2;border-radius:8px;background:#fff0f0;
+                               color:#e53935;cursor:pointer;">
+                    Cancel
+                </button>
+            </div>
         }
     </div>
 }
@@ -1160,6 +1241,52 @@
     private CancellationTokenSource? _analysisCts;
     private AnalysisProgressMessage? _progressMessage;
 
+    /// <summary>Cap used when the current result was computed. -1 when no result yet.</summary>
+    private int _capAtAnalysis = -1;
+
+    /// <summary>True when the user moved the cap slider after the last full analysis ran.</summary>
+    private bool _capChangedSinceAnalysis =>
+        _result != null && _capAtAnalysis != -1 && (_refGraphTree?.MaxStates ?? -1) != _capAtAnalysis;
+
+    private static string FormatCap(int v) => v switch
+    {
+        >= 1_000_000 => $"{v / 1_000_000}M",
+        >= 1_000     => $"{v / 1_000}k",
+        _            => v.ToString()
+    };
+
+    // Mirror of GraphTreePanel._maxStatesSteps. Local copy lets the slider render before
+    // the graph panel has mounted (the parameter passing only kicks in after first render).
+    private static readonly int[] _capStepsLocal =
+        [50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, AnalysisLimits.MaxMarkings];
+    private const int _capDefault = 50_000;
+
+    private void OnAnalysisCapSliderChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int pos)) return;
+        pos = Math.Clamp(pos, 0, _capStepsLocal.Length - 1);
+        int newCap = _capStepsLocal[pos];
+        // If the graph panel is mounted, route through it so its slider stays in sync
+        // and the OnMaxStatesChanged event fires. Otherwise stash locally — we'll
+        // pick it up via _pendingCap when the panel mounts and analysis runs.
+        if (_refGraphTree is not null)
+            _refGraphTree.SetMaxStates(newCap);
+        _pendingCap = newCap;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Cap selected via the analysis-panel slider before the graph panel was first
+    /// mounted. Used when running analysis so the user's choice isn't ignored.
+    /// </summary>
+    private int? _pendingCap;
+
+    private void OnGraphMaxStatesChanged()
+    {
+        // Graph-tree side changed the cap → re-render so our mirror slider + banner update.
+        InvokeAsync(StateHasChanged);
+    }
+
     // ── Highlight state ────────────────────────────────────────────────────
     private string?   _highlightedItemKey;   // pinned (click) highlight key
     private string[]? _highlightedItemIds;   // node IDs for the pinned item
@@ -1361,7 +1488,9 @@
                         _lastDto = dto;
                         try
                         {
-                            _result = await ServerAnalysis.RunAnalysisAsync(dto, null, CancellationToken.None);
+                            int capForRun = _refGraphTree?.MaxStates ?? _pendingCap ?? _capDefault;
+                            _result = await ServerAnalysis.RunAnalysisAsync(dto, capForRun, null, CancellationToken.None);
+                            _capAtAnalysis = capForRun;
                             _analyzedVersion = _netVersion;
                         }
                         catch (Exception ex)
@@ -1436,7 +1565,9 @@
                 _ = InvokeAsync(StateHasChanged);
             });
 
-            _result = await ServerAnalysis.RunAnalysisAsync(dto, progress, ct);
+            int capForRun = _refGraphTree?.MaxStates ?? _pendingCap ?? _capDefault;
+            _result = await ServerAnalysis.RunAnalysisAsync(dto, capForRun, progress, ct);
+            _capAtAnalysis = capForRun;
             if (_activeAnalysisTab == "graph") _refGraphTree?.TryPopulateFromCache();
         }
         catch (OperationCanceledException) { _analysisError = "Analysis cancelled."; }
@@ -1484,6 +1615,8 @@
     }
 
     private void CancelAnalysis() => _analysisCts?.Cancel();
+
+    private void OnGraphBusyChanged() => InvokeAsync(StateHasChanged);
 
     private GraphTreePanel? _refGraphTree;
 

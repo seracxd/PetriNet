@@ -129,8 +129,6 @@ public static class AnalysisResultMapper
         var placeNames  = net.Places.Select(p => p.Name).ToList();
         var edgesByFrom = ss.GetEdges();
         var zeroEdge    = new HashSet<int>(Enumerable.Range(0, ss.States.Count).Where(i => edgesByFrom[i].Count == 0));
-        // When truncated we cannot distinguish true deadlocks from nodes whose
-        // children were simply not explored, so mark all 0-edge nodes as truncated.
         var deadlocks   = ss.IsTruncated ? new HashSet<int>() : zeroEdge;
         var truncated   = ss.IsTruncated ? zeroEdge : new HashSet<int>();
         var nodes = ss.States.Select((marking, id) => new ReachNodeDto(
