@@ -61,3 +61,21 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+* text=auto eol=lf
+
+*.cs        text eol=lf
+*.csproj    text eol=lf
+*.razor     text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.md        text eol=lf
+*.tex       text eol=lf
+
+# Binary
+*.png       binary
+*.pdf       binary
+*.ico       binary
+*.dll       binary
