@@ -931,8 +931,7 @@
     {
         var confirmed = await JS.InvokeAsync<bool>("confirm", "Clear the diagram? Unsaved changes will be lost.");
         if (!confirmed) return;
-        DiagramSerializer.Restore(new PetriNetDto([], [], []));
-        StateHasChanged();
+        await RestoreWithRemount(new PetriNetDto([], [], []));
     }
 
     private async Task SaveDiagram()
@@ -954,13 +953,31 @@
                 dto = Serializer.DeserializeFromPnml(text);
             else
                 dto = Serializer.DeserializeFromJson(text);
-            DiagramSerializer.Restore(dto);
-            StateHasChanged();
+            await RestoreWithRemount(dto);
         }
         catch (Exception ex)
         {
             await JS.InvokeVoidAsync("alert", $"Failed to load file: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Restores a diagram via remount of DiagramCanvas — works around a
+    /// Z.Blazor.Diagrams 3.0.4 race where DiagramCanvas.OnAfterRenderAsync
+    /// calls getBoundingClientRect on a stale ElementReference after mass
+    /// node replacement, causing WASM runtime crash. Unmounting the canvas
+    /// briefly forces a fresh mount with valid element references.
+    /// </summary>
+    private async Task RestoreWithRemount(PetriNetDto dto)
+    {
+        _diagramReady = false;
+        StateHasChanged();
+        await Task.Yield();
+
+        DiagramSerializer.Restore(dto);
+
+        _diagramReady = true;
+        StateHasChanged();
     }
     private void ResetView() { Manager.ResetView(); StateHasChanged(); }
     private void ToggleNavigator() { _navigatorOpen = !_navigatorOpen; StateHasChanged(); }
