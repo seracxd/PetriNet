@@ -14,7 +14,7 @@
         && PlaceModel?.Data?.Id != null
         && StateService.HighlightedNodeIds.Contains(PlaceModel.Data.Id);
 }
-<div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.IsArcToolActive && !StateService.IsSimulating ? "arc-tool-active" : "")"
+<div class="petri-node @(Node.Selected && !StateService.IsSimulating ? "selected" : "") @(StateService.ShouldShowPorts && !StateService.IsSimulating ? "arc-tool-active" : "")"
      style="width: @(_w)px; height: @(_h)px; position: relative; box-sizing: content-box; @(StateService.IsSimulating ? "cursor:default;" : "")">
 
     <svg width="@(Node.Size?.Width ?? Settings.PlaceSize)" height="@(Node.Size?.Height ?? Settings.PlaceSize)"

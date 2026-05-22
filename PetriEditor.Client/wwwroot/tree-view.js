@@ -96,10 +96,13 @@ window.treeView = (() => {
                 ctx.fill();
             }
 
-            // Edge label — scales with zoom, hidden when zoomed out
+            // Edge label — scales with zoom, hidden when zoomed out.
+            // Positioned at 70% along the segment toward the target so it's
+            // obvious which marking the transition leads into.
             if (e.label && showEdgeLbls) {
-                const mx = ox + ((e.x1 + e.x2) / 2) * scale;
-                const my = oy + ((e.y1 + e.y2) / 2) * scale;
+                const t = 0.7;
+                const mx = ox + (e.x1 + (e.x2 - e.x1) * t) * scale;
+                const my = oy + (e.y1 + (e.y2 - e.y1) * t) * scale;
                 // Font scales with node: ~14% of nodeW, minimum 8px on screen
                 const naturalPx = nodeW * 0.14 * scale;
                 const labelPx   = Math.max(11, naturalPx);
@@ -490,16 +493,41 @@ window.treeView = (() => {
             _draw(s);
         }
 
-        // ResizeObserver: refit canvas when panel resizes, and trigger initial view
-        s._ro = new ResizeObserver(() => {
+        // Canvas needs to refit whenever the wrap's css size changes OR the device
+        // pixel ratio changes (e.g. user drags the window across monitors).
+        // - ResizeObserver picks up element-level size changes.
+        // - 'resize' on window handles cases where layout was already invalidated
+        //   but no element observation fired (DevTools, panel toggles, etc.).
+        // - matchMedia('(resolution: ...)') fires when DPR changes mid-session.
+        const refit = () => {
             _resizeCanvas(s);
-            if (!s._viewInited) {
-                _initView();
-            } else {
-                _scheduleRedraw(s);
-            }
-        });
+            if (!s._viewInited) _initView(); else _scheduleRedraw(s);
+        };
+
+        s._ro = new ResizeObserver(refit);
         s._ro.observe(wrap);
+
+        s._onWindowResize = () => {
+            // rAF gives layout one tick to settle so clientWidth/Height are current.
+            requestAnimationFrame(refit);
+        };
+        window.addEventListener('resize', s._onWindowResize);
+
+        // DPR change tracker: re-bound on every change because the previous
+        // media-query becomes stale once DPR moves.
+        s._dprDispose = null;
+        const watchDpr = () => {
+            const mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+            const onChange = () => { refit(); watchDpr(); };
+            // addEventListener is the modern path; Safari < 14 needs addListener.
+            if (mql.addEventListener) mql.addEventListener('change', onChange);
+            else if (mql.addListener) mql.addListener(onChange);
+            s._dprDispose = () => {
+                if (mql.removeEventListener) mql.removeEventListener('change', onChange);
+                else if (mql.removeListener) mql.removeListener(onChange);
+            };
+        };
+        watchDpr();
 
         _state[containerId] = s;
         wrap.style.cursor = 'grab';
@@ -514,6 +542,8 @@ window.treeView = (() => {
         if (!s) return;
         if (s.rafId != null) cancelAnimationFrame(s.rafId);
         if (s._ro) s._ro.disconnect();
+        if (s._onWindowResize) window.removeEventListener('resize', s._onWindowResize);
+        if (s._dprDispose) s._dprDispose();
         const w = wrap || document.getElementById(containerId);
         if (w) {
             w.removeEventListener('wheel',        s.onWheel,       { capture: true });
@@ -594,10 +624,11 @@ window.treeView = (() => {
             const p3x = ax2 - ux*asz - nx*asz*0.4, p3y = ay2 - uy*asz - ny*asz*0.4;
             out.push(`<polygon points="${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}" fill="${color}"/>`);
 
-            // Edge label
+            // Edge label — biased toward the target marking, matching the canvas view.
             if (e.label) {
-                const mx = ox + (e.x1 + e.x2) / 2;
-                const my = oy + (e.y1 + e.y2) / 2;
+                const t = 0.7;
+                const mx = ox + (e.x1 + (e.x2 - e.x1) * t);
+                const my = oy + (e.y1 + (e.y2 - e.y1) * t);
                 const fs = 11;
                 const tw = e.label.length * fs * 0.52;
                 const pad2 = fs * 0.3;

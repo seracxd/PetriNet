@@ -27,8 +27,19 @@ public class PetriNetManager : IDisposable
     private MutablePositionAnchor? _pendingFloating;
     private PortModel? _pendingSourcePort;
 
+    // ── Endpoint reconnect (click-track-click mode) ──
+    // While reconnecting, the dragged end follows the cursor without a held button.
+    // - Click on a node    → commit reconnect to that node
+    // - Click on canvas    → add a vertex at the click point (arc keeps following cursor)
+    // - ESC                → cancel and restore original arc
+    private PetriLinkModel? _reconnectLink;
+    private MutablePositionAnchor? _reconnectFloating;
+    private bool _reconnectFixedIsSource;        // true → the fixed end is the SOURCE (we're moving the target)
+    private LinkSnapshot? _reconnectBefore;       // snapshot for undo
+
     public event Action? PendingLinkChanged;
     public bool HasPendingLink => _pendingLink != null;
+    public bool IsReconnecting => _reconnectLink != null;
 
     /// <summary>Set by SimulationService — blocks node drag tracking while true.</summary>
     public bool IsSimulating { get; set; }
@@ -379,111 +390,211 @@ public class PetriNetManager : IDisposable
 
     private void OnPointerMove(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
     {
-        if (_pendingLink == null || _pendingFloating == null) return;
-        _pendingFloating.SetPosition(Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
-        _pendingLink.Refresh();
+        var pt = Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        if (_pendingLink != null && _pendingFloating != null)
+        {
+            _pendingFloating.SetPosition(pt);
+            _pendingLink.Refresh();
+        }
+        if (_reconnectLink != null && _reconnectFloating != null)
+        {
+            _reconnectFloating.SetPosition(pt);
+            _reconnectLink.Refresh();
+        }
     }
 
-    // ── Endpoint drag (reconnect) ─────────────────────────────────────────────
+    // ── Endpoint reconnect (click-track-click) ────────────────────────────────
+    //
+    // Flow:
+    //   1. User clicks the source/target endpoint of an existing arc → StartEndpointDrag.
+    //      The arc's moving end is replaced with a floating anchor that tracks the cursor.
+    //      The button does NOT need to stay held.
+    //   2. Mouse moves are picked up by OnPointerMove (already wired globally).
+    //   3. User clicks somewhere:
+    //        • on a node           → CommitEndpointReconnect — finalize on that node
+    //        • on empty canvas/arc → AddVertexToReconnect — insert a vertex, keep tracking
+    //   4. ESC at any point → CancelEndpointReconnect — restore the original arc.
 
     public void StartEndpointDrag(PetriLinkModel link, bool isSource, double clientX, double clientY)
     {
-        var beforeSnapshot = LinkHelpers.Snapshot(link);
-        var snapshotSource = link.Source;
-        var snapshotTarget = link.Target;
-        var weight = link.Weight;
-        var arcType = link.ArcType;
-        var canonicalSourceId = link.CanonicalSourceId;
-        var vertexPositions = link.Vertices.Select(v => v.Position).ToList();
+        // If another reconnect is in progress (shouldn't happen but defensive), cancel it first.
+        if (_reconnectLink != null) CancelEndpointReconnect();
 
-        var fixedAnchor = isSource ? link.Target : link.Source;
-        var fixedIsSource = !isSource;
+        var beforeSnapshot = LinkHelpers.Snapshot(link);
+        var originalFixedAnchor = isSource ? link.Target : link.Source;
+        bool fixedIsSource = !isSource;
+
+        // The fixed end's anchor may be dynamic (EdgeIntersectionAnchor recomputes
+        // its position based on the opposite endpoint). During reconnect the
+        // opposite endpoint is the moving cursor, so the fixed visual would walk
+        // around the node border as the user moves. Pin the fixed end to its
+        // current resolved position via NodeRelativeAnchor for the duration of
+        // the reconnect; we restore a normal anchor on commit. Port-based
+        // anchors are already stable, so they pass through.
+        var fixedNode = GetParentNode(originalFixedAnchor);
+        Anchor fixedAnchor = originalFixedAnchor;
+        if (fixedNode != null && originalFixedAnchor is EdgeIntersectionAnchor)
+        {
+            var resolved = originalFixedAnchor.GetPosition(link, Array.Empty<Point>())
+                        ?? originalFixedAnchor.GetPlainPosition();
+            if (resolved != null)
+                fixedAnchor = new NodeRelativeAnchor(fixedNode, resolved);
+        }
 
         Diagram.Links.Remove(link);
 
         var mousePos = Diagram.GetRelativeMousePoint(clientX, clientY);
-        var floatingAnchor = new MutablePositionAnchor(mousePos);
+        var floating = new MutablePositionAnchor(mousePos);
 
-        PetriLinkModel tempLink = fixedIsSource
-            ? new PetriLinkModel(fixedAnchor, floatingAnchor)
-            : new PetriLinkModel(floatingAnchor, fixedAnchor);
+        var tempLink = fixedIsSource
+            ? new PetriLinkModel(fixedAnchor, floating)
+            : new PetriLinkModel(floating, fixedAnchor);
 
         tempLink.Segmentable = false;
         tempLink.TargetMarker = LinkMarker.Arrow;
-        tempLink.Color = _settings.ArcColor;
-        tempLink.SelectedColor = _settings.ArcSelectedColor;
-        tempLink.Weight = weight;
-        tempLink.ArcType = arcType;
-        tempLink.CanonicalSourceId = canonicalSourceId;
+        tempLink.Color = _settings.ArcPendingColor;
+        tempLink.SelectedColor = _settings.ArcPendingColor;
+        tempLink.Weight = beforeSnapshot.Weight;
+        tempLink.ArcType = beforeSnapshot.ArcType;
+        tempLink.CanonicalSourceId = link.CanonicalSourceId;
         tempLink.IsDraggingEndpoint = true;
-        tempLink.SnapshotSource = snapshotSource;
-        tempLink.SnapshotTarget = snapshotTarget;
 
-        foreach (var vp in vertexPositions)
+        // Vertices keep their original source→target order regardless of which
+        // endpoint is being moved. The list is ordered by physical position
+        // along the line, not by which end is "first" — so iterating in the
+        // same order draws the same visual path even when source/target are
+        // swapped on the temp link.
+        foreach (var vp in beforeSnapshot.VertexPositions)
             tempLink.Vertices.Add(new PetriVertexModel(tempLink, vp));
 
         Diagram.Links.Add(tempLink);
 
-        void OnMove(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs me)
+        _reconnectLink         = tempLink;
+        _reconnectFloating     = floating;
+        _reconnectFixedIsSource = fixedIsSource;
+        _reconnectBefore       = beforeSnapshot;
+        PendingLinkChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Inserts a vertex at <paramref name="pos"/> on the in-progress reconnect arc.
+    /// The vertex is placed at the floating end of the link, so the path
+    /// reads naturally from the fixed end through any pre-existing vertices,
+    /// through the new vertex(es), to wherever the cursor next goes.
+    /// </summary>
+    public void AddVertexToReconnect(Point pos)
+    {
+        if (_reconnectLink == null) return;
+        var vertex = new PetriVertexModel(_reconnectLink, pos);
+        if (_reconnectFixedIsSource)
         {
-            floatingAnchor.SetPosition(Diagram.GetRelativeMousePoint(me.ClientX, me.ClientY));
-            tempLink.Refresh();
+            // Floating end is the target: append (becomes the last vertex before the target).
+            _reconnectLink.Vertices.Add(vertex);
+        }
+        else
+        {
+            // Floating end is the source: prepend (becomes the first vertex after the source).
+            _reconnectLink.Vertices.Insert(0, vertex);
+        }
+        _reconnectLink.Refresh();
+    }
+
+    /// <summary>
+    /// Commit the reconnect to the given node. Finds the best anchor on the node
+    /// (snaps to a port within the configured radius, else closest border point).
+    /// Returns true on success, false if invalid (e.g. wrong node type, duplicate arc).
+    /// </summary>
+    public bool CommitEndpointReconnect(NodeModel node, Point clickPos)
+    {
+        if (_reconnectLink == null || _reconnectBefore == null) return false;
+
+        // Anchor strategy: port snap if close enough, else use the actual click
+        // position via NodeRelativeAnchor so the arc terminates exactly where
+        // the user clicked. EdgeIntersectionAnchor would re-snap to the border
+        // intersection based on the other endpoint and look like a "snap back"
+        // when reconnecting to the same node at a different position.
+        var snapPort = FindClosestPort(node, clickPos);
+        Anchor anchor = snapPort != null
+            ? MakeAnchor(node, snapPort)
+            : new NodeRelativeAnchor(node, clickPos);
+
+        if (_reconnectFixedIsSource) _reconnectLink.SetTarget(anchor);
+        else                         _reconnectLink.SetSource(anchor);
+
+        _reconnectLink.IsDraggingEndpoint = false;
+        _reconnectLink.Color = _settings.ArcColor;
+        _reconnectLink.SelectedColor = _settings.ArcSelectedColor;
+        _reconnectLink.Refresh();
+
+        var srcNode = GetParentNode(_reconnectLink.Source);
+        var tgtNode = GetParentNode(_reconnectLink.Target);
+        if (srcNode == null || tgtNode == null || !ValidatePetriLink(_reconnectLink, srcNode, tgtNode))
+        {
+            // Validation removed the link (wrong type pairing, duplicate, etc.).
+            // Restore the original so the user doesn't lose their arc.
+            var origSrc = NodeRegistry.Find(_reconnectBefore.SourceNodeId);
+            var origTgt = NodeRegistry.Find(_reconnectBefore.TargetNodeId);
+            if (origSrc != null && origTgt != null)
+            {
+                RestoreLinkDirect(
+                    MakeAnchor(origSrc, null),
+                    MakeAnchor(origTgt, null),
+                    _reconnectBefore.Weight, _reconnectBefore.ArcType,
+                    _reconnectBefore.SourceNodeId, _reconnectBefore.VertexPositions);
+            }
+            ClearReconnectState();
+            return false;
         }
 
-        void OnUp(Model? _, Blazor.Diagrams.Core.Events.PointerEventArgs ue)
+        AddControls(_reconnectLink);
+
+        var afterSnapshot = LinkHelpers.Snapshot(_reconnectLink);
+        if (_reconnectBefore.SourceNodeId != afterSnapshot.SourceNodeId ||
+            _reconnectBefore.TargetNodeId != afterSnapshot.TargetNodeId ||
+            _reconnectBefore.Weight       != afterSnapshot.Weight ||
+            _reconnectBefore.ArcType      != afterSnapshot.ArcType ||
+            _reconnectBefore.WeightLabelSegment != afterSnapshot.WeightLabelSegment ||
+            _reconnectBefore.WeightLabelFlipped != afterSnapshot.WeightLabelFlipped ||
+            _reconnectBefore.VertexPositions.Count != afterSnapshot.VertexPositions.Count ||
+            _reconnectBefore.VertexPositions.Where((t, i) =>
+                t.X != afterSnapshot.VertexPositions[i].X || t.Y != afterSnapshot.VertexPositions[i].Y).Any())
         {
-            Diagram.PointerMove -= OnMove;
-            Diagram.PointerUp -= OnUp;
-            tempLink.IsDraggingEndpoint = false;
-
-            var dropPos = Diagram.GetRelativeMousePoint(ue.ClientX, ue.ClientY);
-            var fixedNode = GetParentNode(fixedAnchor);
-            var hitNode = Diagram.Nodes.FirstOrDefault(n => n != fixedNode && HitTest(n, dropPos));
-
-            // Also allow dropping back on the dragged end's original node
-            var originalNode = GetParentNode(fixedIsSource ? snapshotTarget : snapshotSource);
-            if (hitNode == null && originalNode != null && HitTest(originalNode, dropPos))
-                hitNode = originalNode;
-
-            if (hitNode == null)
-            {
-                Diagram.Links.Remove(tempLink);
-                RestoreLinkDirect(snapshotSource, snapshotTarget, weight, arcType, canonicalSourceId, vertexPositions);
-                return;
-            }
-
-            var snapPort = FindClosestPort(hitNode, dropPos);
-            Anchor nodeAnchor = MakeAnchor(hitNode, snapPort);
-
-            if (fixedIsSource) tempLink.SetTarget(nodeAnchor);
-            else tempLink.SetSource(nodeAnchor);
-
-            tempLink.SnapshotSource = null;
-            tempLink.SnapshotTarget = null;
-            tempLink.Refresh();
-
-            var srcNode = GetParentNode(tempLink.Source);
-            var tgtNode = GetParentNode(tempLink.Target);
-            if (srcNode != null && tgtNode != null && ValidatePetriLink(tempLink, srcNode, tgtNode))
-            {
-                AddControls(tempLink);
-                var afterSnapshot = LinkHelpers.Snapshot(tempLink);
-                if (beforeSnapshot.SourceNodeId != afterSnapshot.SourceNodeId ||
-                    beforeSnapshot.TargetNodeId != afterSnapshot.TargetNodeId ||
-                    beforeSnapshot.Weight != afterSnapshot.Weight ||
-                    beforeSnapshot.ArcType != afterSnapshot.ArcType ||
-                    beforeSnapshot.WeightLabelSegment != afterSnapshot.WeightLabelSegment ||
-                    beforeSnapshot.WeightLabelFlipped != afterSnapshot.WeightLabelFlipped ||
-                    beforeSnapshot.VertexPositions.Count != afterSnapshot.VertexPositions.Count ||
-                    beforeSnapshot.VertexPositions.Where((t, i) => t.X != afterSnapshot.VertexPositions[i].X || t.Y != afterSnapshot.VertexPositions[i].Y).Any())
-                {
-                    History.Record(new ReconnectLinkCommand(Diagram, NodeRegistry, beforeSnapshot, afterSnapshot, Logger, _settings));
-                }
-            }
+            History.Record(new ReconnectLinkCommand(
+                Diagram, NodeRegistry, _reconnectBefore, afterSnapshot, Logger, _settings));
         }
 
-        Diagram.PointerMove += OnMove;
-        Diagram.PointerUp += OnUp;
+        ClearReconnectState();
+        return true;
+    }
+
+    /// <summary>Abort the reconnect and restore the original arc unchanged.</summary>
+    public void CancelEndpointReconnect()
+    {
+        if (_reconnectLink == null || _reconnectBefore == null) return;
+
+        Diagram.Links.Remove(_reconnectLink);
+
+        // Rebuild original anchors from the snapshot.
+        var srcNode = NodeRegistry.Find(_reconnectBefore.SourceNodeId);
+        var tgtNode = NodeRegistry.Find(_reconnectBefore.TargetNodeId);
+        if (srcNode != null && tgtNode != null)
+        {
+            var srcAnchor = MakeAnchor(srcNode, null);
+            var tgtAnchor = MakeAnchor(tgtNode, null);
+            RestoreLinkDirect(srcAnchor, tgtAnchor,
+                _reconnectBefore.Weight, _reconnectBefore.ArcType,
+                _reconnectBefore.SourceNodeId, _reconnectBefore.VertexPositions);
+        }
+
+        ClearReconnectState();
+    }
+
+    private void ClearReconnectState()
+    {
+        _reconnectLink = null;
+        _reconnectFloating = null;
+        _reconnectBefore = null;
+        PendingLinkChanged?.Invoke();
     }
 
     private void RestoreLinkDirect(Anchor src, Anchor tgt, int weight, ArcType arcType,

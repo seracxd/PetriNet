@@ -75,7 +75,7 @@
         }
         else
         {
-            <path d="@dSmooth" fill="none" stroke="transparent" stroke-width="8"
+            <path d="@dSmooth" fill="none" stroke="transparent" stroke-width="14"
                   style="cursor:pointer; pointer-events:stroke;"
                   @onpointerdown="OnHitSelect"
                   @onpointerdown:stopPropagation="true"
@@ -128,11 +128,13 @@
                       transform="rotate(45, @Fmt(srcPt.X), @Fmt(srcPt.Y))"
                       style="pointer-events:none;" />
             }
-            <rect x="@Fmt(srcPt.X - 14)" y="@Fmt(srcPt.Y - 14)" width="28" height="28"
-                  fill="transparent" stroke="transparent"
-                  style="cursor:crosshair; pointer-events:all;"
-                  @onpointerdown="OnSourcePointerDown"
-                  @onpointerdown:stopPropagation="true" />
+            @* Circular hit area (not square): keeps reach along the arc axis but
+               avoids overlapping the empty corners around a circular place. *@
+            <circle cx="@Fmt(srcPt.X)" cy="@Fmt(srcPt.Y)" r="18"
+                    fill="transparent" stroke="transparent"
+                    style="cursor:crosshair; pointer-events:all;"
+                    @onpointerdown="OnSourcePointerDown"
+                    @onpointerdown:stopPropagation="true" />
         }
 
         @* ── Target endpoint diamond ── *@
@@ -145,11 +147,11 @@
                       transform="rotate(45, @Fmt(tgtPt.X), @Fmt(tgtPt.Y))"
                       style="pointer-events:none;" />
             }
-            <rect x="@Fmt(tgtPt.X - 14)" y="@Fmt(tgtPt.Y - 14)" width="28" height="28"
-                  fill="transparent" stroke="transparent"
-                  style="cursor:crosshair; pointer-events:all;"
-                  @onpointerdown="OnTargetPointerDown"
-                  @onpointerdown:stopPropagation="true" />
+            <circle cx="@Fmt(tgtPt.X)" cy="@Fmt(tgtPt.Y)" r="18"
+                    fill="transparent" stroke="transparent"
+                    style="cursor:crosshair; pointer-events:all;"
+                    @onpointerdown="OnTargetPointerDown"
+                    @onpointerdown:stopPropagation="true" />
         }
 
     </g>
@@ -243,8 +245,19 @@
 
     // ── Line handlers ─────────────────────────────────────────────────────────
 
-    private void OnHitSelect(Microsoft.AspNetCore.Components.Web.PointerEventArgs _)
-        => Diagram.SelectModel(Link, true);
+    private void OnHitSelect(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
+    {
+        // While reconnecting, clicking another arc's body must add a vertex to the
+        // in-progress arc, not toggle selection on the clicked one. Without this
+        // the arc widget's stop-propagation swallows the click before Home.razor
+        // can route it to the reconnect logic.
+        if (Manager.IsReconnecting)
+        {
+            Manager.AddVertexToReconnect(Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
+            return;
+        }
+        Diagram.SelectModel(Link, true);
+    }
 
     private void OnWeightLabelPointerDown(Microsoft.AspNetCore.Components.Web.PointerEventArgs e)
     {
@@ -291,6 +304,14 @@
                                      PetriVertexModel vertex)
     {
         if (e.Button != 0 || StateService.IsSimulating) return;
+
+        // While reconnecting, clicking near an existing vertex should add a new
+        // vertex to the in-progress arc rather than start dragging the clicked one.
+        if (Manager.IsReconnecting)
+        {
+            Manager.AddVertexToReconnect(Diagram.GetRelativeMousePoint(e.ClientX, e.ClientY));
+            return;
+        }
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (vertex == _lastClickVertex && now - _lastClickTime < DblClickMs)

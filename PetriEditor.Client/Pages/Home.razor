@@ -1011,7 +1011,13 @@
         if (SelectedModel == model) SelectedModel = null;
         OnStructureChanged();
     }
-    private void OnPendingLinkChanged() => OnStructureChanged();
+    private void OnPendingLinkChanged()
+    {
+        // Mirror the manager's reconnect state into StateService so node components
+        // can show ports during a reconnect, the same way they do for the arc tool.
+        StateService.IsReconnecting = Manager.IsReconnecting;
+        OnStructureChanged();
+    }
     private void OnHistoryChanged() => OnStructureChanged();
 
     // ── Property-edit snapshots ───────────────────────────────────────────────
@@ -1128,6 +1134,17 @@
         if (e.Button != 0) return;
         if (StateService.IsSimulating) return;
 
+        // Endpoint-reconnect mode overrides everything else. The user picked up an
+        // arc endpoint and the arc is following the cursor; clicks here finalize
+        // the reconnect or add waypoints, regardless of which tool is selected.
+        if (Manager.IsReconnecting)
+        {
+            _pendingAction = "reconnect";
+            _pendingModel  = model;
+            _pendingPoint  = new Point(e.ClientX, e.ClientY);
+            return;
+        }
+
         // Only intercept placement and arc tools.
         // Select tool (and no-tool) let Blazor.Diagrams handle everything
         // natively — it manages selection, drag, and multi-select on its own.
@@ -1175,6 +1192,33 @@
         if (action is "place" or "transition")
             _ = JS.InvokeVoidAsync("ghostStop");
 
+        if (action == "reconnect")
+        {
+            // Resolve to a node: explicit click on a node/port counts only if
+            // the click is inside the node's visible shape (a circle for Place,
+            // the bounding rect for Transition). The DOM hit-box of a Place is
+            // a square, so clicks in the corners would otherwise commit to the
+            // place when the user expected an empty-canvas click → vertex.
+            var diagPos = Manager.Diagram.GetRelativeMousePoint(downPt.X, downPt.Y);
+            NodeModel? candidate = model switch
+            {
+                NodeModel n  => n,
+                PortModel pm => pm.Parent,
+                _            => null,
+            };
+            NodeModel? targetNode = candidate is not null && HitNodeShape(candidate, diagPos)
+                ? candidate
+                : Manager.Diagram.Nodes.FirstOrDefault(n => HitNodeShape(n, diagPos));
+
+            if (targetNode != null)
+                Manager.CommitEndpointReconnect(targetNode, diagPos);
+            else
+                Manager.AddVertexToReconnect(diagPos);
+
+            StateHasChanged();
+            return;
+        }
+
         if (action == "arc")
         {
             Manager.HandleArcToolClick(model, downPt);
@@ -1185,6 +1229,35 @@
             Manager.AddNodeAt(action, new Point(e.ClientX, e.ClientY));
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// True if <paramref name="p"/> lies inside the node's visible shape.
+    /// Place uses circle hit-test (radius = half min(width,height));
+    /// Transition uses the bounding rectangle (its DOM shape is rectangular).
+    /// A small slack is added so endpoint clicks are still forgiving without
+    /// claiming the empty corners around a circular place.
+    /// </summary>
+    private static bool HitNodeShape(NodeModel node, Point p)
+    {
+        if (node.Position == null || node.Size == null) return false;
+        const double slack = 2.0;
+        double left   = node.Position.X;
+        double top    = node.Position.Y;
+        double w      = node.Size.Width;
+        double h      = node.Size.Height;
+
+        if (node is PetriNetAnalyzer.DiagramModels.PlaceNode)
+        {
+            double cx = left + w / 2.0;
+            double cy = top  + h / 2.0;
+            double r  = Math.Min(w, h) / 2.0 + slack;
+            double dx = p.X - cx, dy = p.Y - cy;
+            return dx * dx + dy * dy <= r * r;
+        }
+
+        return p.X >= left - slack && p.X <= left + w + slack
+            && p.Y >= top  - slack && p.Y <= top  + h + slack;
     }
 
     private void OnDoubleClick(Model? model, Blazor.Diagrams.Core.Events.PointerEventArgs e)
@@ -1208,6 +1281,7 @@
         _pendingModel = null;
         _pendingPoint = null;
         Manager.CancelPendingLink();
+        Manager.CancelEndpointReconnect();
         CancelSelRect();
         Manager.Diagram.UnselectAll();
         if (ActiveTool != "")

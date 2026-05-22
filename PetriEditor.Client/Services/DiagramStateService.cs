@@ -24,6 +24,27 @@
 
         public void SelectTool(ToolType tool) => SelectedTool = tool;
 
+        // ── Endpoint reconnect mode ─────────────────────────────────────
+        // True while an arc endpoint is being dragged via click-track-click.
+        // Used by node components to surface ports during reconnect, even when
+        // the arc tool isn't active.
+        private bool _isReconnecting;
+        public bool IsReconnecting
+        {
+            get => _isReconnecting;
+            set
+            {
+                if (_isReconnecting != value)
+                {
+                    _isReconnecting = value;
+                    OnToolChanged?.Invoke(); // piggy-back on tool change since UI treats it the same way
+                }
+            }
+        }
+
+        /// <summary>True when ports should be shown on nodes (arc tool OR endpoint reconnect).</summary>
+        public bool ShouldShowPorts => IsArcToolActive || IsReconnecting;
+
         // ── Simulation lock ───────────────────────────────────────────────
 
         private bool _isSimulating;

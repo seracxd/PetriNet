@@ -19,10 +19,12 @@
     /// </summary>
     [Parameter] public int RenderCap { get; set; } = 2_000;
 
-    const double NodeW   = 72;
+    // Tuned for a tall, narrow tree (rows are short labels, vertical reading
+    // is faster, more depth fits on a typical landscape window).
+    const double NodeW   = 58;
     const double NodeH   = 22;
-    const double LevelH  = 56;
-    const double MinGapX = 14;
+    const double LevelH  = 90;
+    const double MinGapX = 10;
     const double MaxSvgW = 1e12;
 
     // BuildLayout yields cooperatively every YieldEvery processed nodes so the

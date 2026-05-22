@@ -107,10 +107,17 @@ window.graphView = (() => {
         const wx1 = s.vx + s.vw + margin, wy1 = s.vy + s.vh + margin;
 
         // ── Edges ─────────────────────────────────────────────────────────
+        // Two passes:
+        //   1. Stroke all edges + arrows (so curves never cover labels).
+        //   2. Draw labels sorted so default → neighbour → hovered, with the
+        //      hovered label drawn last so it stays on top of any neighbour
+        //      label it might overlap.
         const edges = s.edges;
         const hoverIdx = s.hoveredEdgeIdx;
-        const nbEdges = s.neighbourEdges;
+        const parentEdges = s.parentEdges;
+        const childEdges  = s.childEdges;
         const anyHover = !!s.hoveredMarking;   // dim non-neighbour edges while hovering
+        const pendingLabels = [];   // populated during the stroke pass, drawn after
         for (let i = 0; i < edges.length; i++) {
             const e = edges[i];
             // Cull: skip edges whose bounding box lies fully outside viewport.
@@ -120,18 +127,36 @@ window.graphView = (() => {
             const eMaxY = Math.max(e.y1, e.y2);
             if (eMaxX < wx0 || eMinX > wx1 || eMaxY < wy0 || eMinY > wy1) continue;
 
-            const isHovered  = i === hoverIdx;
-            const isNeighbor = nbEdges.has(i);
-            // Three-tier styling:
-            //   hovered/neighbour → teal accent
-            //   any-other when something is hovered → faded grey
-            //   default → normal slate
+            const isHovered = i === hoverIdx;
+            const isParent  = parentEdges.has(i);  // INCOMING edge — comes from a parent marking
+            const isChild   = childEdges.has(i);   // OUTGOING edge — goes to a child marking
+            const isNeighbor = isParent || isChild;
+            // Five-tier styling:
+            //   hovered  → strong teal (focus edge)
+            //   parent   → green (incoming, "where flow comes from")
+            //   child    → orange (outgoing, "where flow goes")
+            //   dim      → faded grey
+            //   default  → normal slate
             const accent = isHovered || isNeighbor;
             const dim    = anyHover && !accent;
-            const baseColor = accent ? '#00897b' : dim ? '#dfe5ec' : '#9dafc0';
+            const baseColor = isHovered ? '#00897b'
+                            : isParent  ? '#059669'   // emerald
+                            : isChild   ? '#ea580c'   // burnt orange
+                            : dim ? '#dfe5ec' : '#9dafc0';
             const forwardColor = baseColor;
             const backColor    = baseColor;
             const hoverWidth   = isHovered ? Math.max(2.5, 3 * scale) : 0;
+
+            // Tier passed to _drawLabel.
+            //   3 = hovered (top z-order)
+            //   2 = parent (green)
+            //   1 = child  (orange)
+            //  -1 = dimmed
+            //   0 = default
+            const labelTier = isHovered ? 3
+                            : isParent  ? 2
+                            : isChild   ? 1
+                            : dim ? -1 : 0;
 
             if (e.isSelf) {
                 const p = _selfLoopPath(e, nodeW, nodeH);
@@ -147,11 +172,10 @@ window.graphView = (() => {
                 ctx.stroke();
                 // Arrowhead tangent from (c2 → e)
                 _drawArrow(ctx, aex, aey, aex - ac2x, aey - ac2y, scale, backColor);
-                // Label
+                // Label — at t=0.75 on the actual bezier curve so it always sits on the line.
                 if (e.label && showEdgeLbls) {
-                    const mx = ox + (p.c1x + nodeW * 0.5) * scale;
-                    const my = oy + (p.sy + p.ey) * 0.5 * scale;
-                    _drawLabel(ctx, e.label, mx, my, nodeW * scale);
+                    const pt = _bezierAt(0.75, asx, asy, ac1x, ac1y, ac2x, ac2y, aex, aey);
+                    pendingLabels.push({ text: e.label, x: pt.x, y: pt.y, tier: labelTier });
                 }
                 continue;
             }
@@ -170,10 +194,10 @@ window.graphView = (() => {
                 ctx.stroke();
                 _drawArrow(ctx, aex, aey, aex - ac2x, aey - ac2y, scale, backColor);
                 if (e.label && showEdgeLbls) {
-                    // Place label on the far-right bow
-                    const mx = (ac1x + ac2x) * 0.5;
-                    const my = (ac1y + ac2y) * 0.5;
-                    _drawLabel(ctx, e.label, mx, my, nodeW * scale);
+                    // Label at t=0.75 along the bezier — closer to the target marking
+                    // and guaranteed to sit on the line.
+                    const pt = _bezierAt(0.75, asx, asy, ac1x, ac1y, ac2x, ac2y, aex, aey);
+                    pendingLabels.push({ text: e.label, x: pt.x, y: pt.y, tier: labelTier });
                 }
                 continue;
             }
@@ -194,15 +218,18 @@ window.graphView = (() => {
             _drawArrow(ctx, ax2, ay2, 0, ay2 - cy2, scale, forwardColor);
 
             if (e.label && showEdgeLbls) {
-                const mx = ox + ((e.x1 + e.x2) / 2) * scale;
-                const my = oy + ((e.y1 + e.y2) / 2) * scale;
-                _drawLabel(ctx, e.label, mx, my, nodeW * scale);
+                // Evaluate the actual bezier at t=0.75 — the prior midpoint was
+                // a linear average of the endpoints, which floated off the curve
+                // because the bezier dips through cy1/cy2.
+                const pt = _bezierAt(0.75, ax1, ay1, ax1, cy1, ax2, cy2, ax2, ay2);
+                pendingLabels.push({ text: e.label, x: pt.x, y: pt.y, tier: labelTier });
             }
         }
 
         // ── Nodes ─────────────────────────────────────────────────────────
         const nodes = s.nodes;
-        const nbKeys = s.neighbourKeys;
+        const parentKeys = s.parentKeys;
+        const childKeys  = s.childKeys;
         for (let i = 0; i < nodes.length; i++) {
             const n = nodes[i];
             if (n.x + nodeW < wx0 || n.x > wx1 || n.y + nodeH < wy0 || n.y > wy1) continue;
@@ -212,19 +239,29 @@ window.graphView = (() => {
             const ah = nodeH * scale;
             const rx = Math.max(2, aw * 0.12);
             const c  = n._colors;
-            const hovered  = s.hoveredMarking === n.markingKey;
-            const neighbor = !hovered && nbKeys.has(n.markingKey);
-            const dim      = anyHover && !hovered && !neighbor;
+            const hovered = s.hoveredMarking === n.markingKey;
+            const isParent = !hovered && parentKeys.has(n.markingKey);
+            const isChild  = !hovered && childKeys.has(n.markingKey);
+            const neighbor = isParent || isChild;
+            const dim     = anyHover && !hovered && !neighbor;
 
             ctx.beginPath();
             ctx.roundRect(ax, ay, aw, ah, rx);
-            // Three-tier fill/stroke:
-            //   hovered  → strong teal
-            //   neighbor → soft teal accent
+            // Five-tier fill/stroke:
+            //   hovered  → strong teal (clearly the focus)
+            //   parent   → green  (incoming flow source)
+            //   child    → orange (outgoing flow target)
             //   dim      → fade non-neighbour content while something is hovered
-            ctx.fillStyle = hovered ? '#c8f0ec' : neighbor ? '#e4f5f3' : dim ? '#f7f9fc' : c.fill;
+            //   default  → original node color
+            ctx.fillStyle = hovered  ? '#c8f0ec'
+                          : isParent ? '#d1fae5'
+                          : isChild  ? '#ffedd5'
+                          : dim ? '#f7f9fc' : c.fill;
             ctx.fill();
-            ctx.strokeStyle = hovered ? '#00796b' : neighbor ? '#26a69a' : dim ? '#dfe5ec' : c.stroke;
+            ctx.strokeStyle = hovered  ? '#00796b'
+                            : isParent ? '#059669'
+                            : isChild  ? '#ea580c'
+                            : dim ? '#dfe5ec' : c.stroke;
             ctx.lineWidth = Math.max(1, (neighbor ? c.sw + 0.5 : c.sw) * scale);
             ctx.stroke();
 
@@ -232,7 +269,10 @@ window.graphView = (() => {
                 const MIN_TEXT_PX = 12;
                 const naturalPx = n._labelF * nodeW * scale;
                 const drawPx    = Math.max(MIN_TEXT_PX, naturalPx);
-                ctx.fillStyle = hovered ? '#00796b' : neighbor ? '#00897b' : dim ? '#aab1bb' : c.textC;
+                ctx.fillStyle = hovered  ? '#00796b'
+                              : isParent ? '#065f46'
+                              : isChild  ? '#9a3412'
+                              : dim ? '#aab1bb' : c.textC;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 // Fast path when natural size is already at least the minimum:
@@ -256,27 +296,60 @@ window.graphView = (() => {
             }
         }
 
+        // ── Edge labels (top of stack) ────────────────────────────────────
+        // Drawn after edges AND nodes so they never get covered by either.
+        // Sorted by tier ascending so the hovered label is drawn last and
+        // sits on top of any neighbour/default label it overlaps.
+        pendingLabels.sort((a, b) => a.tier - b.tier);
+        for (const L of pendingLabels)
+            _drawLabel(ctx, L.text, L.x, L.y, nodeW * scale, L.tier);
+
         ctx.restore();
     }
 
-    function _drawLabel(ctx, text, mx, my, screenNodeW) {
+    // tier:
+    //   0  = default (no hover anywhere)
+    //   1  = child  (outgoing edge from hovered marking) — orange
+    //   2  = parent (incoming edge to hovered marking)   — green
+    //   3  = directly hovered edge — teal
+    //   -1 = dimmed (something is hovered but this label belongs to neither it nor a neighbour)
+    function _drawLabel(ctx, text, mx, my, screenNodeW, tier) {
         const naturalPx = screenNodeW * 0.14;
         const labelPx   = Math.max(11, naturalPx);
         ctx.font = `600 ${labelPx}px Inter,sans-serif`;
         const tw = ctx.measureText(text).width;
         const pad = labelPx * 0.3;
         const rh = labelPx + pad * 2, rw = tw + pad * 2;
-        ctx.fillStyle = '#ffffff';
+
+        let fill, stroke, text_color, strokeW;
+        switch (tier) {
+            case 3:  fill = '#c8f0ec'; stroke = '#00796b'; text_color = '#00474a'; strokeW = 1.5; break;
+            case 2:  fill = '#d1fae5'; stroke = '#059669'; text_color = '#065f46'; strokeW = 1.0; break;
+            case 1:  fill = '#ffedd5'; stroke = '#ea580c'; text_color = '#9a3412'; strokeW = 1.0; break;
+            case -1: fill = '#f7f9fc'; stroke = '#e4e7ec'; text_color = '#aab1bb'; strokeW = 0.5; break;
+            default: fill = '#ffffff'; stroke = '#d1d5db'; text_color = '#374151'; strokeW = 0.5; break;
+        }
+
+        ctx.fillStyle = fill;
         ctx.beginPath();
         ctx.roundRect(mx - rw / 2, my - rh / 2, rw, rh, Math.min(3, rh / 2));
         ctx.fill();
-        ctx.strokeStyle = '#d1d5db';
-        ctx.lineWidth = 0.5;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = strokeW;
         ctx.stroke();
-        ctx.fillStyle = '#374151';
+        ctx.fillStyle = text_color;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, mx, my);
+    }
+
+    // Cubic bezier point at parameter t. Returns {x, y}.
+    function _bezierAt(t, x1, y1, c1x, c1y, c2x, c2y, x2, y2) {
+        const u = 1 - t;
+        const tt = t * t, uu = u * u;
+        const x = uu*u*x1 + 3*uu*t*c1x + 3*u*tt*c2x + tt*t*x2;
+        const y = uu*u*y1 + 3*uu*t*c1y + 3*u*tt*c2y + tt*t*y2;
+        return { x, y };
     }
 
     function _scheduleRedraw(s) {
@@ -353,7 +426,12 @@ window.graphView = (() => {
         // duplicate nodes resolve the same.
         const adj = {};
         function ensure(key) {
-            return (adj[key] = adj[key] || { parents: new Set(), children: new Set(), edges: new Set() });
+            return (adj[key] = adj[key] || {
+                parents:  new Set(),  // keys of markings with an edge INTO this key
+                children: new Set(),  // keys of markings reached BY an edge FROM this key
+                outEdges: new Set(),  // edge indices where this key is the source
+                inEdges:  new Set(),  // edge indices where this key is the target
+            });
         }
         // Map node id → markingKey for fast edge resolution.
         const idToKey = {};
@@ -363,9 +441,9 @@ window.graphView = (() => {
             const fk = idToKey[e.from], tk = idToKey[e.to];
             if (!fk || !tk) continue;
             ensure(fk).children.add(tk);
-            ensure(fk).edges.add(i);
+            ensure(fk).outEdges.add(i);
             ensure(tk).parents.add(fk);
-            ensure(tk).edges.add(i);
+            ensure(tk).inEdges.add(i);
         }
 
         const minVW = 100;
@@ -383,8 +461,12 @@ window.graphView = (() => {
             // Neighbour-highlight feature. Toggle via setHoverHighlight(...).
             highlightNeighbours: true,
             // Recomputed on every hover change.
-            neighbourKeys: new Set(),
-            neighbourEdges: new Set(),
+            // Split the hovered-marking neighbourhood into parents (incoming) and
+            // children (outgoing) so they can be styled with distinct colours.
+            parentKeys:  new Set(),
+            childKeys:   new Set(),
+            parentEdges: new Set(),
+            childEdges:  new Set(),
             dotNetRef,
             _wrapWidth: 1, _wrapHeight: 1,
         };
@@ -491,13 +573,65 @@ window.graphView = (() => {
             const tw = tooltip.offsetWidth || 280;
             const th = tooltip.offsetHeight || 120;
             const cx = clientX - wr.left, cy = clientY - wr.top;
-            let tx = cx + 12, ty = cy - 10;
-            if (tx + tw > wrap.clientWidth)  tx = cx - tw - 8;
-            if (tx < 0)                       tx = 0;
+
+            // Build a set of highlighted-edge screen bboxes so we can pick a
+            // tooltip position that doesn't sit on top of one. World→screen:
+            //   screenX = (worldX - vx) / vw * wrap.clientWidth
+            //   screenY = (worldY - vy) / vh * wrap.clientHeight
+            const W = wrap.clientWidth, H = wrap.clientHeight;
+            const sxOf = wx => (wx - s.vx) / s.vw * W;
+            const syOf = wy => (wy - s.vy) / s.vh * H;
+            const highlightRects = [];
+            for (let i = 0; i < edges.length; i++) {
+                const e = edges[i];
+                if (!(i === s.hoveredEdgeIdx || s.parentEdges.has(i) || s.childEdges.has(i))) continue;
+                const r = {
+                    x: Math.min(sxOf(e.x1), sxOf(e.x2)) - 4,
+                    y: Math.min(syOf(e.y1), syOf(e.y2)) - 4,
+                    w: Math.abs(sxOf(e.x2) - sxOf(e.x1)) + 8,
+                    h: Math.abs(syOf(e.y2) - syOf(e.y1)) + 8,
+                };
+                highlightRects.push(r);
+            }
+
+            // Score a candidate tooltip rect by counting overlapping highlights.
+            const overlap = (rx, ry) => {
+                let n = 0;
+                for (const h of highlightRects) {
+                    if (rx < h.x + h.w && rx + tw > h.x &&
+                        ry < h.y + h.h && ry + th > h.y) n++;
+                }
+                return n;
+            };
+
+            // Candidate positions in preference order. Right of cursor first
+            // (matches existing behaviour); also try left, below, above.
+            const candidates = [
+                { x: cx + 12,       y: cy - 10 },          // right
+                { x: cx - tw - 8,   y: cy - 10 },          // left
+                { x: cx + 12,       y: cy + 18 },          // right + below
+                { x: cx - tw - 8,   y: cy + 18 },          // left + below
+                { x: cx - tw / 2,   y: cy + 24 },          // below cursor
+                { x: cx - tw / 2,   y: cy - th - 12 },     // above cursor
+            ];
+
+            // Pick the candidate with the fewest overlaps; ties broken by order.
+            let best = candidates[0];
+            let bestScore = Infinity;
+            for (const c of candidates) {
+                // Skip candidates entirely outside the wrap.
+                if (c.x + tw < 0 || c.x > W || c.y + th < 0 || c.y > H) continue;
+                const score = overlap(c.x, c.y);
+                if (score < bestScore) { best = c; bestScore = score; if (score === 0) break; }
+            }
+
+            let tx = best.x, ty = best.y;
+            if (tx + tw > W) tx = W - tw - 4;
+            if (tx < 0)      tx = 4;
             const maxTyViewport  = window.innerHeight - wr.top - th - 4;
-            const maxTyContainer = wrap.clientHeight - th - 4;
-            if (ty + th > wrap.clientHeight)  ty = Math.min(maxTyViewport, maxTyContainer);
-            if (ty < 0)                       ty = 0;
+            const maxTyContainer = H - th - 4;
+            if (ty + th > H) ty = Math.min(maxTyViewport, maxTyContainer);
+            if (ty < 0)      ty = 4;
             tooltip.style.left = tx + 'px';
             tooltip.style.top  = ty + 'px';
         }
@@ -546,14 +680,17 @@ window.graphView = (() => {
         };
         s.onPointerUp = () => { s.drag = null; wrap.style.cursor = 'grab'; };
         function _updateNeighbourSets(key) {
-            s.neighbourKeys = new Set();
-            s.neighbourEdges = new Set();
+            s.parentKeys  = new Set();
+            s.childKeys   = new Set();
+            s.parentEdges = new Set();
+            s.childEdges  = new Set();
             if (!key || !s.highlightNeighbours) return;
             const entry = s.adj[key];
             if (!entry) return;
-            for (const k of entry.parents)  s.neighbourKeys.add(k);
-            for (const k of entry.children) s.neighbourKeys.add(k);
-            for (const i of entry.edges)    s.neighbourEdges.add(i);
+            for (const k of entry.parents)  s.parentKeys.add(k);
+            for (const k of entry.children) s.childKeys.add(k);
+            for (const i of entry.inEdges)  s.parentEdges.add(i);
+            for (const i of entry.outEdges) s.childEdges.add(i);
         }
 
         s.onMouseMove = (e) => {
@@ -617,11 +754,31 @@ window.graphView = (() => {
             _clampViewport(s); _draw(s);
         }
 
-        s._ro = new ResizeObserver(() => {
+        // Canvas needs to refit whenever the wrap's css size changes OR the
+        // device pixel ratio changes (e.g. dragging the window across monitors).
+        const refit = () => {
             _resizeCanvas(s);
             if (!s._viewInited) _initView(); else _scheduleRedraw(s);
-        });
+        };
+
+        s._ro = new ResizeObserver(refit);
         s._ro.observe(wrap);
+
+        s._onWindowResize = () => requestAnimationFrame(refit);
+        window.addEventListener('resize', s._onWindowResize);
+
+        s._dprDispose = null;
+        const watchDpr = () => {
+            const mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+            const onChange = () => { refit(); watchDpr(); };
+            if (mql.addEventListener) mql.addEventListener('change', onChange);
+            else if (mql.addListener) mql.addListener(onChange);
+            s._dprDispose = () => {
+                if (mql.removeEventListener) mql.removeEventListener('change', onChange);
+                else if (mql.removeListener) mql.removeListener(onChange);
+            };
+        };
+        watchDpr();
 
         _state[containerId] = s;
         wrap.style.cursor = 'grab';
@@ -634,6 +791,8 @@ window.graphView = (() => {
         if (!s) return;
         if (s.rafId != null) cancelAnimationFrame(s.rafId);
         if (s._ro) s._ro.disconnect();
+        if (s._onWindowResize) window.removeEventListener('resize', s._onWindowResize);
+        if (s._dprDispose) s._dprDispose();
         const w = wrap || document.getElementById(containerId);
         if (w) {
             w.removeEventListener('wheel',        s.onWheel,       { capture: true });
@@ -781,8 +940,10 @@ window.graphView = (() => {
         if (!s) return;
         s.highlightNeighbours = !!enabled;
         // Reset transient state so the next hover starts clean.
-        s.neighbourKeys  = new Set();
-        s.neighbourEdges = new Set();
+        s.parentKeys  = new Set();
+        s.childKeys   = new Set();
+        s.parentEdges = new Set();
+        s.childEdges  = new Set();
         _scheduleRedraw(s);
     }
 
