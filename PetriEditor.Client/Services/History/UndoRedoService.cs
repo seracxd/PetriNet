@@ -37,6 +37,18 @@ public class UndoRedoService
     /// <summary>Fired only when a structurally significant command is executed, undone, or redone.</summary>
     public event Action? StructuralChanged;
 
+    /// <summary>
+    /// Raise <see cref="StructuralChanged"/> from outside the service.
+    /// Used by property-editor bindings (tokens, weights, priorities) that mutate
+    /// model data directly without going through the command pipeline, so the
+    /// analysis panel still receives the "results may be stale" signal in real
+    /// time instead of only on focus blur.
+    /// </summary>
+    public void NotifyStructuralChanged()
+    {
+        StructuralChanged?.Invoke();
+    }
+
     public UndoRedoService(IDiagramLogger? logger = null)
     {
         _log = logger ?? NullLogger.Instance;

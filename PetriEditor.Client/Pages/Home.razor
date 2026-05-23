@@ -597,14 +597,25 @@
     private string? _analysisResult;
     private bool _analysisOk;
     private AnalysisPanel? _analysisPanel;
-    private bool _navigatorOpen = false;
+
+    // ── Menu state is STATIC ─────────────────────────────────────────────────
+    // The page uses InteractiveWebAssemblyRenderMode under a Blazor Web App
+    // host, which can produce two Home instances during boot (the static-SSR
+    // placeholder and the live WebAssembly one). The JS interop dispatcher
+    // can end up calling JSInvokable methods on the "dead" instance, so any
+    // toggle stored as a plain instance field never reaches the live DOM.
+    // Static fields are shared across instances, so whichever instance the
+    // browser interacts with sees the same state; _menuStateChanged notifies
+    // all live instances to re-render after a programmatic change.
+    private static bool _navigatorOpen = false;
+    private static bool _settingsOpen = false;
+    private static bool _showLayoutMenu = false;
+    private static event Action? _menuStateChanged;
 
     // Navigator cached lists — rebuilt on every structural change
     private List<PlaceNode> _navPlaces = new();
     private List<TransitionNode> _navTransitions = new();
     private List<PetriLinkModel> _navArcs = new();
-
-    private bool _settingsOpen = false;
 
     private double EffectiveGridSize => Math.Max(5.0, Settings.GridSize) * Manager.Diagram.Zoom;
     private string GridSize => EffectiveGridSize.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
@@ -637,8 +648,11 @@
         StateService.OnSimulationChanged += OnSimulationStateChanged;
         Sim.OnChanged += OnSimulationStateChanged;
         Sim.Dispatcher = InvokeAsync;
+        _menuStateChanged += OnStaticMenuStateChanged;
         RebuildNavLists();
     }
+
+    private void OnStaticMenuStateChanged() => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -651,6 +665,7 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerGlobalKeyHandler", _dotNetRef);
+            await JS.InvokeVoidAsync("registerOutsideClickWatcher", _dotNetRef);
             await JS.InvokeVoidAsync("setupPanHandlerOnce");
             _jsRegistered = true;
 
@@ -709,6 +724,20 @@
         }
     }
 
+    /// <summary>
+    /// Invoked from the document-level pointerdown listener in app.js whenever a
+    /// click lands outside any registered menu container. Closes the floating
+    /// settings / navigator / layout menus. The Analysis / Simulation panel is
+    /// intentionally NOT closed here — it's a workspace, not a transient menu.
+    ///
+    /// We always call StateHasChanged: Blazor.Diagrams' OnPointerDown handler
+    /// (running synchronously before this async JS-to-C# call resolves) may
+    /// have already flipped the booleans without scheduling a render. Calling
+    /// it here unconditionally guarantees the UI catches up on the FIRST click.
+    /// </summary>
+    [JSInvokable]
+    public void CloseTransientMenusFromJs() => CloseTransientMenus();
+
     private void RebuildNavLists()
     {
         _navPlaces = Manager.Diagram.Nodes.OfType<PlaceNode>().ToList();
@@ -742,8 +771,6 @@
 
     private void Undo() { Manager.History.Undo(); StateHasChanged(); }
     private void Redo() { Manager.History.Redo(); StateHasChanged(); }
-
-    private bool _showLayoutMenu;
 
     private void ApplyLayout(string algo)
     {
@@ -980,7 +1007,17 @@
         StateHasChanged();
     }
     private void ResetView() { Manager.ResetView(); StateHasChanged(); }
-    private void ToggleNavigator() { _navigatorOpen = !_navigatorOpen; StateHasChanged(); }
+    private void ToggleNavigator()
+    {
+        _navigatorOpen = !_navigatorOpen;
+        // Lists may have gone stale while the navigator was closed; rebuild on open.
+        if (_navigatorOpen && _navListsDirty)
+        {
+            RebuildNavLists();
+            _navListsDirty = false;
+        }
+        StateHasChanged();
+    }
 
     // ── Selection ─────────────────────────────────────────────────────────────
     private void OnSelectionChanged(SelectableModel _)
@@ -993,9 +1030,18 @@
     }
 
     // ── Structure changes → rebuild navigator lists ───────────────────────────
+    private bool _navListsDirty = false;
+
     private void OnStructureChanged()
     {
-        RebuildNavLists();
+        // Skip the O(N) rebuild when the navigator is closed — the lists feed
+        // a panel that's not visible. Mark dirty so the next open refreshes.
+        // For large nets, this turns a per-change O(N) cost into one rebuild
+        // when the user actually wants to see the list.
+        if (_navigatorOpen)
+            RebuildNavLists();
+        else
+            _navListsDirty = true;
         InvokeAsync(StateHasChanged);
     }
 
@@ -1103,6 +1149,11 @@
         SyncRenderedText(model);
         if (model is NodeModel node) node.Refresh();
         else if (model is PetriLinkModel lnk) lnk.Refresh();
+        // Token / weight / priority edits bypass the command pipeline (they
+        // mutate Data directly through @bind-value:event="oninput"). Notify
+        // subscribers so the analysis "results may be stale" banner appears
+        // immediately, not only after the input loses focus.
+        Manager.History.NotifyStructuralChanged();
         InvokeAsync(StateHasChanged);
     }
 
@@ -1133,6 +1184,11 @@
     {
         if (e.Button != 0) return;
         if (StateService.IsSimulating) return;
+
+        // Any interaction with the editor closes the floating menu popups
+        // (settings / navigator / layout). Analysis and simulation panels are
+        // intentionally excluded — they're workspaces, not transient menus.
+        CloseTransientMenus();
 
         // Endpoint-reconnect mode overrides everything else. The user picked up an
         // arc endpoint and the arc is following the cursor; clicks here finalize
@@ -1274,6 +1330,11 @@
 
     private void HandleEscape()
     {
+        // Close menus FIRST. CloseTransientMenus fires _menuStateChanged so
+        // the live Home instance re-renders even if HandleEscape itself is
+        // running on a stale instance via JSInvokable.
+        CloseTransientMenus();
+
         // Hide ghost if placement was in progress
         if (_pendingAction is "place" or "transition")
             _ = JS.InvokeVoidAsync("ghostStop");
@@ -1291,10 +1352,22 @@
             Manager.DisableLinkDrawing();
             _ = JS.InvokeVoidAsync("setSelectToolActive", false);
         }
-        if (_navigatorOpen) _navigatorOpen = false;
-        if (_settingsOpen) _settingsOpen = false;
-        if (_showLayoutMenu) _showLayoutMenu = false;
-        _analysisPanel?.Close();
+    }
+
+    /// <summary>
+    /// Closes the floating menu popups (settings, navigator, layout). Does NOT
+    /// touch the analysis or simulator panels — those are tabbed workspaces the
+    /// user opens deliberately, not transient menus that should auto-dismiss.
+    /// Fires <see cref="_menuStateChanged"/> so the live Home instance re-renders
+    /// even when called via a JSInvokable that landed on a different instance.
+    /// </summary>
+    private void CloseTransientMenus()
+    {
+        var anyOpen = _navigatorOpen || _settingsOpen || _showLayoutMenu;
+        if (_navigatorOpen)   _navigatorOpen   = false;
+        if (_settingsOpen)    _settingsOpen    = false;
+        if (_showLayoutMenu)  _showLayoutMenu  = false;
+        if (anyOpen) _menuStateChanged?.Invoke();
     }
 
     // ── Selection rectangle ───────────────────────────────────────────────────
@@ -1457,7 +1530,9 @@
         StateService.OnSimulationChanged -= OnSimulationStateChanged;
         Sim.OnChanged -= OnSimulationStateChanged;
         Sim.Dispatcher = null;
+        _menuStateChanged -= OnStaticMenuStateChanged;
         _ = JS.InvokeVoidAsync("unregisterGlobalKeyHandler");
+        _ = JS.InvokeVoidAsync("unregisterOutsideClickWatcher");
         _dotNetRef?.Dispose();
     }
 }

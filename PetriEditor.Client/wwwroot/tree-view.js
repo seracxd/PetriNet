@@ -47,10 +47,12 @@ window.treeView = (() => {
         const wx0 = s.vx - margin, wy0 = s.vy - margin;
         const wx1 = s.vx + s.vw + margin, wy1 = s.vy + s.vh + margin;
 
-        // LOD thresholds — hide labels only when nodes are truly tiny on screen
+        // LOD thresholds — hide labels only when nodes are truly tiny on screen.
+        // Marking labels stay readable down to ~14 css px on screen; edge labels
+        // keep the slightly higher threshold so they don't crowd the canvas.
         const screenW      = nodeW * scale;
-        const showLabels   = screenW >= 24;
-        const showEdgeLbls = screenW >= 24;
+        const showLabels   = screenW >= 14;
+        const showEdgeLbls = screenW >= 20;
 
         // ── Edges ─────────────────────────────────────────────────────────
         ctx.save();
@@ -499,9 +501,28 @@ window.treeView = (() => {
         // - 'resize' on window handles cases where layout was already invalidated
         //   but no element observation fired (DevTools, panel toggles, etc.).
         // - matchMedia('(resolution: ...)') fires when DPR changes mid-session.
+        //
+        // Preserve the visible center and the world-per-pixel scale across the
+        // resize so the user doesn't see the graph jump when the panel toggles
+        // between docked / floating / maximised.
         const refit = () => {
+            const prevW = s._wrapWidth  || 0;
+            const prevH = s._wrapHeight || 0;
             _resizeCanvas(s);
-            if (!s._viewInited) _initView(); else _scheduleRedraw(s);
+            if (!s._viewInited) { _initView(); return; }
+            const newW = s._wrapWidth, newH = s._wrapHeight;
+            if (prevW >= 4 && prevH >= 4 && newW >= 4 && newH >= 4 &&
+                (prevW !== newW || prevH !== newH))
+            {
+                const cx = s.vx + s.vw / 2;
+                const cy = s.vy + s.vh / 2;
+                s.vw = (s.vw / prevW) * newW;
+                s.vh = (s.vh / prevH) * newH;
+                s.vx = cx - s.vw / 2;
+                s.vy = cy - s.vh / 2;
+                _clampViewport(s);
+            }
+            _scheduleRedraw(s);
         };
 
         s._ro = new ResizeObserver(refit);
@@ -560,11 +581,28 @@ window.treeView = (() => {
 
     function destroy(containerId) { _destroyState(containerId, null); }
 
+    // "Fit" button: zoom to the initial marking M0 instead of showing the whole
+    // tree. Matches the initial-view framing so the user lands back where they
+    // started.
     function resetView(containerId) {
         const s = _state[containerId];
         if (!s) return;
-        s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
         _resizeCanvas(s);
+        const cssW = s._wrapWidth || 1, cssH = s._wrapHeight || 1;
+        if (cssW < 4 || cssH < 4) return;
+        if (!s.nodes || s.nodes.length === 0) {
+            s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
+        } else {
+            // Prefer the explicit initial-marking flag; fall back to the first
+            // node (BFS-built trees place the root there anyway).
+            const m0 = s.nodes.find(n => n.isInit) || s.nodes[0];
+            const maxVW  = s.svgW * 1.1;
+            const aspect = cssH / cssW;
+            s.vw = Math.min(maxVW, Math.max(300, s.svgW * 0.4));
+            s.vh = s.vw * aspect;
+            s.vx = m0.x + s.nodeW / 2 - s.vw / 2;
+            s.vy = m0.y + s.nodeH / 2 - s.vh / 2;
+        }
         _clampViewport(s);
         _scheduleRedraw(s);
     }

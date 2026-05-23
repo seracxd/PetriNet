@@ -234,7 +234,10 @@ public sealed class AnalysisHub : Hub
 
     // ── Graph chunking helpers ────────────────────────────────────────────
 
-    private const int GraphChunkSize = 200;
+    // Tuned for weak-client throughput: 5× the SignalR framing overhead reduction
+    // versus the old 200, still ~200 KB per chunk for typical Petri net DTOs —
+    // far below SignalR's 10 MB receive limit.
+    private const int GraphChunkSize = 1000;
 
     private static async Task SendGraphChunksAsync(
         IClientProxy caller, AnalysisResultDto result, CancellationToken ct)

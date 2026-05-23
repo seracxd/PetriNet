@@ -407,10 +407,10 @@
     private bool                     _graphTruncated   = false;
     private bool                     _graphIsUnbounded = false;
     private bool                     _graphSettingsOpen = false;
-    // Analysis cap: how many unique markings the server explores. High default
-    // so property tests (liveness, boundedness, etc.) get accurate verdicts.
-    // Tree-render cap (below) bounds what the in-browser tree view will draw.
-    private int                      _maxStates        = 50_000;
+    // Analysis cap: how many unique markings the server explores. Default kept
+    // modest so weak machines render the result quickly; the slider goes up to
+    // AnalysisLimits.MaxMarkings when the user wants exhaustive verdicts.
+    private int                      _maxStates        = 5_000;
     private int                      _treeRenderCap    = 2_000;
     private bool                     _graphInfoHover   = false;
     private CoverabilityTreeDto?     _graphData;
@@ -546,9 +546,10 @@
     // tracks it on every drag tick, but it isn't applied until the user clicks "Apply".
     // Without this split, every drag tick re-runs the (synchronous, BFS-heavy) tree filter
     // and the page freezes.
-    // Default index 7 → 50_000. Steps: 50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, MaxMarkings.
-    private int _maxStatesSliderPos  = 7;
-    private int _maxStatesPendingPos = 7;
+    // Default index 5 → 5_000. Steps: 50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, MaxMarkings.
+    // Keeps the default fast on weak machines; user can crank up via the slider.
+    private int _maxStatesSliderPos  = 5;
+    private int _maxStatesPendingPos = 5;
 
     // Tree-render cap slider (separate steps for finer control at the low end).
     private static readonly int[] _treeRenderCapSteps = [500, 1_000, 2_000, 3_000, 5_000, 10_000];

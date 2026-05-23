@@ -5,7 +5,7 @@ window.registerGlobalKeyHandler = (dotnetRef) => {
     // If a previous handler is still attached (e.g. after a Blazor Server
     // circuit reconnect), detach it before wiring a new one.
     if (window.petriEditor._keyHandler) {
-        document.removeEventListener('keydown', window.petriEditor._keyHandler);
+        window.removeEventListener('keydown', window.petriEditor._keyHandler, true);
     }
 
     const handler = (e) => {
@@ -19,17 +19,85 @@ window.registerGlobalKeyHandler = (dotnetRef) => {
         window.petriEditor._dotNetRef.invokeMethodAsync('OnGlobalKey', e.key, e.ctrlKey, e.shiftKey, e.altKey);
     };
 
-    document.addEventListener('keydown', handler);
+    // Window-level capture phase — fires before ANY document/element listener
+    // (including Z.Blazor.Diagrams which intercepts ESC for UnselectAll).
+    window.addEventListener('keydown', handler, true);
     window.petriEditor._keyHandler = handler;
     window.petriEditor._dotNetRef = dotnetRef;
 };
 
 window.unregisterGlobalKeyHandler = () => {
     if (window.petriEditor._keyHandler) {
-        document.removeEventListener('keydown', window.petriEditor._keyHandler);
+        window.removeEventListener('keydown', window.petriEditor._keyHandler, true);
         window.petriEditor._keyHandler = null;
     }
     window.petriEditor._dotNetRef = null;
+};
+
+// ── Outside-click watcher for transient menus ─────────────────────────────
+// Closes layout / settings / navigator menus on any pointerdown / mousedown
+// / contextmenu whose target is OUTSIDE the menu and its toggle button.
+//
+// Why three events: pointerdown handles all buttons across modern browsers;
+// mousedown is a fallback when pointer events are suppressed; contextmenu
+// fires on right-click in any browser. Using capture phase + early invocation
+// makes the close feel instant even when Blazor is busy with another event.
+window.registerOutsideClickWatcher = (dotnetRef) => {
+    // Unwire any previous watcher.
+    if (window.petriEditor._outsideClickHandlers) {
+        for (const [evt, fn] of window.petriEditor._outsideClickHandlers) {
+            window.removeEventListener(evt, fn, true);
+        }
+    }
+    window.petriEditor._outsideClickRef = dotnetRef;
+
+    // Anything inside one of these survives the click; anything else dismisses.
+    const safeSelectors = [
+        '.layout-menu-wrapper',
+        '.settings-panel.open',
+        '.analysis-btn-icon',
+        '.navigator-panel.open',
+        '.navigator-toggle',
+    ];
+
+    const isInsideMenu = (el) => {
+        if (!el) return false;
+        const node = el.nodeType === 1 ? el : el.parentElement;
+        if (!node || !node.closest) return false;
+        for (const sel of safeSelectors) {
+            if (node.closest(sel)) return true;
+        }
+        return false;
+    };
+
+    const dispatch = (e) => {
+        if (isInsideMenu(e.target)) return;
+        const ref = window.petriEditor._outsideClickRef;
+        if (!ref) return;
+        ref.invokeMethodAsync('CloseTransientMenusFromJs');
+    };
+
+    // Window-level capture — fires before ANY document/element listener,
+    // including Blazor.Diagrams' synchronous OnPointerDown.
+    const handlers = [
+        ['pointerdown', dispatch],
+        ['mousedown',   dispatch],
+        ['contextmenu', dispatch],
+    ];
+    for (const [evt, fn] of handlers) {
+        window.addEventListener(evt, fn, true);
+    }
+    window.petriEditor._outsideClickHandlers = handlers;
+};
+
+window.unregisterOutsideClickWatcher = () => {
+    if (window.petriEditor._outsideClickHandlers) {
+        for (const [evt, fn] of window.petriEditor._outsideClickHandlers) {
+            window.removeEventListener(evt, fn, true);
+        }
+        window.petriEditor._outsideClickHandlers = null;
+    }
+    window.petriEditor._outsideClickRef = null;
 };
 
 // Called by Blazor when the select tool is activated / deactivated

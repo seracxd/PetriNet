@@ -41,11 +41,37 @@ window.graphView = (() => {
             return { sx1, sy1, sx2: sx2, sy2: sy2, c1x, c1y, c2x, c2y };
         }
 
-        // Upward back-edge: route through the lane between the source's row
-        // and the row above it. Source exits its top, dips up into the lane,
-        // travels horizontally toward the target column, then enters the
-        // target from below. Per-edge `bowOffset` staggers the lane height so
-        // many parallel back-edges don't sit on the same line.
+        // Upward back-edge between nodes in DIFFERENT columns: route through
+        // the lane between the source's row and the row above it. Source exits
+        // its top, dips up into the lane, travels horizontally toward the
+        // target column, then enters the target from below.
+        //
+        // SAME-COLUMN special case (target directly above source): the standard
+        // route collapses onto the forward edge because cx1 ≈ cx2. Bow out to
+        // the right of the column instead, so the back-edge runs alongside the
+        // forward edge instead of overlapping it.
+        const sameCol = Math.abs(e.cx1 - e.cx2) < nodeW * 0.5;
+        if (sameCol) {
+            const cxMid = (e.cx1 + e.cx2) * 0.5 + nodeW * 0.5;
+            const dy = Math.abs(e.cy1 - e.cy2);
+            // Side of the column to bow on: right by default; staggered if
+            // multiple back-edges share this pair via bowOffset.
+            const side = (e.bowOffset && e.bowOffset % 2 === 1) ? -1 : 1;
+            const bowDistance = Math.max(nodeW * 0.55, dy * 0.4);
+            const sx1 = e.cx1 + nodeW * 0.5;
+            const sx2 = e.cx2 + nodeW * 0.5;
+            const sy1 = e.cy1;                    // source top
+            const sy2 = e.cy2 + nodeH;            // target bottom
+            const c1x = cxMid + side * bowDistance;
+            const c1y = sy1 - nodeH * 0.3;
+            const c2x = cxMid + side * bowDistance;
+            const c2y = sy2 + nodeH * 0.3;
+            return { sx1, sy1, sx2, sy2, c1x, c1y, c2x, c2y };
+        }
+
+        // Different columns: original "up-over-down" routing. Per-edge
+        // `bowOffset` staggers the lane height so many parallel back-edges
+        // don't sit on the same line.
         const sx1 = e.cx1 + nodeW * 0.5;
         const sx2 = e.cx2 + nodeW * 0.5;
         const sy1 = e.cy1;                    // source top
@@ -203,25 +229,48 @@ window.graphView = (() => {
             }
 
             // Forward edge
-            const ax1 = ox + e.x1 * scale, ay1 = oy + e.y1 * scale;
-            const ax2 = ox + e.x2 * scale, ay2 = oy + e.y2 * scale;
+            let ax1 = ox + e.x1 * scale, ay1 = oy + e.y1 * scale;
+            let ax2 = ox + e.x2 * scale, ay2 = oy + e.y2 * scale;
             const levelH = (e.y2 - e.y1);
-            const cy1 = oy + (e.y1 + Math.max(levelH * 0.35, nodeH * 0.8)) * scale;
-            const cy2 = oy + (e.y2 - Math.max(levelH * 0.35, nodeH * 0.8)) * scale;
+            let cy1 = oy + (e.y1 + Math.max(levelH * 0.35, nodeH * 0.8)) * scale;
+            let cy2 = oy + (e.y2 - Math.max(levelH * 0.35, nodeH * 0.8)) * scale;
+            // Control x's match the endpoint x's by default; declare them so we
+            // can also shift them when laterally offsetting parallel edges.
+            let cx1 = ax1, cx2 = ax2;
+
+            // Lateral offset for parallel edges between the same pair of nodes.
+            // Perpendicular to the source→target line: shift all four control
+            // points by (perpX, perpY) * spacing so the whole curve moves as one.
+            //
+            // Spacing is generous (≈25% of nodeW) so that two parallel arcs are
+            // clearly separated even at default zoom. A subtler value made the
+            // shift invisible against the curve's natural bezier sag.
+            if (e.lateralOffset) {
+                const dx = ax2 - ax1, dy = ay2 - ay1;
+                const len = Math.hypot(dx, dy) || 1;
+                const spacing = Math.max(14, nodeW * 0.25) * scale;
+                const offset = e.lateralOffset * spacing;
+                const perpX = -dy / len, perpY = dx / len;
+                ax1 += perpX * offset; ay1 += perpY * offset;
+                ax2 += perpX * offset; ay2 += perpY * offset;
+                cx1 += perpX * offset; cy1 += perpY * offset;
+                cx2 += perpX * offset; cy2 += perpY * offset;
+            }
+
             ctx.beginPath();
             ctx.moveTo(ax1, ay1);
-            ctx.bezierCurveTo(ax1, cy1, ax2, cy2, ax2, ay2);
+            ctx.bezierCurveTo(cx1, cy1, cx2, cy2, ax2, ay2);
             ctx.strokeStyle = forwardColor;
             ctx.lineWidth   = isHovered ? hoverWidth : Math.max(1, 1.5 * scale);
             ctx.stroke();
-            // Tangent at endpoint: from (ax2, cy2) → (ax2, ay2)
-            _drawArrow(ctx, ax2, ay2, 0, ay2 - cy2, scale, forwardColor);
+            // Arrow tangent uses (cx2, cy2) → (ax2, ay2).
+            _drawArrow(ctx, ax2, ay2, ax2 - cx2, ay2 - cy2, scale, forwardColor);
 
             if (e.label && showEdgeLbls) {
                 // Evaluate the actual bezier at t=0.75 — the prior midpoint was
                 // a linear average of the endpoints, which floated off the curve
                 // because the bezier dips through cy1/cy2.
-                const pt = _bezierAt(0.75, ax1, ay1, ax1, cy1, ax2, cy2, ax2, ay2);
+                const pt = _bezierAt(0.75, ax1, ay1, cx1, cy1, cx2, cy2, ax2, ay2);
                 pendingLabels.push({ text: e.label, x: pt.x, y: pt.y, tier: labelTier });
             }
         }
@@ -419,6 +468,32 @@ window.graphView = (() => {
             for (let i = 0; i < list.length; i++) list[i].bowOffset = i;
         }
 
+        // Parallel-edge stagger: when two markings are connected by both an
+        // A→B and a B→A edge (or two arcs of different type between the same
+        // pair), the curves coincide and look like a single line. Assign each
+        // a lateralOffset (units of "perpendicular spacing") so they fan out
+        // side-by-side. The offset is symmetric around zero so a 2-edge group
+        // gets [-1, +1] and a 3-edge group gets [-1, 0, +1].
+        // Self-loops and back-edges have their own routing; skip them here.
+        const pairGroups = {};
+        for (let i = 0; i < edges.length; i++) {
+            const e = edges[i];
+            if (e.isSelf || e.isBack) continue;
+            // Order-independent pair key so A→B and B→A land in the same bucket.
+            const a = e.from < e.to ? e.from : e.to;
+            const b = e.from < e.to ? e.to   : e.from;
+            const key = a + '\x00' + b;
+            (pairGroups[key] = pairGroups[key] || []).push(e);
+        }
+        for (const key in pairGroups) {
+            const list = pairGroups[key];
+            if (list.length < 2) { for (const e of list) e.lateralOffset = 0; continue; }
+            // Symmetric integer offsets centred at 0. Drawing code multiplies by
+            // a per-frame spacing in pixels so the spread scales with zoom.
+            const n = list.length;
+            for (let i = 0; i < n; i++) list[i].lateralOffset = (i - (n - 1) / 2) * 2;
+        }
+
         // ── Adjacency map keyed by marking ────────────────────────────────
         // For neighbour-highlight on hover: given a marking key, look up the
         // set of parent + child marking keys and the edge indices connecting
@@ -518,10 +593,21 @@ window.graphView = (() => {
                 else if (e.isBack) p = _backEdgeControlPoints(e, nodeW, nodeH, s.svgW);
                 else {
                     const lh = e.y2 - e.y1;
-                    const cy1 = e.y1 + Math.max(lh * 0.35, nodeH * 0.8);
-                    const cy2 = e.y2 - Math.max(lh * 0.35, nodeH * 0.8);
+                    const cy1v = e.y1 + Math.max(lh * 0.35, nodeH * 0.8);
+                    const cy2v = e.y2 - Math.max(lh * 0.35, nodeH * 0.8);
                     p = { sx1: e.x1, sy1: e.y1, sx2: e.x2, sy2: e.y2,
-                          c1x: e.x1, c1y: cy1, c2x: e.x2, c2y: cy2 };
+                          c1x: e.x1, c1y: cy1v, c2x: e.x2, c2y: cy2v };
+                    // Apply the same lateral offset as the draw path, in world space.
+                    if (e.lateralOffset) {
+                        const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+                        const len = Math.hypot(dx, dy) || 1;
+                        const off = e.lateralOffset * Math.max(14, nodeW * 0.25);
+                        const px = -dy / len * off, py = dx / len * off;
+                        p.sx1 += px; p.sy1 += py;
+                        p.sx2 += px; p.sy2 += py;
+                        p.c1x += px; p.c1y += py;
+                        p.c2x += px; p.c2y += py;
+                    }
                 }
                 const sx = e.isSelf ? p.sx : p.sx1;
                 const sy = e.isSelf ? p.sy : p.sy1;
@@ -540,18 +626,30 @@ window.graphView = (() => {
             return bestIdx;
         }
 
-        // Tooltip
-        let tooltip = wrap.querySelector('.graph-tooltip');
+        // Tooltip — mounted at <body> so it can escape the graph panel when
+        // needed (every position inside the panel overlapped highlighted arcs).
+        // Uses position:fixed + viewport coords; cleaned up in _destroyState.
+        let tooltip = document.body.querySelector(`.graph-tooltip[data-owner="${containerId}"]`);
         if (!tooltip) {
             tooltip = document.createElement('div');
             tooltip.className = 'graph-tooltip';
-            tooltip.style.cssText = `position:absolute;pointer-events:none;display:none;
+            tooltip.dataset.owner = containerId;
+            tooltip.style.cssText = `position:fixed;pointer-events:none;display:none;
                 background:#fff;border:1px solid #e4e6ea;border-radius:8px;
                 box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:8px 10px;
                 min-width:140px;max-width:280px;font-family:Inter,sans-serif;font-size:11px;z-index:9999;`;
-            wrap.appendChild(tooltip);
+            document.body.appendChild(tooltip);
         }
+        s._tooltip = tooltip;
         const _placeNames = placeNames || [];
+
+        // Place the tooltip somewhere guaranteed clear of every highlighted arc.
+        // We try, in order of decreasing preference:
+        //   1. The four corners of the graph view (a few pixels in from each).
+        //   2. A position adjacent to but outside the graph view (in viewport space).
+        // The first candidate that doesn't overlap any highlighted-edge bbox AND
+        // fits in the viewport wins. If somehow none of them fit, we fall back to
+        // the least-overlapping in-viewport candidate.
         function showTooltip(hit, clientX, clientY) {
             const vals = hit.markingKey.split(',');
             let html = `<div style="font-weight:700;color:#374151;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;">${hit.label}</div>`;
@@ -569,71 +667,118 @@ window.graphView = (() => {
             }
             tooltip.innerHTML = html;
             tooltip.style.display = 'block';
-            const wr = wrap.getBoundingClientRect();
-            const tw = tooltip.offsetWidth || 280;
-            const th = tooltip.offsetHeight || 120;
-            const cx = clientX - wr.left, cy = clientY - wr.top;
 
-            // Build a set of highlighted-edge screen bboxes so we can pick a
-            // tooltip position that doesn't sit on top of one. World→screen:
-            //   screenX = (worldX - vx) / vw * wrap.clientWidth
-            //   screenY = (worldY - vy) / vh * wrap.clientHeight
+            const wr = wrap.getBoundingClientRect();
+            const tw = tooltip.offsetWidth || 240;
+            const th = tooltip.offsetHeight || 120;
+            const margin = 6;
+
+            // Highlighted-edge bboxes in viewport coordinates.
             const W = wrap.clientWidth, H = wrap.clientHeight;
-            const sxOf = wx => (wx - s.vx) / s.vw * W;
-            const syOf = wy => (wy - s.vy) / s.vh * H;
+            const sxOf = wx => wr.left + (wx - s.vx) / s.vw * W;
+            const syOf = wy => wr.top  + (wy - s.vy) / s.vh * H;
             const highlightRects = [];
             for (let i = 0; i < edges.length; i++) {
-                const e = edges[i];
                 if (!(i === s.hoveredEdgeIdx || s.parentEdges.has(i) || s.childEdges.has(i))) continue;
-                const r = {
-                    x: Math.min(sxOf(e.x1), sxOf(e.x2)) - 4,
-                    y: Math.min(syOf(e.y1), syOf(e.y2)) - 4,
-                    w: Math.abs(sxOf(e.x2) - sxOf(e.x1)) + 8,
-                    h: Math.abs(syOf(e.y2) - syOf(e.y1)) + 8,
-                };
-                highlightRects.push(r);
+                const e = edges[i];
+                const x1 = sxOf(e.x1), x2 = sxOf(e.x2);
+                const y1 = syOf(e.y1), y2 = syOf(e.y2);
+                highlightRects.push({
+                    x: Math.min(x1, x2) - 4,
+                    y: Math.min(y1, y2) - 4,
+                    w: Math.abs(x2 - x1) + 8,
+                    h: Math.abs(y2 - y1) + 8,
+                });
             }
 
-            // Score a candidate tooltip rect by counting overlapping highlights.
-            const overlap = (rx, ry) => {
-                let n = 0;
+            const overlapsHighlight = (vx, vy) => {
                 for (const h of highlightRects) {
-                    if (rx < h.x + h.w && rx + tw > h.x &&
-                        ry < h.y + h.h && ry + th > h.y) n++;
+                    if (vx < h.x + h.w && vx + tw > h.x &&
+                        vy < h.y + h.h && vy + th > h.y) return true;
                 }
-                return n;
+                return false;
             };
 
-            // Candidate positions in preference order. Right of cursor first
-            // (matches existing behaviour); also try left, below, above.
+            const fitsViewport = (vx, vy) =>
+                vx >= 0 && vx + tw <= window.innerWidth &&
+                vy >= 0 && vy + th <= window.innerHeight;
+
+            // Candidates ordered by proximity to the cursor — closest first.
+            // Each is the cursor with a small offset, plus a few corner / outside
+            // fallbacks for when the entire area near the cursor is busy with arcs.
+            const gap = 14;
             const candidates = [
-                { x: cx + 12,       y: cy - 10 },          // right
-                { x: cx - tw - 8,   y: cy - 10 },          // left
-                { x: cx + 12,       y: cy + 18 },          // right + below
-                { x: cx - tw - 8,   y: cy + 18 },          // left + below
-                { x: cx - tw / 2,   y: cy + 24 },          // below cursor
-                { x: cx - tw / 2,   y: cy - th - 12 },     // above cursor
+                // Near the cursor (4 quadrants) — first hit wins, so these are
+                // tried before anything farther away.
+                { x: clientX + gap,      y: clientY + gap      }, // bottom-right of cursor
+                { x: clientX - tw - gap, y: clientY + gap      }, // bottom-left
+                { x: clientX + gap,      y: clientY - th - gap }, // top-right
+                { x: clientX - tw - gap, y: clientY - th - gap }, // top-left
+
+                // Slightly further: same offsets but using the marking's screen
+                // bbox as anchor would be ideal — we only have the cursor though.
+                // Push out diagonally by 1.5x the node size so we clear node body too.
+                { x: clientX + gap * 3,      y: clientY + gap * 3      },
+                { x: clientX - tw - gap * 3, y: clientY + gap * 3      },
+                { x: clientX + gap * 3,      y: clientY - th - gap * 3 },
+                { x: clientX - tw - gap * 3, y: clientY - th - gap * 3 },
+
+                // Panel corners — close to the action if the cursor is near one,
+                // otherwise still preferable to "outside the panel".
+                { x: wr.right - tw - margin, y: wr.top  + margin        }, // top-right
+                { x: wr.left  + margin,      y: wr.top  + margin        }, // top-left
+                { x: wr.right - tw - margin, y: wr.bottom - th - margin }, // bottom-right
+                { x: wr.left  + margin,      y: wr.bottom - th - margin }, // bottom-left
+
+                // Last-resort: outside the panel.
+                { x: wr.right + margin,      y: wr.top                  },
+                { x: wr.left  - tw - margin, y: wr.top                  },
+                { x: wr.left,                y: wr.bottom + margin      },
+                { x: wr.left,                y: wr.top - th - margin    },
             ];
 
-            // Pick the candidate with the fewest overlaps; ties broken by order.
-            let best = candidates[0];
-            let bestScore = Infinity;
+            // First pass: take the first candidate that fits AND is clear.
+            let chosen = null;
             for (const c of candidates) {
-                // Skip candidates entirely outside the wrap.
-                if (c.x + tw < 0 || c.x > W || c.y + th < 0 || c.y > H) continue;
-                const score = overlap(c.x, c.y);
-                if (score < bestScore) { best = c; bestScore = score; if (score === 0) break; }
+                if (!fitsViewport(c.x, c.y)) continue;
+                if (overlapsHighlight(c.x, c.y)) continue;
+                chosen = c;
+                break;
             }
 
-            let tx = best.x, ty = best.y;
-            if (tx + tw > W) tx = W - tw - 4;
-            if (tx < 0)      tx = 4;
-            const maxTyViewport  = window.innerHeight - wr.top - th - 4;
-            const maxTyContainer = H - th - 4;
-            if (ty + th > H) ty = Math.min(maxTyViewport, maxTyContainer);
-            if (ty < 0)      ty = 4;
-            tooltip.style.left = tx + 'px';
-            tooltip.style.top  = ty + 'px';
+            // Fallback: nothing was fully clear. Among in-viewport candidates,
+            // pick the one with the fewest overlaps; ties broken by closeness
+            // to the cursor.
+            if (chosen == null) {
+                let bestOverlap = Infinity;
+                let bestDist = Infinity;
+                for (const c of candidates) {
+                    if (!fitsViewport(c.x, c.y)) continue;
+                    let n = 0;
+                    for (const h of highlightRects)
+                        if (c.x < h.x + h.w && c.x + tw > h.x &&
+                            c.y < h.y + h.h && c.y + th > h.y) n++;
+                    const dx = (c.x + tw / 2) - clientX;
+                    const dy = (c.y + th / 2) - clientY;
+                    const d = dx * dx + dy * dy;
+                    if (n < bestOverlap || (n === bestOverlap && d < bestDist)) {
+                        bestOverlap = n;
+                        bestDist = d;
+                        chosen = c;
+                    }
+                }
+            }
+
+            // Absolute last resort: clamp to viewport near the cursor.
+            if (chosen == null) {
+                chosen = {
+                    x: Math.max(0, Math.min(window.innerWidth  - tw, clientX + 16)),
+                    y: Math.max(0, Math.min(window.innerHeight - th, clientY + 16)),
+                };
+            }
+
+            tooltip.style.left = chosen.x + 'px';
+            tooltip.style.top  = chosen.y + 'px';
         }
 
         function clientToWorld(clientX, clientY) {
@@ -756,9 +901,28 @@ window.graphView = (() => {
 
         // Canvas needs to refit whenever the wrap's css size changes OR the
         // device pixel ratio changes (e.g. dragging the window across monitors).
+        //
+        // Preserve the visible center and world-per-pixel scale across the
+        // resize so toggling docked / floating / maximised doesn't jump the
+        // user's view.
         const refit = () => {
+            const prevW = s._wrapWidth  || 0;
+            const prevH = s._wrapHeight || 0;
             _resizeCanvas(s);
-            if (!s._viewInited) _initView(); else _scheduleRedraw(s);
+            if (!s._viewInited) { _initView(); return; }
+            const newW = s._wrapWidth, newH = s._wrapHeight;
+            if (prevW >= 4 && prevH >= 4 && newW >= 4 && newH >= 4 &&
+                (prevW !== newW || prevH !== newH))
+            {
+                const cx = s.vx + s.vw / 2;
+                const cy = s.vy + s.vh / 2;
+                s.vw = (s.vw / prevW) * newW;
+                s.vh = (s.vh / prevH) * newH;
+                s.vx = cx - s.vw / 2;
+                s.vy = cy - s.vh / 2;
+                _clampViewport(s);
+            }
+            _scheduleRedraw(s);
         };
 
         s._ro = new ResizeObserver(refit);
@@ -793,6 +957,9 @@ window.graphView = (() => {
         if (s._ro) s._ro.disconnect();
         if (s._onWindowResize) window.removeEventListener('resize', s._onWindowResize);
         if (s._dprDispose) s._dprDispose();
+        // Tooltip is mounted on <body> so it survives the wrap being unmounted —
+        // remove it explicitly to avoid orphan elements on subsequent re-inits.
+        if (s._tooltip && s._tooltip.parentNode) s._tooltip.parentNode.removeChild(s._tooltip);
         const w = wrap || document.getElementById(containerId);
         if (w) {
             w.removeEventListener('wheel',        s.onWheel,       { capture: true });
@@ -807,11 +974,26 @@ window.graphView = (() => {
     }
     function destroy(containerId) { _destroyState(containerId, null); }
 
+    // "Fit" button: zoom to the initial marking M0 instead of fitting the
+    // whole graph. Mirrors tree-view.resetView so both views feel consistent.
     function resetView(containerId) {
         const s = _state[containerId];
         if (!s) return;
-        s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
-        _resizeCanvas(s); _clampViewport(s); _scheduleRedraw(s);
+        _resizeCanvas(s);
+        const cssW = s._wrapWidth || 1, cssH = s._wrapHeight || 1;
+        if (cssW < 4 || cssH < 4) return;
+        if (!s.nodes || s.nodes.length === 0) {
+            s.vx = 0; s.vy = 0; s.vw = s.svgW; s.vh = s.svgH;
+        } else {
+            const m0 = s.nodes.find(n => n.isInit) || s.nodes[0];
+            const maxVW  = s.svgW * 1.1;
+            const aspect = cssH / cssW;
+            s.vw = Math.min(maxVW, Math.max(300, s.svgW * 0.4));
+            s.vh = s.vw * aspect;
+            s.vx = m0.x + s.nodeW / 2 - s.vw / 2;
+            s.vy = m0.y + s.nodeH / 2 - s.vh / 2;
+        }
+        _clampViewport(s); _scheduleRedraw(s);
     }
 
     // Minimal SVG/PNG export: full extent, forward + back edges as beziers.
@@ -842,11 +1024,35 @@ window.graphView = (() => {
                 const levelH = (e.y2 - e.y1);
                 const cy1 = e.y1 + Math.max(levelH * 0.35, nodeH * 0.8);
                 const cy2 = e.y2 - Math.max(levelH * 0.35, nodeH * 0.8);
-                d = `M${ox+e.x1},${oy+e.y1} C${ox+e.x1},${oy+cy1} ${ox+e.x2},${oy+cy2} ${ox+e.x2},${oy+e.y2}`;
+                // Lateral offset for parallel edges, in world coords.
+                let px = 0, py = 0;
+                if (e.lateralOffset) {
+                    const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const off = e.lateralOffset * Math.max(14, nodeW * 0.25);
+                    px = -dy / len * off; py = dx / len * off;
+                }
+                d = `M${ox+e.x1+px},${oy+e.y1+py} C${ox+e.x1+px},${oy+cy1+py} ${ox+e.x2+px},${oy+cy2+py} ${ox+e.x2+px},${oy+e.y2+py}`;
             }
             out.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/>`);
             if (e.label && !e.isBack && !e.isSelf) {
-                const mx = ox + (e.x1 + e.x2) / 2, my = oy + (e.y1 + e.y2) / 2;
+                // Match the canvas: label sits at t=0.75 along the bezier with
+                // lateral offset applied.
+                let px = 0, py = 0;
+                if (e.lateralOffset) {
+                    const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const off = e.lateralOffset * Math.max(14, nodeW * 0.25);
+                    px = -dy / len * off; py = dx / len * off;
+                }
+                const levelH = e.y2 - e.y1;
+                const cy1 = e.y1 + Math.max(levelH * 0.35, nodeH * 0.8);
+                const cy2 = e.y2 - Math.max(levelH * 0.35, nodeH * 0.8);
+                const pt = _bezierAt(0.75, e.x1 + px, e.y1 + py,
+                                          e.x1 + px, cy1 + py,
+                                          e.x2 + px, cy2 + py,
+                                          e.x2 + px, e.y2 + py);
+                const mx = ox + pt.x, my = oy + pt.y;
                 const fs = 11;
                 const tw = e.label.length * fs * 0.52;
                 const rw = tw + fs * 0.6, rh = fs + fs * 0.6;

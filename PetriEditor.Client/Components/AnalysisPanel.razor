@@ -427,15 +427,15 @@
                             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;">
                                 <div style="background:#f6fbf9;border:1px solid #d9efe4;border-radius:10px;padding:10px 12px;">
                                     <div style="font-size:22px;font-weight:800;color:#2e7d32;line-height:1;">@passCount</div>
-                                    <div style="font-size:11px;color:#67806f;margin-top:4px;">Passing</div>
+                                    <div style="font-size:11px;color:#67806f;margin-top:4px;">Holds</div>
                                 </div>
                                 <div style="background:#fff7f7;border:1px solid #f3d9dc;border-radius:10px;padding:10px 12px;">
                                     <div style="font-size:22px;font-weight:800;color:#c62828;line-height:1;">@failCount</div>
-                                    <div style="font-size:11px;color:#8a6a6a;margin-top:4px;">Failing</div>
+                                    <div style="font-size:11px;color:#8a6a6a;margin-top:4px;">Does not hold</div>
                                 </div>
                                 <div style="background:#fffaf0;border:1px solid #f2e4b8;border-radius:10px;padding:10px 12px;">
                                     <div style="font-size:22px;font-weight:800;color:#f57f17;line-height:1;">@undecidableCount</div>
-                                    <div style="font-size:11px;color:#8f7d51;margin-top:4px;">Undecidable</div>
+                                    <div style="font-size:11px;color:#8f7d51;margin-top:4px;">Inconclusive</div>
                                 </div>
                             </div>
 
@@ -481,7 +481,6 @@
                                                     <span style="font-size:13px;font-weight:800;color:#303030;">@label</span>
                                                     <span style="font-size:11px;color:#7a7a7a;">@GetPropertySummary(r)</span>
                                                 </div>
-                                                <span style="font-size:11px;font-weight:800;color:@(r?.StatusColor ?? "#888");background:#fff;padding:4px 10px;border-radius:999px;border:1px solid @(r?.StatusColor ?? "#ddd");white-space:nowrap;">@(r?.StatusLabel ?? "–")</span>
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;transform:@(expanded ? "rotate(180deg)" : "rotate(0deg)");transition:transform 0.15s;">
                                                     <polyline points="6 9 12 15 18 9" />
                                                 </svg>
@@ -1259,7 +1258,8 @@
     // the graph panel has mounted (the parameter passing only kicks in after first render).
     private static readonly int[] _capStepsLocal =
         [50, 100, 250, 500, 1_000, 5_000, 10_000, 50_000, AnalysisLimits.MaxMarkings];
-    private const int _capDefault = 50_000;
+    // Must match GraphTreePanel._maxStatesSliderPos default (index 5 → 5_000).
+    private const int _capDefault = 5_000;
 
     private void OnAnalysisCapSliderChanged(ChangeEventArgs e)
     {
@@ -1621,18 +1621,28 @@
     private GraphTreePanel? _refGraphTree;
 
 
-    private void OnDiagramChanged() => InvokeAsync(StateHasChanged);
+    private void OnDiagramChanged()
+    {
+        // Skip render when panel is collapsed — only the static book-tab strip
+        // is visible and it doesn't depend on diagram state. Big perf win when
+        // dragging or auto-firing simulation: those fire dozens of events/sec.
+        if (!_open) return;
+        InvokeAsync(StateHasChanged);
+    }
     // Adapter overloads so event subscriptions with NodeModel / BaseLinkModel args also compile
-    private void OnDiagramChanged(NodeModel _) => InvokeAsync(StateHasChanged);
-    private void OnDiagramChanged(BaseLinkModel _) => InvokeAsync(StateHasChanged);
+    private void OnDiagramChanged(NodeModel _)     => OnDiagramChanged();
+    private void OnDiagramChanged(BaseLinkModel _) => OnDiagramChanged();
 
     // Fired only for structural (functionally relevant) changes
     private void OnStructuralChange()
     {
+        // Always bump version — needed so the "results stale" banner is correct
+        // the next time the panel is opened, even if we skip the render now.
         _netVersion++;
+        if (!_open) return;
         InvokeAsync(StateHasChanged);
     }
-    private void OnStructuralChange(NodeModel _) => OnStructuralChange();
+    private void OnStructuralChange(NodeModel _)     => OnStructuralChange();
     private void OnStructuralChange(BaseLinkModel _) => OnStructuralChange();
 
     // ── Panel state ───────────────────────────────────────────────────────
