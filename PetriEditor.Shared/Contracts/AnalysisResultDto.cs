@@ -17,12 +17,30 @@ public sealed record AnalysisResultDto(
     IReadOnlyList<InvariantDto>        PInvariants,
     IReadOnlyList<InvariantDto>        TInvariants,
     bool                               InvariantsTruncated,
+    /// <summary>
+    /// True iff the invariant engine actually ran to completion (not skipped for
+    /// inhibitor/reset nets, no internal error). When true but both invariant
+    /// lists are empty, the net genuinely has no non-trivial invariants — which
+    /// is a valid result, distinct from "could not be computed".
+    /// </summary>
+    bool                               InvariantsAvailable,
+    /// <summary>Reason the invariant engine was skipped/failed, when not available.</summary>
+    string?                            InvariantsMessage,
     ReachabilityGraphDto?              ReachabilityGraph,
     ReachabilityGraphDto?              ReachabilityTree,
     CoverabilityTreeDto?               CoverabilityTree,
     CyclesDto?                         Cycles,
     TrapsDto?                          Traps,
-    NetStructureDto                    NetStructure);
+    NetStructureDto                    NetStructure,
+    /// <summary>
+    /// True iff the coverability tree contains at least one ω-marked node —
+    /// the canonical proof that the net is unbounded. Different from
+    /// <c>!IsBounded</c>, which can also be true for "state space truncated"
+    /// where boundedness is genuinely unknown. Used by the UI to hide
+    /// structural properties (Conservativeness, Repetitiveness) that are
+    /// meaningless for unbounded nets.
+    /// </summary>
+    bool                               IsDefinitelyUnbounded = false);
 
 /// <summary>Result of a single property test (liveness, safety, etc.).</summary>
 public sealed record PropertyResultDto(

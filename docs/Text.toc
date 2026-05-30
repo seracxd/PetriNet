@@ -1,0 +1,22 @@
+\babel@toc {czech}{}\relax 
+\contentsline {chapter}{Abstrakt}{1}{chapter*.1}%
+\contentsline {chapter}{\numberline {1}Úvod}{3}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Cíle práce}{3}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Struktura dokumentu}{4}{section.1.2}%
+\contentsline {chapter}{\numberline {2}Teoretický základ}{5}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Formální definice Petriho sítě}{5}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Dynamika a vystřelování přechodů}{5}{section.2.2}%
+\contentsline {section}{\numberline {2.3}Dosažitelnost a stavový prostor}{6}{section.2.3}%
+\contentsline {section}{\numberline {2.4}Strukturální vlastnosti}{7}{section.2.4}%
+\contentsline {section}{\numberline {2.5}P- a~T-invarianty}{7}{section.2.5}%
+\contentsline {chapter}{\numberline {3}Analýza předchozího řešení}{9}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Diplomová práce Tomáše Blahuta (2016)}{9}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Technologický stack a jeho aktuální stav}{9}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Architektonické dopady}{10}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Co zachovat a co změnit}{11}{section.3.4}%
+\contentsline {chapter}{\numberline {4}Návrh řešení}{12}{chapter.4}%
+\contentsline {chapter}{\numberline {5}Implementace}{13}{chapter.5}%
+\contentsline {chapter}{\numberline {6}Testování}{14}{chapter.6}%
+\contentsline {chapter}{\numberline {7}Nasazení a kontinuální integrace}{15}{chapter.7}%
+\contentsline {chapter}{\numberline {8}Závěr}{16}{chapter.8}%
+\contentsline {chapter}{Reference}{17}{chapter*.3}%

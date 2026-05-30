@@ -409,14 +409,21 @@
                             // Structural properties (only meaningful for plain P/T nets)
                             var structuralProps = new[]
                             {
-                                ("Conservativeness", "Conservativeness"),
-                                ("Repetitiveness",   "Repetitiveness"),
+                                ("Conservativeness",       "Conservative (weighted)"),
+                                ("StrictConservativeness", "Strictly conservative"),
+                                ("Repetitiveness",         "Repetitiveness"),
                             };
 
                             var _ns = _result.NetStructure;
                             bool isPlainNet = _ns.InhibitorArcCount == 0 && _ns.ResetArcCount == 0;
+                            // Structural properties (Conservativeness, Repetitiveness) are derived from
+                            // P/T-invariants over the ordinary incidence matrix. They are meaningful
+                            // only when the net is both ordinary AND bounded — invariant computation
+                            // is deliberately skipped for unbounded nets, so the verdicts would just
+                            // be perpetually Inconclusive. Hide them in those cases.
+                            bool showStructural = isPlainNet && !_result.IsDefinitelyUnbounded;
 
-                            var allShownProps = isPlainNet
+                            var allShownProps = showStructural
                                 ? behaviouralProps.Concat(structuralProps).ToArray()
                                 : behaviouralProps;
 
@@ -439,20 +446,21 @@
                                 </div>
                             </div>
 
-                            var shownGroups = isPlainNet
+                            var shownGroups = showStructural
                                 ? new[] { ("", behaviouralProps), ("STRUCTURAL", structuralProps) }
                                 : new[] { ("", behaviouralProps) };
 
-                            @if (!isPlainNet)
+                            @if (!showStructural)
                             {
                                 var _suppressedParts = new List<string>();
                                 if (_ns.InhibitorArcCount > 0) _suppressedParts.Add($"{_ns.InhibitorArcCount} inhibitor arc{(_ns.InhibitorArcCount > 1 ? "s" : "")}");
                                 if (_ns.ResetArcCount > 0)     _suppressedParts.Add($"{_ns.ResetArcCount} reset arc{(_ns.ResetArcCount > 1 ? "s" : "")}");
+                                if (_result.IsDefinitelyUnbounded) _suppressedParts.Add("ω-markings (unbounded)");
                                 <div style="display:flex;gap:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;margin-bottom:4px;">
                                     <span style="font-size:14px;flex-shrink:0;line-height:1.4;">⚠</span>
                                     <div style="font-size:11px;color:#5f4400;line-height:1.6;">
                                         <strong>Conservativeness</strong> and <strong>Repetitiveness</strong> are hidden —
-                                        they require standard P/T firing semantics but this net has @string.Join(" and ", _suppressedParts).
+                                        they require an ordinary, bounded net but this one has @string.Join(" and ", _suppressedParts).
                                     </div>
                                 </div>
                             }
@@ -734,9 +742,17 @@
                                 ?? new HashSet<string>();
                             bool _ssAvailable = _result.ReachabilityGraph != null;
 
-                            @if (!_result.PInvariants.Any() && !_result.TInvariants.Any())
+                            @if (!_result.InvariantsAvailable)
                             {
-                                <div style="font-size:12px;color:#e53935;">Invariant analysis not available.</div>
+                                <div style="font-size:12px;color:#b26a00;background:#fff8e6;border:1px solid #ffe0a3;border-radius:6px;padding:8px 10px;line-height:1.5;">
+                                    @(_result.InvariantsMessage ?? "Invariant analysis is not available for this net.")
+                                </div>
+                            }
+                            else if (!_result.PInvariants.Any() && !_result.TInvariants.Any())
+                            {
+                                <div style="font-size:12px;color:#666;background:#f7f7f7;border:1px solid #ebebeb;border-radius:6px;padding:8px 10px;line-height:1.5;">
+                                    This net has no non-trivial P- or T-invariants. (A source transition that only produces tokens, or a place that only accumulates them, has none — the net is not conservative or repetitive.)
+                                </div>
                             }
                             else
                             {
@@ -1162,8 +1178,11 @@
 
     private void SelectTab(string id)
     {
-        if (_activeAnalysisTab == "graph" && id != "graph")
-            _refGraphTree?.Reset();
+        // Don't reset graph state when leaving the tab — the user expects the
+        // graph view to remember what was last computed when they come back.
+        // The cb tree is also accessible via _result.CoverabilityTree, so this
+        // wasn't even a memory win; it just forced an extra TryPopulateFromCache
+        // round-trip on every tab switch.
         _activeAnalysisTab = id;
         if (id == "graph") _refGraphTree?.TryPopulateFromCache();
         _highlightedItemKey = null;

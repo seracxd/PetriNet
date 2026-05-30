@@ -22,11 +22,20 @@ public sealed class InvariantAnalysis
     /// Marks the invariant computation as skipped because the net is unbounded.
     /// P-invariants are only meaningful for bounded nets (they represent token-conservation laws).
     /// </summary>
-    public void SkipUnbounded()
+    public void SkipUnbounded() =>
+        Skip("Net is unbounded — invariant computation skipped (P-invariants are only meaningful for bounded nets).");
+
+    /// <summary>
+    /// Mark invariant computation as skipped with an arbitrary reason. Used by
+    /// the orchestrator to short-circuit when the result wouldn't be usable
+    /// (e.g. inhibitor/reset arcs whose semantics aren't captured by the
+    /// ordinary incidence matrix).
+    /// </summary>
+    public void Skip(string reason)
     {
         WasSkipped = true;
         HasErrors  = true;
-        ErrorMsg   = "Net is unbounded — invariant computation skipped (P-invariants are only meaningful for bounded nets).";
+        ErrorMsg   = reason;
     }
 
     public void Compute(Analysis.PetriNetSnapshot net, CancellationToken ct = default)

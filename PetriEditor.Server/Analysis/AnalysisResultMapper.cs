@@ -23,6 +23,13 @@ public static class AnalysisResultMapper
         bool isReversible  = report.StateSpace?.IsReversible()                           ?? false;
         bool isSafe        = report.StateSpace?.IsSafe()                                 ?? false;
         bool isLive        = report.StateSpace?.IsLive(net.Transitions.Count)            ?? false;
+        // Definite unboundedness comes from ω in the coverability tree, NOT from
+        // !isBounded (which is also true for "state space truncated" where the
+        // verdict is unknown).
+        bool isDefinitelyUnbounded =
+            report.CoverabilityTree?.Nodes
+                .Any(n => n.Marking.Any(CoverabilityTreeBuilder.GrowsWithoutBound))
+            ?? false;
 
         // ── Property results ──────────────────────────────────────────────
         var propertyResults = report.PropertyResults.Values
@@ -96,12 +103,20 @@ public static class AnalysisResultMapper
             PInvariants:              pInvariants,
             TInvariants:              tInvariants,
             InvariantsTruncated:      report.Invariants?.WasTruncated ?? false,
+            // "Available" = engine ran without being skipped (inhibitor/reset) and
+            // without an internal error. Empty lists under Available=true means the
+            // net legitimately has no non-trivial invariants.
+            InvariantsAvailable:      report.Invariants is { WasSkipped: false, HasErrors: false },
+            InvariantsMessage:        report.Invariants is { WasSkipped: true } or { HasErrors: true }
+                                          ? report.Invariants.ErrorMsg
+                                          : null,
             ReachabilityGraph:        reachGraph,
             ReachabilityTree:         reachTree,
             CoverabilityTree:         coverTree,
             Cycles:                   cyclesDto,
             Traps:                    trapsDto,
-            NetStructure:             netStructure
+            NetStructure:             netStructure,
+            IsDefinitelyUnbounded:    isDefinitelyUnbounded
         );
     }
 
@@ -160,7 +175,8 @@ public static class AnalysisResultMapper
         var placeNames = net.Places.Select(p => p.Name).ToList();
         var nodes = cb.Nodes.Select(n => new CoverNodeDto(
             n.Id,
-            n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
+            // ω or the saturation ceiling both render as ω (null) — the place is unbounded.
+            n.Marking.Select(v => CoverabilityTreeBuilder.GrowsWithoutBound(v) ? (int?)null : v).ToList(),
             n.IsInitial, n.IsDeadlock, n.IsDuplicate,
             IsTruncated: cb.TruncatedIds.Contains(n.Id), n.ParentId)).ToList();
         var edges = cb.Edges.Select(e => new CoverEdgeDto(
@@ -266,8 +282,9 @@ public static class AnalysisResultMapper
 
         var nodes = ct.Nodes.Select(n => new CoverNodeDto(
             Id:          n.Id,
-            // int.MaxValue (Omega) → null in the DTO so the client renders "ω"
-            Marking:     n.Marking.Select(v => v == CoverabilityTreeBuilder.Omega ? (int?)null : v).ToList(),
+            // ω, or the saturation ceiling reached when ω-acceleration is disabled,
+            // both → null in the DTO so the client renders "ω" (place is unbounded).
+            Marking:     n.Marking.Select(v => CoverabilityTreeBuilder.GrowsWithoutBound(v) ? (int?)null : v).ToList(),
             IsInitial:   n.IsInitial,
             IsDeadlock:  n.IsDeadlock,
             IsDuplicate: n.IsDuplicate,

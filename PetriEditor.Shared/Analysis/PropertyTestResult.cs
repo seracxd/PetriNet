@@ -34,6 +34,7 @@ public enum NetProperty
     Boundedness,
     Safety,
     Conservativeness,
+    StrictConservativeness,
     Repetitiveness,
     DeadlockFree,
     Reversibility

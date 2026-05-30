@@ -114,17 +114,17 @@ public class PropertyTestsTests
     [Fact]
     public void Boundedness_UnboundedNet_Fail()
     {
-        // T1 always adds a token — unbounded
+        // T1 always adds a token — unbounded. The cb tree is what
+        // canonically proves this (ω-marking); a truncated state space alone
+        // is no longer enough to claim "Fail" (it could just be a large
+        // bounded net hitting the cap).
         var net = new NetBuilder()
             .Place("P1", tokens: 1)
             .Transition("T1")
             .Arc("P1", "T1").Arc("T1", "P1").Arc("T1", "P1") // net +1
             .Build();
 
-        var ss = new StateSpaceAnalysis();
-        ss.Build(net, maxStates: 50);
-
-        var bundle = new AnalysisBundle { Net = net, StateSpace = ss };
+        var bundle = OrchestratorBundleBuilder.Build(net);
         var result = new BoundednessTest().Run(bundle);
 
         Assert.Equal(TestResultStatus.Fail, result.Status);
@@ -200,6 +200,39 @@ public class PropertyTestsTests
 
         // Not all places covered by a P-invariant
         Assert.Equal(TestResultStatus.Fail, result.Status);
+    }
+
+    // ── Strict conservativeness ───────────────────────────────────────────
+
+    [Fact]
+    public void StrictConservativeness_UnitWeightCycle_Pass()
+    {
+        // Every transition consumes 1 and produces 1 → token count constant.
+        var net = new NetBuilder()
+            .Place("P1", tokens: 1).Place("P2")
+            .Transition("T1").Transition("T2")
+            .Arc("P1", "T1").Arc("T1", "P2")
+            .Arc("P2", "T2").Arc("T2", "P1")
+            .Build();
+
+        var bundle = BuildBundle(net);
+        Assert.Equal(TestResultStatus.Pass, new StrictConservativenessTest().Run(bundle).Status);
+    }
+
+    [Fact]
+    public void StrictConservativeness_WeightedMerge_Fail()
+    {
+        // Merge consumes 1+1, produces 3 → token count jumps 2→3.
+        // Weighted conservativeness still holds; strict does NOT.
+        var net = new NetBuilder()
+            .Place("P1", tokens: 1).Place("P2", tokens: 1).Place("P3")
+            .Transition("T1")
+            .Arc("P1", "T1").Arc("P2", "T1").Arc("T1", "P3", weight: 3)
+            .Build();
+
+        var bundle = BuildBundle(net);
+        Assert.Equal(TestResultStatus.Pass, new ConservativenessTest().Run(bundle).Status);
+        Assert.Equal(TestResultStatus.Fail, new StrictConservativenessTest().Run(bundle).Status);
     }
 
     // ── Repetitiveness ────────────────────────────────────────────────────

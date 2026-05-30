@@ -656,6 +656,12 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Signal RestoreWithRemount that the unmount render has flushed to the DOM.
+        // This render committed with _diagramReady == false (canvas removed), so it
+        // is now safe to mutate the diagram and remount with fresh element refs.
+        if (!_diagramReady && _remountRenderTcs is { } tcs)
+            tcs.TrySetResult();
+
         if (firstRender)
         {
             _diagramReady = true;
@@ -993,19 +999,55 @@
     /// Z.Blazor.Diagrams 3.0.4 race where DiagramCanvas.OnAfterRenderAsync
     /// calls getBoundingClientRect on a stale ElementReference after mass
     /// node replacement, causing WASM runtime crash. Unmounting the canvas
-    /// briefly forces a fresh mount with valid element references.
+    /// forces a fresh mount with valid element references.
+    ///
+    /// The unmount must be *committed to the DOM* before we mutate the diagram,
+    /// otherwise the old canvas's pending OnAfterRenderAsync fires against a
+    /// half-torn-down DOM and crashes the runtime. A single `Task.Yield()` only
+    /// schedules a continuation — it does not guarantee the render flushed — so
+    /// we await a real post-render signal via <see cref="_remountRenderTcs"/>.
     /// </summary>
     private async Task RestoreWithRemount(PetriNetDto dto)
     {
-        _diagramReady = false;
-        StateHasChanged();
-        await Task.Yield();
+        // Serialize overlapping loads: if one is mid-flight, wait it out so the two
+        // can't interleave their unmount/remount renders and corrupt the diagram.
+        while (_remountInProgress)
+            await Task.Delay(16);
+        _remountInProgress = true;
+        try
+        {
+            // 1. Request unmount and wait until that render is actually committed.
+            //    A timeout guards against the (unlikely) case where no render fires,
+            //    so a missed signal degrades to "continue anyway" rather than hanging.
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _remountRenderTcs = tcs;
+            _diagramReady = false;
+            StateHasChanged();
+            await Task.WhenAny(tcs.Task, Task.Delay(250));
+            _remountRenderTcs = null;
 
-        DiagramSerializer.Restore(dto);
+            // 2. Canvas is now unmounted in the DOM — safe to swap the diagram model.
+            DiagramSerializer.Restore(dto);
 
-        _diagramReady = true;
-        StateHasChanged();
+            // 3. Remount with fresh element references.
+            _diagramReady = true;
+            StateHasChanged();
+        }
+        finally
+        {
+            _remountInProgress = false;
+        }
     }
+
+    /// <summary>
+    /// Completed by <see cref="OnAfterRenderAsync"/> on the first render after a
+    /// remount unmount request, so <see cref="RestoreWithRemount"/> knows the old
+    /// canvas has actually left the DOM. Null when no remount is in progress.
+    /// </summary>
+    private TaskCompletionSource? _remountRenderTcs;
+
+    /// <summary>Guards against overlapping <see cref="RestoreWithRemount"/> calls.</summary>
+    private bool _remountInProgress;
     private void ResetView() { Manager.ResetView(); StateHasChanged(); }
     private void ToggleNavigator()
     {

@@ -78,7 +78,7 @@ public sealed class AnalysisOrchestrator
             if (!cb.HasErrors || cb.IsTruncated) report.CoverabilityTree = cb;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 
-            bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
+            bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(CoverabilityTreeBuilder.GrowsWithoutBound));
 
             // For special-arc nets we skipped ω-acceleration, so a truncated cb means
             // the state space is too large to compute exhaustively. Treat that the
@@ -95,10 +95,16 @@ public sealed class AnalysisOrchestrator
 
             progress?.Report(new(AnalysisProgressMessage.StageInvariants, 30, null));
             var inv = new InvariantAnalysis();
-            if (!stateSpaceTooLarge)
-                RunWithBudget(ct, _structuralBudget, subCt => inv.Compute(net, subCt));
+            // Invariants are STRUCTURAL — well-defined regardless of boundedness,
+            // and T-invariant coverage in particular is a necessary condition
+            // for reversibility that we want available even on unbounded nets.
+            // We only skip when the net has inhibitor/reset arcs: the ordinary
+            // incidence matrix doesn't capture their semantics, so the result
+            // would be misleading.
+            if (hasSpecialArcs)
+                inv.Skip("Net contains inhibitor or reset arcs — invariants based on the ordinary incidence matrix would be misleading.");
             else
-                inv.SkipUnbounded();
+                RunWithBudget(ct, _structuralBudget, subCt => inv.Compute(net, subCt));
             report.Invariants = inv;
             if (ct.IsCancellationRequested) { cancelled = true; return; }
 
@@ -120,12 +126,13 @@ public sealed class AnalysisOrchestrator
             progress?.Report(new(AnalysisProgressMessage.StagePropertyTests, 70, null));
             var bundle = new AnalysisBundle
             {
-                Net            = net,
-                StateSpace     = ss,
-                Invariants     = inv,
-                Classification = cls,
-                Cycles         = cyc,
-                TrapCotrap     = tc,
+                Net              = net,
+                StateSpace       = ss,
+                CoverabilityTree = cb,   // lets property tests see ω-nodes / cb-deadlocks
+                Invariants       = inv,
+                Classification   = cls,
+                Cycles           = cyc,
+                TrapCotrap       = tc,
             };
 
             var results = bundle.PropertyResults;
@@ -138,8 +145,9 @@ public sealed class AnalysisOrchestrator
                 results[NetProperty.Liveness]         = SafeRun(NetProperty.Liveness,         propCt, () => new LivenessTest().Run(bundle));
                 results[NetProperty.Boundedness]      = SafeRun(NetProperty.Boundedness,      propCt, () => new BoundednessTest().Run(bundle));
                 results[NetProperty.Safety]           = SafeRun(NetProperty.Safety,           propCt, () => new SafetyTest().Run(bundle));
-                results[NetProperty.Conservativeness] = SafeRun(NetProperty.Conservativeness, propCt, () => new ConservativenessTest().Run(bundle));
-                results[NetProperty.Repetitiveness]   = SafeRun(NetProperty.Repetitiveness,   propCt, () => new RepetitivenessTest().Run(bundle));
+                results[NetProperty.Conservativeness]       = SafeRun(NetProperty.Conservativeness,       propCt, () => new ConservativenessTest().Run(bundle));
+                results[NetProperty.StrictConservativeness] = SafeRun(NetProperty.StrictConservativeness, propCt, () => new StrictConservativenessTest().Run(bundle));
+                results[NetProperty.Repetitiveness]         = SafeRun(NetProperty.Repetitiveness,         propCt, () => new RepetitivenessTest().Run(bundle));
                 results[NetProperty.DeadlockFree]     = SafeRun(NetProperty.DeadlockFree,     propCt, () => new DeadlockFreeTest().Run(bundle));
                 results[NetProperty.Reversibility]    = SafeRun(NetProperty.Reversibility,    propCt, () => new ReversibilityTest().Run(bundle));
             }
@@ -191,7 +199,7 @@ public sealed class AnalysisOrchestrator
 
                 coverDto = AnalysisResultMapper.BuildCoverabilityTreeDto(net, cb);
 
-                bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(v => v == CoverabilityTreeBuilder.Omega));
+                bool isUnbounded = cb.Nodes.Any(n => n.Marking.Any(CoverabilityTreeBuilder.GrowsWithoutBound));
                 bool isDeadlockFree = cb.Nodes.Any() && !cb.Nodes.Any(n => n.IsDeadlock && !n.IsDuplicate);
 
                 ssDto = new StateSpaceSummaryDto(

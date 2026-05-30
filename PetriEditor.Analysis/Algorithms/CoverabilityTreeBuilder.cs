@@ -30,6 +30,25 @@ public sealed class CoverabilityTreeBuilder
     public const int MaxNodes = AnalysisLimits.MaxMarkings;
     public const int Omega    = int.MaxValue;   // ω sentinel
 
+    /// <summary>
+    /// Saturation ceiling for finite token counts (<c>int.MaxValue / 2</c>, mirrors
+    /// <c>FireUtils.MaxFiniteTokens</c>). When ω-acceleration is disabled — which it
+    /// is for inhibitor/reset nets, where Karp-Miller monotonicity does not hold —
+    /// an unbounded place keeps accumulating tokens until <see cref="Fire"/> clamps it
+    /// here. A marking value at or above this ceiling is therefore a witness that the
+    /// place is not k-bounded for any practical k (Def. 2.15): it cannot be confused
+    /// with an ordinary finite count.
+    /// </summary>
+    public const int Saturated = int.MaxValue / 2;
+
+    /// <summary>
+    /// True if <paramref name="value"/> is a coverability-tree witness of a place that
+    /// grows without bound: either the Karp-Miller ω sentinel or the saturation ceiling
+    /// reached when ω-acceleration is disabled. Both prove the place exceeds every finite
+    /// bound, so downstream boundedness/safety verdicts can treat them identically.
+    /// </summary>
+    public static bool GrowsWithoutBound(int value) => value >= Saturated;
+
     public bool   HasErrors    { get; private set; }
     public bool   IsTruncated  { get; private set; }
     public string? ErrorMessage { get; private set; }

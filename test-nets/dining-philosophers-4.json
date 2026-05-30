@@ -1,0 +1,63 @@
+{
+  "places": [
+    { "id": "f1", "name": "Think1", "tokens": 1, "x": 420, "y": 60 },
+    { "id": "j1", "name": "Eat1",   "tokens": 0, "x": 560, "y": 120 },
+    { "id": "f2", "name": "Think2", "tokens": 1, "x": 760, "y": 300 },
+    { "id": "j2", "name": "Eat2",   "tokens": 0, "x": 680, "y": 420 },
+    { "id": "f3", "name": "Think3", "tokens": 1, "x": 420, "y": 560 },
+    { "id": "j3", "name": "Eat3",   "tokens": 0, "x": 280, "y": 480 },
+    { "id": "f4", "name": "Think4", "tokens": 1, "x": 80,  "y": 300 },
+    { "id": "j4", "name": "Eat4",   "tokens": 0, "x": 160, "y": 160 },
+    { "id": "h1", "name": "Chop1",  "tokens": 1, "x": 620, "y": 220 },
+    { "id": "h2", "name": "Chop2",  "tokens": 1, "x": 560, "y": 420 },
+    { "id": "h3", "name": "Chop3",  "tokens": 1, "x": 240, "y": 360 },
+    { "id": "h4", "name": "Chop4",  "tokens": 1, "x": 300, "y": 160 }
+  ],
+  "transitions": [
+    { "id": "take1", "name": "Take1", "priority": 0, "x": 500, "y": 60 },
+    { "id": "put1",  "name": "Put1",  "priority": 0, "x": 500, "y": 180 },
+    { "id": "take2", "name": "Take2", "priority": 0, "x": 760, "y": 380 },
+    { "id": "put2",  "name": "Put2",  "priority": 0, "x": 640, "y": 360 },
+    { "id": "take3", "name": "Take3", "priority": 0, "x": 340, "y": 560 },
+    { "id": "put3",  "name": "Put3",  "priority": 0, "x": 340, "y": 440 },
+    { "id": "take4", "name": "Take4", "priority": 0, "x": 80,  "y": 220 },
+    { "id": "put4",  "name": "Put4",  "priority": 0, "x": 200, "y": 240 }
+  ],
+  "arcs": [
+    { "sourceId": "f1", "targetId": "take1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h1", "targetId": "take1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h2", "targetId": "take1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "take1", "targetId": "j1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "j1", "targetId": "put1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put1", "targetId": "f1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put1", "targetId": "h1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put1", "targetId": "h2", "weight": 1, "arcType": 0, "vertices": [] },
+
+    { "sourceId": "f2", "targetId": "take2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h2", "targetId": "take2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h3", "targetId": "take2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "take2", "targetId": "j2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "j2", "targetId": "put2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put2", "targetId": "f2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put2", "targetId": "h2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put2", "targetId": "h3", "weight": 1, "arcType": 0, "vertices": [] },
+
+    { "sourceId": "f3", "targetId": "take3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h3", "targetId": "take3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h4", "targetId": "take3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "take3", "targetId": "j3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "j3", "targetId": "put3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put3", "targetId": "f3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put3", "targetId": "h3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put3", "targetId": "h4", "weight": 1, "arcType": 0, "vertices": [] },
+
+    { "sourceId": "f4", "targetId": "take4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h4", "targetId": "take4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "h1", "targetId": "take4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "take4", "targetId": "j4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "j4", "targetId": "put4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put4", "targetId": "f4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put4", "targetId": "h4", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "put4", "targetId": "h1", "weight": 1, "arcType": 0, "vertices": [] }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "places": [
+    { "id": "p1", "name": "Idle",    "tokens": 4, "x": 200, "y": 120 },
+    { "id": "p2", "name": "Waiting", "tokens": 0, "x": 200, "y": 300 },
+    { "id": "p3", "name": "Using",   "tokens": 0, "x": 500, "y": 300 },
+    { "id": "p4", "name": "FreeRes", "tokens": 2, "x": 500, "y": 120 }
+  ],
+  "transitions": [
+    { "id": "t1", "name": "Request", "priority": 0, "x": 200, "y": 210 },
+    { "id": "t2", "name": "Acquire", "priority": 0, "x": 350, "y": 300 },
+    { "id": "t3", "name": "Release", "priority": 0, "x": 350, "y": 120 }
+  ],
+  "arcs": [
+    { "sourceId": "p1", "targetId": "t1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t1", "targetId": "p2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p2", "targetId": "t2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p4", "targetId": "t2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t2", "targetId": "p3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p3", "targetId": "t3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t3", "targetId": "p1", "weight": 1, "arcType": 0, "vertices": [ { "x": 350, "y": 60 }, { "x": 200, "y": 60 } ] },
+    { "sourceId": "t3", "targetId": "p4", "weight": 1, "arcType": 0, "vertices": [] }
+  ]
+}

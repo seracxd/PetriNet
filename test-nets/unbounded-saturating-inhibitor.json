@@ -1,0 +1,14 @@
+{
+  "places": [
+    { "id": "p1", "name": "P1", "tokens": 1000, "x": 240, "y": 160 },
+    { "id": "pgate", "name": "Pgate", "tokens": 0, "x": 240, "y": 320 }
+  ],
+  "transitions": [
+    { "id": "t1", "name": "T1", "priority": 0, "x": 440, "y": 160 }
+  ],
+  "arcs": [
+    { "sourceId": "p1", "targetId": "t1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t1", "targetId": "p1", "weight": 1000000000, "arcType": 0, "vertices": [ { "x": 440, "y": 60 }, { "x": 240, "y": 60 } ] },
+    { "sourceId": "pgate", "targetId": "t1", "weight": 1, "arcType": 1, "vertices": [] }
+  ]
+}

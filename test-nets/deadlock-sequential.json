@@ -1,0 +1,17 @@
+{
+  "places": [
+    { "id": "p1", "name": "P1", "tokens": 1, "x": 200, "y": 200 },
+    { "id": "p2", "name": "P2", "tokens": 0, "x": 400, "y": 200 },
+    { "id": "p3", "name": "P3", "tokens": 0, "x": 600, "y": 200 }
+  ],
+  "transitions": [
+    { "id": "t1", "name": "T1", "priority": 0, "x": 300, "y": 200 },
+    { "id": "t2", "name": "T2", "priority": 0, "x": 500, "y": 200 }
+  ],
+  "arcs": [
+    { "sourceId": "p1", "targetId": "t1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t1", "targetId": "p2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p2", "targetId": "t2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t2", "targetId": "p3", "weight": 1, "arcType": 0, "vertices": [] }
+  ]
+}

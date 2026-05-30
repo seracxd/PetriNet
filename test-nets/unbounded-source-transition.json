@@ -1,0 +1,11 @@
+{
+  "places": [
+    { "id": "p1", "name": "P1", "tokens": 0, "x": 440, "y": 200 }
+  ],
+  "transitions": [
+    { "id": "t1", "name": "T1", "priority": 0, "x": 240, "y": 200 }
+  ],
+  "arcs": [
+    { "sourceId": "t1", "targetId": "p1", "weight": 1, "arcType": 0, "vertices": [] }
+  ]
+}

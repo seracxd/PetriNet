@@ -484,6 +484,20 @@
     public async Task EnsureGraphDataAsync(PetriNetDto dto)
     {
         if (_graphData != null) return;
+
+        // Reuse the analysis-pass coverability tree before making a fresh server
+        // call. The orchestrator already built it as part of RunAnalysis; a
+        // second server round-trip would just rebuild the same tree.
+        if (AnalysisResult?.CoverabilityTree != null && !ResultStale)
+        {
+            _graphData          = AnalysisResult.CoverabilityTree;
+            _graphIsUnbounded   = !AnalysisResult.IsBounded;
+            _computedAtVersion  = NetVersion;
+            _maxStatesAtCompute = _maxStates;
+            StateHasChanged();
+            return;
+        }
+
         var result = await ServerAnalysis.ComputeGraphAsync(dto, _maxStates, CancellationToken.None);
         if (result.CoverabilityTree != null)
         {

@@ -1,0 +1,20 @@
+{
+  "places": [
+    { "id": "p1", "name": "Start",  "tokens": 1, "x": 200, "y": 220 },
+    { "id": "p2", "name": "WorkA",  "tokens": 0, "x": 400, "y": 120 },
+    { "id": "p3", "name": "WorkB",  "tokens": 0, "x": 400, "y": 320 },
+    { "id": "p4", "name": "Done",   "tokens": 0, "x": 640, "y": 220 }
+  ],
+  "transitions": [
+    { "id": "t1", "name": "Fork",   "priority": 0, "x": 300, "y": 220 },
+    { "id": "t2", "name": "Cancel", "priority": 0, "x": 520, "y": 220 }
+  ],
+  "arcs": [
+    { "sourceId": "p1", "targetId": "t1", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t1", "targetId": "p2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "t1", "targetId": "p3", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p2", "targetId": "t2", "weight": 1, "arcType": 0, "vertices": [] },
+    { "sourceId": "p3", "targetId": "t2", "weight": 1, "arcType": 2, "vertices": [] },
+    { "sourceId": "t2", "targetId": "p4", "weight": 1, "arcType": 0, "vertices": [] }
+  ]
+}
